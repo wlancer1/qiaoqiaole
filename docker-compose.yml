@@ -1,0 +1,10 @@
+services:
+  qiaoqiaole:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: qiaoqiaole:latest
+    container_name: qiaoqiaole
+    restart: unless-stopped
+    ports:
+      - "9999:80"
