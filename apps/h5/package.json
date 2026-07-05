@@ -1,0 +1,9 @@
+{
+  "name": "@qiaoqiaole/h5",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "react-zoom-pan-pinch": "^4.0.3"
+  }
+}
