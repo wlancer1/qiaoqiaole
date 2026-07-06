@@ -253,10 +253,7 @@ async function extractXiaohongshu(request, response, { useCookie = false } = {})
     });
     const imageInspection = inspectImageCandidates(html, pageResponse.url);
     const noteExtraction = inspectNoteExtraction(html, pageResponse.url);
-    const fallbackImageUrls = noteExtraction.images.length > 0
-      ? []
-      : imageInspection.accepted.map((candidate) => candidate.url);
-    const imageUrls = (noteExtraction.images.length > 0 ? noteExtraction.images : fallbackImageUrls).slice(0, 9);
+    const imageUrls = noteExtraction.images.slice(0, 9);
     const imageUrl = imageUrls[0] || '';
     const title = decodeHtml(findMetaContent(html, 'og:title') || findTitle(html) || '小红书图纸');
     logger.info('page_parsed', {
@@ -266,13 +263,14 @@ async function extractXiaohongshu(request, response, { useCookie = false } = {})
       extractionDiagnostics: {
         noteId: noteExtraction.noteId,
         initialState: noteExtraction.initialState,
+        setupServerState: noteExtraction.setupServerState,
         scopedInitialState: noteExtraction.scopedInitialState,
         renderedNoteImages: noteExtraction.renderedNoteImages,
       },
       selectedSource: imageInspection.selected?.source || '',
       selectedScore: imageInspection.selected?.score ?? null,
       imageCount: imageUrls.length,
-      candidates: imageInspection.candidates.map((candidate) => ({
+      candidates: imageUrl ? [] : imageInspection.candidates.slice(0, 3).map((candidate) => ({
         source: candidate.source,
         score: candidate.score,
         rejected: candidate.rejected,
@@ -280,6 +278,14 @@ async function extractXiaohongshu(request, response, { useCookie = false } = {})
       })),
       titleLength: title.length,
     });
+    if (!imageUrl && noteExtraction.setupServerState?.noteFound) {
+      logger.info('note_structure_probe', {
+        noteKeys: noteExtraction.setupServerState.noteKeys || [],
+        imageLikePaths: (noteExtraction.setupServerState.imageLikePaths || []).map((item) => (
+          `${item.path}: ${redactUrl(item.sample)}`
+        )),
+      });
+    }
     if (!imageUrl) {
       return sendJson(response, 422, { error: 'IMAGE_NOT_FOUND', message: '未找到可提取的图片' });
     }

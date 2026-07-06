@@ -3,13 +3,20 @@ const MOBILE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleW
 const XHS_IMAGE_WIDTH = 1600;
 const XHS_IMAGE_FORMAT = 'webp';
 
+// 小红书提图原则：
+// 1. 正式结果只应该来自笔记对象里的 imageList，参考 XHS-Downloader 的 note.imageList 逻辑。
+// 2. 目前接受两个明确的笔记对象来源：__INITIAL_STATE__.note.noteDetailMap[id].note
+//    和 __SETUP_SERVER_STATE__.LAUNCHER_SSR_STORE_PAGE_DATA.noteData。
+// 3. comments、avatar、static assets 只能出现在诊断候选里，不能作为笔记图片返回给业务。
+// 4. ci.xiaohongshu.com 链接会被统一改写为无水印、压缩后的固定宽度 webp。
+
 export function extractUrlFromText(text) {
   const match = text.match(/https?:\/\/[^\s"'<>]+/i);
   return match?.[0]?.trim() || text.trim();
 }
 
 export function findFirstImageUrl(html, baseUrl) {
-  return findImageUrls(html, baseUrl, 1)[0] || inspectImageCandidates(html, baseUrl).selected?.url || '';
+  return findImageUrls(html, baseUrl, 1)[0] || '';
 }
 
 export function findImageUrls(html, baseUrl, limit = 12) {
@@ -20,6 +27,8 @@ export function findEmbeddedImageUrl(html) {
   return inspectImageCandidates(html, '').selected?.url || '';
 }
 
+// 这个函数是“宽扫描”的诊断工具，会扫描 meta/img/script 中的 CDN URL。
+// 它可能包含评论图或页面资源；业务提取不要直接把 accepted 当成笔记图列表。
 export function inspectImageCandidates(html, baseUrl = '') {
   const normalized = normalizeUrlText(html);
   const noteImageCandidates = findNoteImageListUrls(html, baseUrl).map((url) => ({ source: 'note:imageList:urlDefault', url }));
@@ -63,17 +72,32 @@ export function findNoteImageListUrls(html, baseUrl = '') {
   return inspectNoteExtraction(html, baseUrl).images;
 }
 
+// 这是小红书笔记图的唯一业务入口。
+// 和原 Python 逻辑保持一致：只取 __INITIAL_STATE__.note.noteDetailMap[noteId].note.imageList。
+// 解析不到就返回空结果，让接口返回 422；不要用 og:image、评论、渲染图片兜底。
 export function inspectNoteExtraction(html, baseUrl = '') {
   const noteId = extractNoteId(baseUrl);
   const initialStatePayloads = extractInitialStatePayloads(html);
   const state = extractInitialState(html);
   const note = findNoteData(state, baseUrl);
   const stateUrls = normalizeImageListUrls(note?.imageList, baseUrl);
+  const setupStatePayloads = extractSetupServerStatePayloads(html);
+  const setupState = extractSetupServerState(html);
+  const setupNote = findSetupServerNoteData(setupState);
+  const setupStateUrls = normalizeImageListUrls(setupNote?.imageList, baseUrl);
   const initialState = {
     payloadCount: initialStatePayloads.length,
     parsed: Boolean(state),
     noteFound: Boolean(note),
     imageCount: stateUrls.length,
+  };
+  const setupServerState = {
+    payloadCount: setupStatePayloads.length,
+    parsed: Boolean(setupState),
+    noteFound: Boolean(setupNote),
+    imageCount: setupStateUrls.length,
+    noteKeys: setupNote && typeof setupNote === 'object' ? Object.keys(setupNote).slice(0, 40) : [],
+    imageLikePaths: setupNote ? findImageLikePaths(setupNote).slice(0, 20) : [],
   };
   if (stateUrls.length > 0) {
     return {
@@ -82,47 +106,43 @@ export function inspectNoteExtraction(html, baseUrl = '') {
       imageCount: stateUrls.length,
       images: stateUrls,
       initialState,
+      setupServerState,
+      scopedInitialState: { imageCount: 0 },
+      renderedNoteImages: { candidateCount: 0, imageCount: 0 },
+    };
+  }
+  if (setupStateUrls.length > 0) {
+    return {
+      strategy: 'setup-server-state',
+      noteId,
+      imageCount: setupStateUrls.length,
+      images: setupStateUrls,
+      initialState,
+      setupServerState,
       scopedInitialState: { imageCount: 0 },
       renderedNoteImages: { candidateCount: 0, imageCount: 0 },
     };
   }
 
-  const scopedStateUrls = normalizeImageListUrls(findNoteImageListItemsInInitialStateText(html, baseUrl), baseUrl);
-  const scopedInitialState = { imageCount: scopedStateUrls.length };
-  if (scopedStateUrls.length > 0) {
-    return {
-      strategy: 'scoped-initial-state',
-      noteId,
-      imageCount: scopedStateUrls.length,
-      images: scopedStateUrls,
-      initialState,
-      scopedInitialState,
-      renderedNoteImages: { candidateCount: 0, imageCount: 0 },
-    };
-  }
-
-  const rendered = findRenderedNoteImageUrls(html, baseUrl);
-  const renderedNoteImages = {
-    candidateCount: countRenderedNoteImageCandidates(html, baseUrl),
-    imageCount: rendered.length,
-  };
   return {
-    strategy: rendered.length > 0 ? 'rendered-note-image' : 'none',
+    strategy: 'none',
     noteId,
-    imageCount: rendered.length,
-    images: rendered,
+    imageCount: 0,
+    images: [],
     initialState,
-    scopedInitialState,
-    renderedNoteImages,
+    setupServerState,
+    scopedInitialState: { imageCount: 0 },
+    renderedNoteImages: { candidateCount: 0, imageCount: 0 },
   };
 }
 
+// imageList 里只接受笔记图片字段 urlDefault/url。评论、头像等字段即使也是图片，也不会从这里进入结果。
 function normalizeImageListUrls(imageList, baseUrl) {
   if (!Array.isArray(imageList)) return [];
   const seen = new Set();
   const urls = [];
   for (const item of imageList) {
-    const resolved = resolveCandidateUrl(item?.urlDefault || '', baseUrl);
+    const resolved = resolveCandidateUrl(item?.urlDefault || item?.url || '', baseUrl);
     if (!resolved || seen.has(resolved) || !isLikelyImageUrl(resolved)) continue;
     seen.add(resolved);
     urls.push(resolved);
@@ -133,7 +153,7 @@ function normalizeImageListUrls(imageList, baseUrl) {
 function extractInitialState(html) {
   for (const payload of extractInitialStatePayloads(html)) {
     try {
-      return JSON.parse(payload);
+      return JSON.parse(payload.replace(/\bundefined\b/g, '""'));
     } catch {
       continue;
     }
@@ -144,6 +164,7 @@ function extractInitialState(html) {
 function extractInitialStatePayloads(html) {
   const payloads = [];
   const scripts = extractScriptTexts(html);
+  // 页面里可能有多个 __INITIAL_STATE__，后面的脚本通常更接近当前详情页状态。
   for (const script of scripts.reverse()) {
     const text = decodeHtml(script).trim();
     const match = text.match(/window\.__INITIAL_STATE__\s*=/);
@@ -153,110 +174,27 @@ function extractInitialStatePayloads(html) {
   return payloads;
 }
 
-function findNoteImageListItemsInInitialStateText(html, baseUrl) {
-  const noteId = extractNoteId(baseUrl);
-  for (const payload of extractInitialStatePayloads(html)) {
-    const scoped = scopeInitialStateToNote(payload, noteId);
-    const imageListText = extractArrayAfterKey(scoped, 'imageList');
-    const items = parseUrlDefaultItems(imageListText);
-    if (items.length > 0) return items;
-  }
-  return [];
-}
-
-function scopeInitialStateToNote(payload, noteId) {
-  if (noteId) {
-    const noteIdPattern = new RegExp(escapeRegExp(noteId));
-    const noteIdMatch = noteIdPattern.exec(payload);
-    if (noteIdMatch?.index !== undefined) return payload.slice(noteIdMatch.index);
-  }
-  const detailMapIndex = payload.lastIndexOf('noteDetailMap');
-  if (detailMapIndex >= 0) return payload.slice(detailMapIndex);
-  const noteIndex = Math.max(payload.lastIndexOf('"note"'), payload.lastIndexOf('note:'));
-  return noteIndex >= 0 ? payload.slice(noteIndex) : '';
-}
-
-function extractArrayAfterKey(text, key) {
-  if (!text) return '';
-  const keyPattern = new RegExp(`["']?${escapeRegExp(key)}["']?\\s*:`, 'i');
-  const keyMatch = keyPattern.exec(text);
-  if (!keyMatch) return '';
-  const openIndex = text.indexOf('[', (keyMatch.index ?? 0) + keyMatch[0].length);
-  if (openIndex < 0) return '';
-  return readBalanced(text, openIndex, '[', ']');
-}
-
-function readBalanced(text, openIndex, openChar, closeChar) {
-  let depth = 0;
-  let quote = '';
-  let escaped = false;
-  for (let index = openIndex; index < text.length; index += 1) {
-    const char = text[index];
-    if (quote) {
-      if (escaped) {
-        escaped = false;
-      } else if (char === '\\') {
-        escaped = true;
-      } else if (char === quote) {
-        quote = '';
-      }
+function extractSetupServerState(html) {
+  for (const payload of extractSetupServerStatePayloads(html)) {
+    try {
+      return JSON.parse(payload.replace(/\bundefined\b/g, '""'));
+    } catch {
       continue;
     }
-    if (char === '"' || char === "'") {
-      quote = char;
-      continue;
-    }
-    if (char === openChar) depth += 1;
-    if (char === closeChar) {
-      depth -= 1;
-      if (depth === 0) return text.slice(openIndex, index + 1);
-    }
   }
-  return '';
+  return null;
 }
 
-function parseUrlDefaultItems(imageListText) {
-  if (!imageListText) return [];
-  return [...imageListText.matchAll(/["']?urlDefault["']?\s*:\s*["']([^"']+)["']/gi)]
-    .map((match) => ({ urlDefault: match[1] }));
-}
-
-function findRenderedNoteImageUrls(html, baseUrl) {
-  const normalized = normalizeUrlText(html);
-  const seen = new Set();
-  const urls = [];
-  for (const url of extractCdnUrls(normalized)) {
-    const resolved = resolveCandidateUrl(url, baseUrl);
-    if (!resolved || seen.has(resolved) || !isRenderedNoteImageUrl(resolved)) continue;
-    seen.add(resolved);
-    urls.push(resolved);
+function extractSetupServerStatePayloads(html) {
+  const payloads = [];
+  const scripts = extractScriptTexts(html);
+  for (const script of scripts.reverse()) {
+    const text = decodeHtml(script).trim();
+    const match = text.match(/window\.__SETUP_SERVER_STATE__\s*=/);
+    if (!match) continue;
+    payloads.push(text.slice((match.index ?? 0) + match[0].length).replace(/;\s*$/, '').trim());
   }
-  return urls;
-}
-
-function countRenderedNoteImageCandidates(html, baseUrl) {
-  const normalized = normalizeUrlText(html);
-  let count = 0;
-  const seen = new Set();
-  for (const url of extractCdnUrls(normalized)) {
-    const resolved = resolveCandidateUrl(url, baseUrl);
-    if (!resolved || seen.has(resolved)) continue;
-    seen.add(resolved);
-    if (isRenderedNoteImageUrl(resolved)) count += 1;
-  }
-  return count;
-}
-
-function isRenderedNoteImageUrl(url) {
-  try {
-    const parsed = new URL(url);
-    if (parsed.hostname !== 'ci.xiaohongshu.com') return false;
-    if (!/(?:^|\/)notes_[^/]+\//i.test(parsed.pathname)) return false;
-    if (/\.(?:js|css|ico)(?:$|[?#])/i.test(parsed.pathname)) return false;
-    return isLikelyImageUrl(url);
-  } catch {
-    return false;
-  }
+  return payloads;
 }
 
 function extractScriptTexts(html) {
@@ -272,14 +210,39 @@ function findNoteData(state, baseUrl) {
   const noteId = extractNoteId(baseUrl);
   const detailMap = state.note?.noteDetailMap;
   if (detailMap && typeof detailMap === 'object') {
-    const detail = noteId && detailMap[noteId] ? detailMap[noteId] : Object.values(detailMap).at(-1);
+    const detail = noteId ? detailMap[noteId] : null;
     if (detail?.note) return detail.note;
   }
-  if (state.note?.note) return state.note.note;
-  if (Array.isArray(state.note?.imageList)) return state.note;
   return null;
 }
 
+function findSetupServerNoteData(state) {
+  if (!state || typeof state !== 'object') return null;
+  const noteData = state.LAUNCHER_SSR_STORE_PAGE_DATA?.noteData;
+  return noteData && typeof noteData === 'object' ? noteData : null;
+}
+
+function findImageLikePaths(value, path = 'noteData', depth = 0, results = []) {
+  if (depth > 5 || results.length >= 40) return results;
+  if (typeof value === 'string') {
+    if (/(?:xhscdn|xiaohongshu|imageView2|urlDefault)/i.test(value)) {
+      results.push({ path, sample: value.slice(0, 160) });
+    }
+    return results;
+  }
+  if (!value || typeof value !== 'object') return results;
+  if (Array.isArray(value)) {
+    value.slice(0, 5).forEach((item, index) => findImageLikePaths(item, `${path}[${index}]`, depth + 1, results));
+    return results;
+  }
+  for (const [key, child] of Object.entries(value)) {
+    if (results.length >= 40) break;
+    findImageLikePaths(child, `${path}.${key}`, depth + 1, results);
+  }
+  return results;
+}
+
+// 从页面 URL 中取作品 ID，用于定位 noteDetailMap[作品ID]。
 function extractNoteId(url) {
   try {
     const parsed = new URL(url);
@@ -340,6 +303,7 @@ function resolveCandidateUrl(url, baseUrl) {
   }
 }
 
+// 将 xhscdn / ci 图片统一转为 ci.xiaohongshu.com 的无水印固定格式。
 function normalizeXiaohongshuImageUrl(url) {
   if (!url) return '';
   try {
@@ -362,6 +326,7 @@ function createXiaohongshuImageUrl(token) {
   return `https://ci.xiaohongshu.com/${token}?imageView2/2/w/${XHS_IMAGE_WIDTH}/format/${XHS_IMAGE_FORMAT}`;
 }
 
+// xhscdn 原图路径通常是 /bucket/hash/token!suffix，真正可用的是 ! 前的 token。
 function extractXiaohongshuImageToken(parsedUrl) {
   const pathParts = String(parsedUrl.pathname || '').split('/').filter(Boolean);
   const tokenParts = /xhscdn\.com$/i.test(parsedUrl.hostname) && pathParts.length > 2
@@ -370,11 +335,13 @@ function extractXiaohongshuImageToken(parsedUrl) {
   return tokenParts.join('/').split('!')[0].replace(/\/+$/, '');
 }
 
+// 基础图片过滤：排除头像、favicon，只保留可能的笔记图片 CDN。
 function isLikelyImageUrl(url) {
   if (/(?:avatar|sns-avatar|head|profile|favicon\.ico)/i.test(url)) return false;
   return /(?:sns-webpic|ci\.xiaohongshu|xhscdn|imageView2|format\/jpg|format\/png|format\/webp|\.(?:jpe?g|png|webp)(?:[?#]|$))/i.test(url);
 }
 
+// 下面几个候选排序函数只服务 inspectImageCandidates 的日志和诊断，不代表业务返回策略。
 function preferNoWatermarkUrls(candidates) {
   const ciCandidates = candidates.filter((candidate) => {
     try {
@@ -409,6 +376,7 @@ export function normalizeExtractedImagePayload({ imageUrl, imageDataUrl, title }
 }
 
 
+// cookie 只能发给 xiaohongshu.com 页面请求，不能发给短链或任意第三方跳转地址。
 export function mobileHeaders(url = '', { includeCookie = true } = {}) {
   const headers = {
     'user-agent': MOBILE_UA,
