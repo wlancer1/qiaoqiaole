@@ -1272,7 +1272,7 @@ function H5App() {
   return (
     <main className="h5-home-shell">
       <input ref={fileInputRef} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void handleUpload(event.target.files?.[0])} />
-      <p className="app-status" role="status" aria-live="polite">{status}</p>
+      {/* <p className="app-status" role="status" aria-live="polite">{status}</p> */}
       {activeTab === 'home' ? (
         <section className="home-page">
           {/* Header */}
