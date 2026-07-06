@@ -4,6 +4,8 @@ import path from 'node:path';
 
 test.use({ baseURL: 'http://127.0.0.1:5174' });
 
+const uploadFixture = path.resolve('image.png');
+
 async function expectNoPageScrollbar(page: import('@playwright/test').Page) {
   const metrics = await page.locator('body').evaluate(() => ({
     widthOverflow: document.documentElement.scrollWidth > window.innerWidth,
@@ -40,7 +42,7 @@ test('uploads from the H5 home page, configures split count, previews, then impo
   await expect(page.getByRole('button', { name: '我的' })).toBeVisible();
   await expect(page.getByText('上传图片生成图纸')).toHaveCount(0);
 
-  await page.locator('input[type="file"]').setInputFiles(path.resolve('178811783249756_.pic.jpg'));
+  await page.locator('input[type="file"]').setInputFiles(uploadFixture);
 
   await expect(page.getByRole('heading', { name: '分割' })).toBeVisible();
   await expectNoPageScrollbar(page);
@@ -98,17 +100,243 @@ test('uploads from the H5 home page, configures split count, previews, then impo
   expect(hasPageOverflow).toBe(false);
 });
 
+test('opens upload drawing modal and extracts an image from a Xiaohongshu link', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('**/api/xiaohongshu/extract', async (route) => {
+    const request = route.request();
+    expect(request.method()).toBe('POST');
+    const body = request.postDataJSON() as { url?: string };
+    expect(body.url).toContain('xiaohongshu.com');
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        imageDataUrl: `data:image/png;base64,${fs.readFileSync(uploadFixture).toString('base64')}`,
+        title: '小红书图纸',
+      }),
+    });
+  });
+
+  await page.goto('/');
+  await page.getByRole('button', { name: '上传', exact: true }).click();
+
+  const dialog = page.getByRole('dialog', { name: '上传图纸' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('button', { name: '选择图纸' })).toBeVisible();
+
+  await dialog.getByRole('button', { name: '小红书提取' }).click();
+  await dialog.getByRole('textbox', { name: '小红书链接' }).fill('https://www.xiaohongshu.com/explore/test-note');
+  await dialog.getByRole('button', { name: '提取图片', exact: true }).click();
+
+  await expect(page.getByRole('heading', { name: '分割' })).toBeVisible();
+  await expect(page.getByLabel('分割预览图')).toBeVisible();
+  await expect(page.locator('.split-info-value')).toContainText('18');
+});
+
+test('opens the upload modal from the profile tab', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+
+  await page.getByRole('button', { name: '我的' }).click();
+  await page.getByRole('button', { name: '上传', exact: true }).click();
+
+  await expect(page.getByRole('heading', { name: '超级拼' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: '上传图纸' })).toBeVisible();
+});
+
+test('keeps login validation messages visible outside the canvas', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+
+  await page.getByRole('button', { name: '我的' }).click();
+  await page.getByRole('button', { name: '登录' }).click();
+  await page.getByRole('button', { name: '登录并继续' }).click();
+
+  await expect(page.getByRole('status')).toContainText('请输入用户名和至少4位密码。');
+});
+
+test('ignores late Xiaohongshu extraction responses after closing the upload modal', async ({ page }) => {
+  const imageDataUrl = `data:image/png;base64,${fs.readFileSync(uploadFixture).toString('base64')}`;
+  let releaseExtraction!: () => void;
+  const extractionReleased = new Promise<void>((resolve) => {
+    releaseExtraction = resolve;
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('**/api/xiaohongshu/extract', async (route) => {
+    await extractionReleased;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        imageDataUrl,
+        title: '迟到的小红书图纸',
+      }),
+    });
+  });
+
+  await page.goto('/');
+  await page.getByRole('button', { name: '上传', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '上传图纸' });
+  await dialog.getByRole('button', { name: '小红书提取' }).click();
+  await dialog.getByRole('textbox', { name: '小红书链接' }).fill('https://www.xiaohongshu.com/explore/test-note');
+  await dialog.getByRole('button', { name: '提取图片', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: '提取中...' })).toBeVisible();
+
+  await dialog.getByRole('button', { name: '关闭上传图纸' }).click();
+  releaseExtraction();
+
+  await expect(page.getByRole('dialog', { name: '上传图纸' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '分割' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '超级拼' })).toBeVisible();
+});
+
+test('lets users choose one image when Xiaohongshu extraction returns multiple note images', async ({ page }) => {
+  const imageDataUrl = `data:image/png;base64,${fs.readFileSync(uploadFixture).toString('base64')}`;
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('**/api/xiaohongshu/extract', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        imageDataUrl,
+        title: '多图笔记',
+        images: [
+          { imageDataUrl },
+          { imageDataUrl },
+        ],
+      }),
+    });
+  });
+
+  await page.goto('/');
+  await page.getByRole('button', { name: '上传', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '上传图纸' });
+  await dialog.getByRole('button', { name: '小红书提取' }).click();
+  await dialog.getByRole('textbox', { name: '小红书链接' }).fill('https://www.xiaohongshu.com/explore/test-note');
+  await dialog.getByRole('button', { name: '提取图片', exact: true }).click();
+
+  await expect(dialog.getByText('选择笔记图片')).toBeVisible();
+  await expect(dialog.getByRole('button', { name: '选择第 2 张小红书图片' })).toBeVisible();
+  await expect(dialog.locator('.xhs-image-grid img').first()).toHaveAttribute('src', /^data:image\/png;base64,/);
+  await dialog.getByRole('button', { name: '选择第 2 张小红书图片' }).click();
+  await expect(page.getByRole('heading', { name: '分割' })).toBeVisible();
+});
+
 test('shows STL export only in the peg board workflow', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
 
   await page.getByRole('button', { name: /敲豆豆图纸/ }).click();
-  await page.locator('input[type="file"]').setInputFiles(path.resolve('178811783249756_.pic.jpg'));
+  await page.locator('input[type="file"]').setInputFiles(uploadFixture);
   await page.getByRole('button', { name: '下一步' }).click();
   await page.getByRole('button', { name: '导入画布' }).click();
 
   await expect(page.getByLabel('H5 画布编辑器')).toBeVisible();
   await expect(page.getByRole('button', { name: '导出 STL' })).toBeVisible();
+});
+
+test('logs in from profile and manages bead warehouse stock by count and grams', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  const username = `aaa_${Date.now()}`;
+
+  await page.getByRole('button', { name: '我的' }).click();
+  await page.getByRole('button', { name: /豆子仓库/ }).click();
+  const loginDialog = page.getByRole('dialog', { name: '登录面板' });
+  await expect(loginDialog).toBeVisible();
+  await loginDialog.getByRole('button', { name: '注册' }).click();
+  await loginDialog.getByRole('textbox', { name: '用户名' }).fill(username);
+  await loginDialog.getByLabel('密码').fill('123456');
+  await loginDialog.getByRole('button', { name: '注册并登录' }).click();
+
+  await expect(page.getByLabel('豆子仓库')).toBeVisible();
+  await page.getByRole('button', { name: '新建豆子仓库' }).click();
+  const warehouseDialog = page.getByRole('dialog', { name: '新建豆子仓库' });
+  await warehouseDialog.getByRole('textbox', { name: '仓库名称' }).fill('MARD 常用色仓库');
+  await warehouseDialog.getByRole('textbox', { name: '仓库备注' }).fill('E2E');
+  await warehouseDialog.getByRole('button', { name: '创建仓库' }).click();
+  await expect(page.getByRole('button', { name: 'MARD 常用色仓库' })).toBeVisible();
+
+  await page.getByRole('button', { name: /^A1 库存 0 颗$/ }).click();
+  await page.getByRole('button', { name: /^A2 库存 0 颗$/ }).click();
+  await page.getByRole('spinbutton', { name: '数量' }).fill('30');
+  await page.getByRole('button', { name: '入库' }).click();
+  await expect(page.getByRole('button', { name: /^A1 库存 30 颗$/ })).toContainText('30颗');
+  await expect(page.getByRole('button', { name: /^A2 库存 30 颗$/ })).toContainText('30颗');
+
+  await page.getByRole('button', { name: '按克' }).click();
+  await page.getByRole('spinbutton', { name: '数量' }).fill('1');
+  await page.getByRole('button', { name: '出库' }).click();
+  await expect(page.getByRole('button', { name: /^A1 库存 15 颗$/ })).toContainText('15颗');
+  await expect(page.getByRole('button', { name: /^A2 库存 15 颗$/ })).toContainText('15颗');
+});
+
+test('rejects invalid warehouse inventory mutations', async ({ request }) => {
+  const username = `api_${Date.now()}`;
+  const registerResponse = await request.post('/api/auth/register', {
+    data: { username, password: '123456' },
+  });
+  expect(registerResponse.ok()).toBe(true);
+  const { token } = (await registerResponse.json()) as { token: string };
+
+  const warehouseResponse = await request.post('/api/warehouses', {
+    headers: { authorization: `Bearer ${token}` },
+    data: { name: 'API 校验仓库', remark: 'E2E' },
+  });
+  expect(warehouseResponse.ok()).toBe(true);
+  const { warehouse } = (await warehouseResponse.json()) as { warehouse: { id: string } };
+
+  const invalidCodeResponse = await request.post(`/api/warehouses/${warehouse.id}/inventory`, {
+    headers: { authorization: `Bearer ${token}` },
+    data: { codes: ['Z99'], type: 'in', quantity: 1, inputUnit: 'count', inputValue: 1 },
+  });
+  expect(invalidCodeResponse.status()).toBe(400);
+
+  const invalidQuantityResponse = await request.post(`/api/warehouses/${warehouse.id}/inventory`, {
+    headers: { authorization: `Bearer ${token}` },
+    data: { codes: ['A1'], type: 'in', quantity: 0, inputUnit: 'count', inputValue: 0 },
+  });
+  expect(invalidQuantityResponse.status()).toBe(400);
+
+  const invalidTypeResponse = await request.post(`/api/warehouses/${warehouse.id}/inventory`, {
+    headers: { authorization: `Bearer ${token}` },
+    data: { codes: ['A1'], type: 'increase', quantity: 1, inputUnit: 'count', inputValue: 1 },
+  });
+  expect(invalidTypeResponse.status()).toBe(400);
+
+  const overdrawResponse = await request.post(`/api/warehouses/${warehouse.id}/inventory`, {
+    headers: { authorization: `Bearer ${token}` },
+    data: { codes: ['A1'], type: 'out', quantity: 1, inputUnit: 'count', inputValue: 1 },
+  });
+  expect(overdrawResponse.status()).toBe(400);
+
+  const seedResponse = await request.post(`/api/warehouses/${warehouse.id}/inventory`, {
+    headers: { authorization: `Bearer ${token}` },
+    data: { codes: ['A1'], type: 'in', quantity: 5, inputUnit: 'count', inputValue: 5 },
+  });
+  expect(seedResponse.ok()).toBe(true);
+
+  const partialOverdrawResponse = await request.post(`/api/warehouses/${warehouse.id}/inventory`, {
+    headers: { authorization: `Bearer ${token}` },
+    data: { codes: ['A1', 'A2'], type: 'out', quantity: 1, inputUnit: 'count', inputValue: 1 },
+  });
+  expect(partialOverdrawResponse.status()).toBe(400);
+
+  const inventoryResponse = await request.get(`/api/warehouses/${warehouse.id}/inventory`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  const { inventory } = (await inventoryResponse.json()) as { inventory: Record<string, number> };
+  expect(inventory.A1).toBe(5);
+  expect(inventory.A2 ?? 0).toBe(0);
+});
+
+test('rejects malformed API JSON bodies as client errors', async ({ request }) => {
+  const response = await request.post('/api/auth/login', {
+    headers: { 'content-type': 'application/json' },
+    data: Buffer.from('{"username":'),
+  });
+
+  expect(response.status()).toBe(400);
 });
 
 test('edits a preset H5 grid canvas with brush, eraser, fill, and bottom palette', async ({ page }) => {

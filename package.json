@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "dev": "npm run dev:web",
+    "dev:api": "npm --workspace @qiaoqiaole/api run start",
     "dev:web": "vite --config apps/web/vite.config.ts --host 127.0.0.1",
     "dev:h5": "vite --config apps/h5/vite.config.ts --host 0.0.0.0",
     "build": "npm run build:web && npm run build:h5",
@@ -16,6 +17,7 @@
     "build:h5": "tsc -p tsconfig.json && vite build --config apps/h5/vite.config.ts",
     "preview:web": "vite preview --config apps/web/vite.config.ts --host 127.0.0.1",
     "preview:h5": "vite preview --config apps/h5/vite.config.ts --host 127.0.0.1",
+    "start:api": "npm --workspace @qiaoqiaole/api run start",
     "test": "vitest --config vitest.config.ts",
     "test:e2e": "playwright test"
   },
@@ -23,6 +25,7 @@
     "@vitejs/plugin-react": "^5.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "sql.js": "^1.14.1",
     "three": "^0.178.0",
     "typescript": "^5.8.0",
     "vite": "^7.0.0"

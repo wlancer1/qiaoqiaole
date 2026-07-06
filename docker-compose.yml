@@ -6,5 +6,23 @@ services:
     image: qiaoqiaole:latest
     container_name: qiaoqiaole
     restart: unless-stopped
+    depends_on:
+      - api
     ports:
       - "9999:80"
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: qiaoqiaole-api:latest
+    container_name: qiaoqiaole-api
+    restart: unless-stopped
+    environment:
+      SQLITE_PATH: /data/qiaoqiaole.sqlite
+      PORT: 3000
+      XHS_COOKIE: ${XHS_COOKIE:-}
+    volumes:
+      - qiaoqiaole_data:/data
+
+volumes:
+  qiaoqiaole_data:

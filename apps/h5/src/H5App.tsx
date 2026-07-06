@@ -15,10 +15,14 @@ import {
   type Cell,
 } from '@qiaoqiaole/core';
 
-type AppScreen = 'home' | 'profile' | 'split' | 'split-preview' | 'canvas';
+type AppScreen = 'home' | 'profile' | 'split' | 'split-preview' | 'canvas' | 'warehouse';
 type CanvasKind = 'image' | 'grid';
 type CanvasTool = 'brush' | 'eraser' | 'fill' | 'eyedropper' | 'pan';
 type WorkMode = 'bead' | 'peg';
+type WarehouseUnit = 'count' | 'gram';
+type AuthMode = 'login' | 'register';
+type Warehouse = { id: string; name: string; remark: string; colorSystem: string };
+type XhsExtractedImage = { imageUrl?: string; imageDataUrl?: string };
 type IconName =
   | 'bell'
   | 'brush'
@@ -44,6 +48,9 @@ const MAX_AUTO_GRID_SIDE = 120;
 const DEFAULT_SPLIT_LONG_SIDE = 18;
 const EMPTY_COLOR = '#ffffff';
 const WHITE_BEAD_COLOR = nearestPaletteColor(255, 255, 255, MARD_221_HEX);
+const BEADS_PER_GRAM = 15;
+const WAREHOUSE_LETTERS = ['全部', ...Array.from(new Set(MARD_221_COLORS.map((color) => color.code.charAt(0))))];
+const API_BASE = '/api';
 
 type UploadedSplitImage = {
   name: string;
@@ -76,12 +83,42 @@ function H5App() {
   const [future, setFuture] = useState<Cell[][]>([]);
   const [showPaletteSearch, setShowPaletteSearch] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState('');
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [loginName, setLoginName] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [authMode, setAuthMode] = useState<AuthMode>('login');
+  const [authToken, setAuthToken] = useState('');
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [activeWarehouseId, setActiveWarehouseId] = useState('');
+  const [showWarehouseCreateModal, setShowWarehouseCreateModal] = useState(false);
+  const [warehouseName, setWarehouseName] = useState('默认豆子仓库');
+  const [warehouseRemark, setWarehouseRemark] = useState('');
+  const [warehouseSearch, setWarehouseSearch] = useState('');
+  const [warehouseLetter, setWarehouseLetter] = useState('全部');
+  const [selectedWarehouseCodes, setSelectedWarehouseCodes] = useState<string[]>([]);
+  const [warehouseUnit, setWarehouseUnit] = useState<WarehouseUnit>('count');
+  const [warehouseAmount, setWarehouseAmount] = useState('100');
+  const [beadStock, setBeadStock] = useState<Record<string, number>>({});
   const [uploadedSplitImage, setUploadedSplitImage] = useState<UploadedSplitImage | null>(null);
   const [splitLongSide, setSplitLongSide] = useState(DEFAULT_SPLIT_LONG_SIDE);
   const [splitRows, setSplitRows] = useState(DEFAULT_SPLIT_LONG_SIDE);
   const [splitCols, setSplitCols] = useState(DEFAULT_SPLIT_LONG_SIDE);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showXhsInput, setShowXhsInput] = useState(false);
+  const [xhsLink, setXhsLink] = useState('');
+  const [isExtractingXhs, setIsExtractingXhs] = useState(false);
+  const [xhsExtractedTitle, setXhsExtractedTitle] = useState('');
+  const [xhsExtractedImages, setXhsExtractedImages] = useState<XhsExtractedImage[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imageCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const pendingAuthActionRef = useRef<(() => void) | null>(null);
+  const xhsRequestSeqRef = useRef(0);
+  const xhsImportSeqRef = useRef(0);
+  const authRequestSeqRef = useRef(0);
+  const activeWarehouseIdRef = useRef('');
+  const inventoryRequestSeqRef = useRef(0);
 
   // Zoom & Pan states for mobile artboard
   const [zoom, setZoom] = useState(1.0);
@@ -123,6 +160,10 @@ function H5App() {
     }
   }, [canvasKind, cells, cols, rows]);
 
+  useEffect(() => {
+    activeWarehouseIdRef.current = activeWarehouseId;
+  }, [activeWarehouseId]);
+
   const totalBeads = useMemo(() => cells.filter((cell) => !cell.transparent).length, [cells]);
   const usedColors = useMemo(() => {
     const counts = new Map<string, number>();
@@ -141,6 +182,19 @@ function H5App() {
     if (!query) return MARD_221_COLORS;
     return MARD_221_COLORS.filter((color) => color.code.toLowerCase().includes(query) || color.hex.toLowerCase().includes(query));
   }, [paletteQuery]);
+  const warehouseColors = useMemo(() => {
+    const query = warehouseSearch.trim().toLowerCase();
+    return MARD_221_COLORS.filter((color) => {
+      const matchesLetter = warehouseLetter === '全部' || color.code.startsWith(warehouseLetter);
+      const matchesQuery = !query || color.code.toLowerCase().includes(query) || color.hex.toLowerCase().includes(query);
+      return matchesLetter && matchesQuery;
+    });
+  }, [warehouseLetter, warehouseSearch]);
+  const selectedWarehouseCount = selectedWarehouseCodes.length;
+  const activeWarehouse = warehouses.find((warehouse) => warehouse.id === activeWarehouseId) ?? null;
+  const totalWarehouseStock = useMemo(() => Object.values(beadStock).reduce((sum, count) => sum + count, 0), [beadStock]);
+  const stockedColorCount = useMemo(() => Object.values(beadStock).filter((count) => count > 0).length, [beadStock]);
+  const missingColorCount = MARD_221_COLORS.length - stockedColorCount;
 
   const selectPaletteColor = (color: { code: string; hex: string }) => {
     setSelectedColor(color.hex);
@@ -157,8 +211,224 @@ function H5App() {
   };
 
   const openUpload = (nextMode: WorkMode) => {
+    xhsRequestSeqRef.current += 1;
     setWorkMode(nextMode);
+    setActiveTab('home');
+    setShowUploadModal(true);
+    setShowXhsInput(false);
+    setXhsLink('');
+    setXhsExtractedTitle('');
+    setXhsExtractedImages([]);
+  };
+
+  const closeUploadModal = () => {
+    xhsRequestSeqRef.current += 1;
+    xhsImportSeqRef.current += 1;
+    setShowUploadModal(false);
+    setShowXhsInput(false);
+    setXhsLink('');
+    setXhsExtractedTitle('');
+    setXhsExtractedImages([]);
+    setIsExtractingXhs(false);
+  };
+
+  const chooseLocalDrawing = () => {
+    closeUploadModal();
     fileInputRef.current?.click();
+  };
+
+  const requestApi = async <T,>(path: string, options: RequestInit = {}): Promise<T> => {
+    const response = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers: {
+        'content-type': 'application/json',
+        ...(authToken ? { authorization: `Bearer ${authToken}` } : {}),
+        ...(options.headers ?? {}),
+      },
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.message || '请求失败');
+    return payload as T;
+  };
+
+  const loadWarehouses = async (token = authToken) => {
+    if (!token) return;
+    const payload = await fetch(`${API_BASE}/warehouses`, {
+      headers: { authorization: `Bearer ${token}` },
+    }).then(async (response) => {
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || '仓库读取失败');
+      return data as { warehouses: Warehouse[] };
+    });
+    setWarehouses(payload.warehouses);
+    if (!activeWarehouseId && payload.warehouses[0]) {
+      activeWarehouseIdRef.current = payload.warehouses[0].id;
+      setActiveWarehouseId(payload.warehouses[0].id);
+      await loadInventory(payload.warehouses[0].id, token);
+    }
+  };
+
+  const loadInventory = async (warehouseId = activeWarehouseId, token = authToken) => {
+    if (!warehouseId || !token) return;
+    const requestSeq = inventoryRequestSeqRef.current + 1;
+    inventoryRequestSeqRef.current = requestSeq;
+    setBeadStock({});
+    try {
+      const payload = await fetch(`${API_BASE}/warehouses/${warehouseId}/inventory`, {
+        headers: { authorization: `Bearer ${token}` },
+      }).then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || '库存读取失败');
+        return data as { inventory: Record<string, number> };
+      });
+      if (inventoryRequestSeqRef.current !== requestSeq) return;
+      if (activeWarehouseIdRef.current !== warehouseId) return;
+      setBeadStock(payload.inventory);
+    } catch (error) {
+      if (inventoryRequestSeqRef.current !== requestSeq) return;
+      setStatus(error instanceof Error ? error.message : '库存读取失败');
+    }
+  };
+
+  const requireLogin = (next: () => void) => {
+    if (isLoggedIn) {
+      next();
+      return;
+    }
+    pendingAuthActionRef.current = next;
+    setShowLoginModal(true);
+    setStatus('请先登录后使用我的功能。');
+  };
+
+  const submitLogin = async () => {
+    const username = loginName.trim();
+    const password = loginPassword;
+    if (!username || password.length < 4) {
+      setStatus('请输入用户名和至少4位密码。');
+      return;
+    }
+    const requestSeq = authRequestSeqRef.current + 1;
+    authRequestSeqRef.current = requestSeq;
+    setIsAuthenticating(true);
+    try {
+      const payload = await requestApi<{ token: string; user: { username: string } }>(`/auth/${authMode}`, {
+        method: 'POST',
+        body: JSON.stringify({ username, password }),
+      });
+      if (authRequestSeqRef.current !== requestSeq || !showLoginModal) return;
+      setAuthToken(payload.token);
+      setLoginName(payload.user.username);
+      setIsLoggedIn(true);
+      setShowLoginModal(false);
+      setLoginPassword('');
+      setStatus(`${authMode === 'register' ? '注册并登录成功' : '登录成功'}：${payload.user.username}。`);
+      await loadWarehouses(payload.token);
+      const pendingAuthAction = pendingAuthActionRef.current;
+      pendingAuthActionRef.current = null;
+      pendingAuthAction?.();
+    } catch (error) {
+      if (authRequestSeqRef.current !== requestSeq) return;
+      if (authMode === 'login') {
+        setStatus(error instanceof Error ? error.message : '登录失败');
+      } else {
+        setStatus(error instanceof Error ? error.message : '注册失败');
+      }
+    } finally {
+      if (authRequestSeqRef.current === requestSeq) setIsAuthenticating(false);
+    }
+  };
+
+  const openWarehouse = () => {
+    requireLogin(() => {
+      setScreen('warehouse');
+      setStatus('已进入豆子仓库。');
+    });
+  };
+
+  const toggleWarehouseCode = (code: string) => {
+    setSelectedWarehouseCodes((current) => (
+      current.includes(code) ? current.filter((item) => item !== code) : [...current, code]
+    ));
+  };
+
+  const selectVisibleWarehouseColors = () => {
+    setSelectedWarehouseCodes((current) => Array.from(new Set([...current, ...warehouseColors.map((color) => color.code)])));
+  };
+
+  const invertVisibleWarehouseColors = () => {
+    const visibleCodes = new Set(warehouseColors.map((color) => color.code));
+    setSelectedWarehouseCodes((current) => {
+      const currentSet = new Set(current);
+      for (const code of visibleCodes) {
+        if (currentSet.has(code)) currentSet.delete(code);
+        else currentSet.add(code);
+      }
+      return [...currentSet];
+    });
+  };
+
+  const applyWarehouseChange = async (direction: 'in' | 'out') => {
+    if (selectedWarehouseCodes.length === 0) {
+      setStatus('请先选择需要操作的色号。');
+      return;
+    }
+    if (!authToken) {
+      setStatus('请先登录。');
+      return;
+    }
+    if (!activeWarehouseId) {
+      setStatus('请先创建或选择仓库。');
+      return;
+    }
+    const amount = Number.parseFloat(warehouseAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setStatus('请输入有效的入库或出库数量。');
+      return;
+    }
+    const beadCount = Math.max(1, Math.round(warehouseUnit === 'gram' ? amount * BEADS_PER_GRAM : amount));
+    try {
+      const payload = await requestApi<{ inventory: Record<string, number> }>(`/warehouses/${activeWarehouseId}/inventory`, {
+        method: 'POST',
+        body: JSON.stringify({
+          codes: selectedWarehouseCodes,
+          type: direction,
+          quantity: beadCount,
+          inputUnit: warehouseUnit,
+          inputValue: amount,
+        }),
+      });
+      setBeadStock(payload.inventory);
+      setStatus(`${direction === 'in' ? '已入库' : '已出库'} ${selectedWarehouseCodes.length} 个色号，每色 ${beadCount} 颗。`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : '库存操作失败');
+    }
+  };
+
+  const createWarehouse = async () => {
+    const name = warehouseName.trim();
+    if (!name) {
+      setStatus('请输入仓库名称。');
+      return;
+    }
+    if (!authToken) {
+      setStatus('请先登录。');
+      return;
+    }
+    try {
+      const payload = await requestApi<{ warehouse: Warehouse }>('/warehouses', {
+        method: 'POST',
+        body: JSON.stringify({ name, remark: warehouseRemark }),
+      });
+      setWarehouses((items) => [payload.warehouse, ...items]);
+      activeWarehouseIdRef.current = payload.warehouse.id;
+      setActiveWarehouseId(payload.warehouse.id);
+      setBeadStock({});
+      setSelectedWarehouseCodes([]);
+      setShowWarehouseCreateModal(false);
+      setStatus(`已创建仓库：${payload.warehouse.name}。`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : '创建仓库失败');
+    }
   };
 
   const openCreateCanvasModal = () => {
@@ -249,6 +519,19 @@ function H5App() {
     setStatus(`已导入画布：${splitCols} x ${splitRows}。`);
   };
 
+  const loadSplitImage = (name: string, imageData: ImageData) => {
+    const crop = getImageCrop(imageData);
+    const url = imageDataToUrl(imageData);
+    const { rows: defaultRows, cols: defaultCols } = gridSizeFromImageBounds(crop.width, crop.height, DEFAULT_SPLIT_LONG_SIDE);
+    setUploadedSplitImage({ name, imageData, crop, url });
+    setSplitLongSide(DEFAULT_SPLIT_LONG_SIDE);
+    setSplitRows(defaultRows);
+    setSplitCols(defaultCols);
+    setHistory([]);
+    setFuture([]);
+    setScreen('split');
+  };
+
   const handleUpload = async (file: File | undefined) => {
     if (!file) return;
     if (!/^image\/(png|jpe?g|webp)$/.test(file.type)) {
@@ -262,21 +545,72 @@ function H5App() {
 
     try {
       const imageData = await loadImageData(file);
-      const crop = getImageCrop(imageData);
-      const url = imageDataToUrl(imageData);
-      const { rows: defaultRows, cols: defaultCols } = gridSizeFromImageBounds(crop.width, crop.height, DEFAULT_SPLIT_LONG_SIDE);
-      setUploadedSplitImage({ name: file.name, imageData, crop, url });
-      setSplitLongSide(DEFAULT_SPLIT_LONG_SIDE);
-      setSplitRows(defaultRows);
-      setSplitCols(defaultCols);
-      setHistory([]);
-      setFuture([]);
-      setScreen('split');
+      loadSplitImage(file.name, imageData);
       setStatus(`已载入 ${file.name}，默认长边 ${DEFAULT_SPLIT_LONG_SIDE} 格。`);
     } catch {
       setStatus('图片读取失败，请换一张图片。');
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const extractXiaohongshuImage = async () => {
+    const url = extractUrlFromText(xhsLink);
+    if (!url || !/xiaohongshu\.com|xhslink\.com/i.test(url)) {
+      setStatus('请输入有效的小红书链接。');
+      return;
+    }
+    const requestSeq = xhsRequestSeqRef.current + 1;
+    xhsRequestSeqRef.current = requestSeq;
+    setIsExtractingXhs(true);
+    setXhsExtractedImages([]);
+    setStatus('正在提取小红书图片。');
+    try {
+      const payload = await requestApi<{ imageUrl?: string; imageDataUrl?: string; title?: string; images?: XhsExtractedImage[] }>('/xiaohongshu/extract', {
+        method: 'POST',
+        body: JSON.stringify({ url }),
+      });
+      if (xhsRequestSeqRef.current !== requestSeq || !showUploadModal) return;
+      const images = (payload.images?.length ? payload.images : [{ imageUrl: payload.imageUrl || '', imageDataUrl: payload.imageDataUrl || '' }])
+        .filter((image): image is XhsExtractedImage => Boolean(image.imageUrl || image.imageDataUrl));
+      if (images.length === 0) throw new Error('未找到可用图片');
+      if (images.length === 1) {
+        await importXhsImage(images[0], payload.title);
+        return;
+      }
+      setXhsExtractedTitle(payload.title?.trim() || '小红书图纸');
+      setXhsExtractedImages(images);
+      setStatus(`已提取 ${images.length} 张图片，请选择一张导入。`);
+    } catch (error) {
+      if (xhsRequestSeqRef.current !== requestSeq) return;
+      setStatus(error instanceof Error ? error.message : '小红书图片提取失败。');
+    } finally {
+      if (xhsRequestSeqRef.current === requestSeq) setIsExtractingXhs(false);
+    }
+  };
+
+  const importXhsImage = async (image: XhsExtractedImage, title = xhsExtractedTitle) => {
+    const source = image.imageDataUrl || image.imageUrl || '';
+    if (!source) {
+      setStatus('未找到可用图片。');
+      return;
+    }
+    const requestSeq = xhsImportSeqRef.current + 1;
+    xhsImportSeqRef.current = requestSeq;
+    try {
+      setStatus('正在载入小红书图片。');
+      const imageData = await loadImageDataFromUrl(source);
+      if (xhsImportSeqRef.current !== requestSeq || !showUploadModal) return;
+      loadSplitImage(safeImageFilename(title || 'xiaohongshu-drawing', 'image/png'), imageData);
+      setShowUploadModal(false);
+      setShowXhsInput(false);
+      setXhsLink('');
+      setXhsExtractedTitle('');
+      setXhsExtractedImages([]);
+      setStatus(`已载入 ${title || '小红书图纸'}，默认长边 ${DEFAULT_SPLIT_LONG_SIDE} 格。`);
+    } catch {
+      if (xhsImportSeqRef.current !== requestSeq) return;
+      setStatus('小红书图片读取失败，请换一张图片。');
     }
   };
 
@@ -739,9 +1073,206 @@ function H5App() {
     );
   }
 
+  if (screen === 'warehouse') {
+    return (
+      <main className="warehouse-page" aria-label="豆子仓库">
+        <p className="app-status" role="status" aria-live="polite">{status}</p>
+        {/* Topbar */}
+        <header className="split-topbar wh-topbar">
+          <button className="split-icon-btn" aria-label="返回" onClick={() => { setActiveTab('profile'); setScreen('home'); }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M19 12H5" /><path d="m12 5-7 7 7 7" />
+            </svg>
+          </button>
+          <h1 className="split-topbar-title">{activeWarehouse?.name ?? '豆子仓库'}</h1>
+          <div className="wh-topbar-meta">
+            <span>{stockedColorCount}</span>
+            <small>种在库</small>
+          </div>
+        </header>
+
+        {/* Stats strip */}
+        <div className="wh-stats-strip">
+          <div className="wh-stat-card">
+            <strong>{totalWarehouseStock.toLocaleString()}</strong>
+            <span>总库存颗</span>
+          </div>
+          <div className="wh-stat-card">
+            <strong>{stockedColorCount}</strong>
+            <span>有库存色</span>
+          </div>
+          <div className="wh-stat-card wh-stat-warn">
+            <strong>{missingColorCount}</strong>
+            <span>缺货色</span>
+          </div>
+        </div>
+
+        <div className="wh-warehouse-strip" aria-label="仓库列表">
+          {warehouses.map((warehouse) => (
+            <button
+              key={warehouse.id}
+              className={warehouse.id === activeWarehouseId ? 'active' : ''}
+              onClick={() => {
+                activeWarehouseIdRef.current = warehouse.id;
+                setActiveWarehouseId(warehouse.id);
+                setSelectedWarehouseCodes([]);
+                void loadInventory(warehouse.id);
+              }}
+            >
+              {warehouse.name}
+            </button>
+          ))}
+          <button className="wh-create-warehouse-btn" onClick={() => setShowWarehouseCreateModal(true)}>新建仓库</button>
+        </div>
+
+        {warehouses.length === 0 ? (
+          <section className="wh-empty-warehouse">
+            <strong>还没有豆子仓库</strong>
+            <span>先创建一个仓库，之后就可以按色号管理库存和出入库记录。</span>
+            <button onClick={() => setShowWarehouseCreateModal(true)}>新建豆子仓库</button>
+          </section>
+        ) : null}
+
+        {/* Search + letter tabs */}
+        <div className="wh-filter-bar">
+          <div className="wh-search-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="wh-search-icon">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+            </svg>
+            <input
+              type="search"
+              aria-label="搜索仓库色号"
+              placeholder="搜索色号…"
+              value={warehouseSearch}
+              onChange={(event) => setWarehouseSearch(event.target.value)}
+            />
+          </div>
+        </div>
+
+        {/* Letter tabs - horizontal scroll */}
+        <div className="wh-letter-tabs" aria-label="色号字母筛选">
+          {WAREHOUSE_LETTERS.map((letter) => (
+            <button
+              key={letter}
+              className={warehouseLetter === letter ? 'active' : ''}
+              onClick={() => setWarehouseLetter(letter)}
+            >
+              {letter}
+            </button>
+          ))}
+        </div>
+
+        {/* Selection bar */}
+        <div className="wh-select-bar">
+          <span className="wh-select-info">
+            已选 <em>{selectedWarehouseCount}</em> 色
+          </span>
+          <div className="wh-select-actions">
+            <button onClick={selectVisibleWarehouseColors}>全选</button>
+            <button onClick={invertVisibleWarehouseColors}>反选</button>
+            <button onClick={() => setSelectedWarehouseCodes([])}>清除</button>
+          </div>
+        </div>
+
+        {/* Color grid */}
+        <div className="wh-grid-scroll" aria-label="仓库色卡">
+          <div className="wh-color-grid">
+            {warehouseColors.map((color) => {
+              const selected = selectedWarehouseCodes.includes(color.code);
+              const stock = beadStock[color.code] ?? 0;
+              return (
+                <button
+                  key={color.code}
+                  className={`wh-color-card${selected ? ' selected' : ''}${stock === 0 ? ' empty' : ''}`}
+                  aria-label={`${color.code} 库存 ${stock} 颗`}
+                  onClick={() => toggleWarehouseCode(color.code)}
+                >
+                  <span className="wh-swatch" style={{ background: color.hex }}>
+                    {selected && <i className="wh-check" aria-hidden="true">✓</i>}
+                  </span>
+                  <span className="wh-code">{color.code}</span>
+                  <span className="wh-stock">{stock > 0 ? `${stock}颗` : '—'}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {showWarehouseCreateModal ? (
+          <div className="home-create-modal" role="dialog" aria-label="新建豆子仓库">
+            <div className="home-create-panel">
+              <div className="home-create-head">
+                <strong>新建豆子仓库</strong>
+                <button aria-label="关闭新建仓库" onClick={() => setShowWarehouseCreateModal(false)}>关闭</button>
+              </div>
+              <div className="login-form">
+                <label>
+                  <span>仓库名称</span>
+                  <input
+                    type="text"
+                    aria-label="仓库名称"
+                    placeholder="例如 MARD 常用色仓库"
+                    value={warehouseName}
+                    onChange={(event) => setWarehouseName(event.target.value)}
+                  />
+                </label>
+                <label>
+                  <span>备注</span>
+                  <input
+                    type="text"
+                    aria-label="仓库备注"
+                    placeholder="可选"
+                    value={warehouseRemark}
+                    onChange={(event) => setWarehouseRemark(event.target.value)}
+                  />
+                </label>
+              </div>
+              <button className="home-create-submit" onClick={createWarehouse}>创建仓库</button>
+            </div>
+          </div>
+        ) : null}
+
+        {/* Bottom action card */}
+        <div className="wh-action-card">
+          <div className="wh-action-top">
+            <span className="wh-action-desc">
+              {selectedWarehouseCount > 0
+                ? `已选 ${selectedWarehouseCount} 色`
+                : '请先选择色号'}
+            </span>
+            <div className="wh-unit-toggle" role="group" aria-label="库存单位">
+              <button className={warehouseUnit === 'count' ? 'active' : ''} onClick={() => setWarehouseUnit('count')}>按颗</button>
+              <button className={warehouseUnit === 'gram' ? 'active' : ''} onClick={() => setWarehouseUnit('gram')}>按克</button>
+            </div>
+          </div>
+          <div className="wh-action-row">
+            <div className="wh-amount-field">
+              <button className="wh-amount-step" onClick={() => setWarehouseAmount((v) => String(Math.max(1, Number(v) - 1)))}>−</button>
+              <input
+                type="number"
+                min={1}
+                aria-label="数量"
+                value={warehouseAmount}
+                onChange={(event) => setWarehouseAmount(event.target.value)}
+              />
+              <button className="wh-amount-step" onClick={() => setWarehouseAmount((v) => String(Number(v) + 1))}>+</button>
+            </div>
+            <button className="wh-out-btn" onClick={() => applyWarehouseChange('out')}>出库</button>
+            <button className="wh-in-btn" onClick={() => applyWarehouseChange('in')}>入库</button>
+          </div>
+          {warehouseUnit === 'gram' && (
+            <p className="wh-unit-hint">1g ≈ {BEADS_PER_GRAM} 颗豆子</p>
+          )}
+        </div>
+      </main>
+    );
+  }
+
+
   return (
     <main className="h5-home-shell">
       <input ref={fileInputRef} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void handleUpload(event.target.files?.[0])} />
+      <p className="app-status" role="status" aria-live="polite">{status}</p>
       {activeTab === 'home' ? (
         <section className="home-page">
           {/* Header */}
@@ -818,6 +1349,74 @@ function H5App() {
               </div>
             </div>
           ) : null}
+          {showUploadModal ? (
+            <div className="home-create-modal" role="dialog" aria-label="上传图纸">
+              <div className="home-create-panel upload-drawing-panel">
+                <div className="home-create-head">
+                  <strong>上传图纸</strong>
+                  <button
+                    aria-label="关闭上传图纸"
+                    onClick={closeUploadModal}
+                  >
+                    关闭
+                  </button>
+                </div>
+                <div className="upload-source-list">
+                  <button className="upload-source-option" onClick={chooseLocalDrawing}>
+                    <span className="upload-source-icon"><Icon name="upload" /></span>
+                    <span>
+                      <strong>选择图纸</strong>
+                      <small>从相册或文件选择 PNG、JPG、WebP</small>
+                    </span>
+                  </button>
+                  <button
+                    className={showXhsInput ? 'upload-source-option active' : 'upload-source-option'}
+                    onClick={() => setShowXhsInput(true)}
+                  >
+                    <span className="upload-source-icon"><Icon name="spark" /></span>
+                    <span>
+                      <strong>小红书提取</strong>
+                      <small>粘贴笔记链接后提取图片</small>
+                    </span>
+                  </button>
+                </div>
+                {showXhsInput ? (
+                  <div className="xhs-extract-form">
+                    <label>
+                      <span>小红书链接</span>
+                      <input
+                        type="url"
+                        aria-label="小红书链接"
+                        placeholder="粘贴 xiaohongshu.com 或 xhslink.com 链接"
+                        value={xhsLink}
+                        onChange={(event) => setXhsLink(event.target.value)}
+                      />
+                    </label>
+                    <button className="home-create-submit" onClick={() => void extractXiaohongshuImage()} disabled={isExtractingXhs}>
+                      {isExtractingXhs ? '提取中...' : '提取图片'}
+                    </button>
+                    {xhsExtractedImages.length > 1 ? (
+                      <div className="xhs-image-picker">
+                        <strong>选择笔记图片</strong>
+                        <div className="xhs-image-grid">
+                          {xhsExtractedImages.map((image, index) => (
+                            <button
+                              key={`${image.imageDataUrl || image.imageUrl}-${index}`}
+                              aria-label={`选择第 ${index + 1} 张小红书图片`}
+                              onClick={() => void importXhsImage(image)}
+                            >
+                              <img src={image.imageDataUrl || image.imageUrl} alt="" />
+                              <span>{index + 1}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
         </section>
       ) : (
         <section className="profile-page">
@@ -828,12 +1427,76 @@ function H5App() {
             </div>
           </header>
           <div className="profile-card">
-            <strong>本地项目</strong>
-            <span>历史记录、收藏图纸和导出文件会放在这里。</span>
+            <strong>{isLoggedIn ? loginName : '未登录'}</strong>
+            <span>{isLoggedIn ? '可以管理豆子库存、历史记录和导出文件。' : '登录后可以使用我的豆子仓库和项目记录。'}</span>
+            {isLoggedIn ? (
+              <button className="profile-login-btn" onClick={() => {
+                setIsLoggedIn(false);
+                setLoginName('');
+                setLoginPassword('');
+                setAuthToken('');
+                authRequestSeqRef.current += 1;
+                inventoryRequestSeqRef.current += 1;
+                pendingAuthActionRef.current = null;
+                setWarehouses([]);
+                activeWarehouseIdRef.current = '';
+                setActiveWarehouseId('');
+                setBeadStock({});
+                setSelectedWarehouseCodes([]);
+                setStatus('已退出登录。');
+              }}>退出登录</button>
+            ) : (
+              <button className="profile-login-btn" onClick={() => setShowLoginModal(true)}>登录</button>
+            )}
           </div>
+          <button className="profile-row" onClick={openWarehouse}><Icon name="layers" /> 豆子仓库</button>
           <button className="profile-row"><Icon name="folder" /> 历史记录</button>
           <button className="profile-row"><Icon name="help" /> 帮助中心</button>
           <button className="profile-row"><Icon name="settings" /> 设置</button>
+          {showLoginModal ? (
+            <div className="home-create-modal" role="dialog" aria-label="登录面板">
+              <div className="home-create-panel">
+                <div className="home-create-head">
+                  <strong>{authMode === 'login' ? '登录' : '注册'}</strong>
+                  <button aria-label="关闭登录" onClick={() => {
+                    authRequestSeqRef.current += 1;
+                    setIsAuthenticating(false);
+                    pendingAuthActionRef.current = null;
+                    setShowLoginModal(false);
+                  }}>关闭</button>
+                </div>
+                <div className="auth-mode-tabs" role="group" aria-label="账号操作">
+                  <button className={authMode === 'login' ? 'active' : ''} onClick={() => setAuthMode('login')}>登录</button>
+                  <button className={authMode === 'register' ? 'active' : ''} onClick={() => setAuthMode('register')}>注册</button>
+                </div>
+                <div className="login-form">
+                  <label>
+                    <span>用户名</span>
+                    <input
+                      type="text"
+                      aria-label="用户名"
+                      placeholder="输入用户名"
+                      value={loginName}
+                      onChange={(event) => setLoginName(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>密码</span>
+                    <input
+                      type="password"
+                      aria-label="密码"
+                      placeholder="至少4位"
+                      value={loginPassword}
+                      onChange={(event) => setLoginPassword(event.target.value)}
+                    />
+                  </label>
+                </div>
+                <button className="home-create-submit" onClick={() => void submitLogin()} disabled={isAuthenticating}>
+                  {isAuthenticating ? '处理中...' : authMode === 'login' ? '登录并继续' : '注册并登录'}
+                </button>
+              </div>
+            </div>
+          ) : null}
         </section>
       )}
 
@@ -1043,25 +1706,46 @@ function cellsFromImage(
 async function loadImageData(file: File): Promise<ImageData> {
   const imageUrl = URL.createObjectURL(file);
   try {
-    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error('Failed to load image'));
-      img.src = imageUrl;
-    });
-    const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(image.naturalWidth, image.naturalHeight));
-    const width = Math.max(1, Math.round(image.naturalWidth * scale));
-    const height = Math.max(1, Math.round(image.naturalHeight * scale));
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext('2d', { willReadFrequently: true });
-    if (!context) throw new Error('Canvas unsupported');
-    context.drawImage(image, 0, 0, width, height);
-    return context.getImageData(0, 0, width, height);
+    return await loadImageDataFromUrl(imageUrl);
   } finally {
     URL.revokeObjectURL(imageUrl);
   }
+}
+
+async function loadImageDataFromUrl(imageUrl: string): Promise<ImageData> {
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    if (!imageUrl.startsWith('data:') && !imageUrl.startsWith('blob:')) img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Failed to load image'));
+    img.src = imageUrl;
+  });
+  const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(image.naturalWidth, image.naturalHeight));
+  const width = Math.max(1, Math.round(image.naturalWidth * scale));
+  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  if (!context) throw new Error('Canvas unsupported');
+  context.drawImage(image, 0, 0, width, height);
+  return context.getImageData(0, 0, width, height);
+}
+
+function extractUrlFromText(text: string): string {
+  const match = text.match(/https?:\/\/[^\s"'<>]+/i);
+  return match?.[0]?.trim() ?? text.trim();
+}
+
+
+function safeImageFilename(filename: string, type: string): string {
+  const base = filename
+    .replace(/\.[a-z0-9]+$/i, '')
+    .replace(/[^\w.-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || 'xiaohongshu-drawing';
+  const extension = type.includes('jpeg') ? 'jpg' : type.includes('webp') ? 'webp' : 'png';
+  return `${base}.${extension}`;
 }
 
 function imageDataToUrl(imageData: ImageData): string {
@@ -1287,7 +1971,7 @@ function downloadBlob(filename: string, blob: Blob) {
 
 const quickTools: Array<{ title: string; description: string; icon: IconName; mode: WorkMode }> = [
   { title: '拼豆图纸', description: '上传图片生成色号清单', icon: 'spark', mode: 'bead' },
-  // { title: '敲豆豆图纸', description: '同一图纸导出 STL 模型', icon: 'layers', mode: 'peg' },
+  { title: '敲豆豆图纸', description: '同一图纸导出 STL 模型', icon: 'layers', mode: 'peg' },
 ];
 
 function normalizeGridSize(value: number): number {
