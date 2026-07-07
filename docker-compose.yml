@@ -20,6 +20,8 @@ services:
     environment:
       SQLITE_PATH: /data/qiaoqiaole.sqlite
       PORT: 3000
+      QIAOQIAOLE_USERNAME: ${QIAOQIAOLE_USERNAME:?QIAOQIAOLE_USERNAME is required}
+      QIAOQIAOLE_PASSWORD: ${QIAOQIAOLE_PASSWORD:?QIAOQIAOLE_PASSWORD is required}
       XHS_COOKIE: ${XHS_COOKIE:-}
     volumes:
       - qiaoqiaole_data:/data

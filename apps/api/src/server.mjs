@@ -22,6 +22,8 @@ loadEnvFile();
 
 const PORT = Number(process.env.PORT || 3000);
 const DB_PATH = process.env.SQLITE_PATH || '/tmp/qiaoqiaole.sqlite';
+const AUTH_USERNAME = requiredEnv('QIAOQIAOLE_USERNAME');
+const AUTH_PASSWORD = requiredEnv('QIAOQIAOLE_PASSWORD');
 const SESSION_DAYS = 30;
 const MAX_EXTRACT_IMAGE_BYTES = 20 * 1024 * 1024;
 const MARD_COLOR_RANGES = {
@@ -56,6 +58,12 @@ const server = http.createServer(async (request, response) => {
 server.listen(PORT, () => {
   console.log(`qiaoqiaole api listening on :${PORT}`);
 });
+
+function requiredEnv(name) {
+  const value = String(process.env[name] || '').trim();
+  if (!value) throw new Error(`${name} must be configured`);
+  return value;
+}
 
 async function openDatabase(filename) {
   try {
@@ -138,14 +146,21 @@ async function route(request, response) {
     return sendJson(response, 200, { ok: true });
   }
   if (request.method === 'POST' && url.pathname === '/api/auth/register') {
-    return register(request, response);
+    return sendJson(response, 410, { error: 'REGISTER_DISABLED', message: '注册功能已下线，请使用管理员提供的账号登录' });
   }
   if (request.method === 'POST' && url.pathname === '/api/auth/login') {
     return login(request, response);
   }
   if (request.method === 'POST' && url.pathname === '/api/xiaohongshu/extract') {
-    const useCookie = Boolean(process.env.XHS_COOKIE && getUserFromRequest(request));
+    const user = requireUser(request, response);
+    if (!user) return;
+    const useCookie = Boolean(process.env.XHS_COOKIE);
     return extractXiaohongshu(request, response, { useCookie });
+  }
+  if (request.method === 'POST' && url.pathname === '/api/xiaohongshu/image') {
+    const user = requireUser(request, response);
+    if (!user) return;
+    return downloadXiaohongshuImage(request, response);
   }
 
   const user = requireUser(request, response);
@@ -172,42 +187,48 @@ async function route(request, response) {
   sendJson(response, 404, { error: 'NOT_FOUND', message: '接口不存在' });
 }
 
-async function register(request, response) {
-  const body = await readJson(request);
-  const username = String(body.username || '').trim();
-  const password = String(body.password || '');
-  if (username.length < 2 || password.length < 4) {
-    return sendJson(response, 400, { error: 'INVALID_INPUT', message: '用户名至少2位，密码至少4位' });
-  }
-  if (getOne('SELECT id FROM users WHERE username = ?', [username])) {
-    return sendJson(response, 409, { error: 'USER_EXISTS', message: '用户已存在' });
-  }
-  const now = new Date().toISOString();
-  const id = randomUUID();
-  const salt = randomUUID();
-  db.run('INSERT INTO users (id, username, password_hash, salt, created_at) VALUES (?, ?, ?, ?, ?)', [
-    id,
-    username,
-    hashPassword(password, salt),
-    salt,
-    now,
-  ]);
-  const token = createSession(id);
-  await persist();
-  sendJson(response, 201, { token, user: { id, username } });
-}
-
 async function login(request, response) {
   const body = await readJson(request);
   const username = String(body.username || '').trim();
   const password = String(body.password || '');
-  const row = getOne('SELECT * FROM users WHERE username = ?', [username]);
-  if (!row || !verifyPassword(password, row.salt, row.password_hash)) {
+  if (username !== AUTH_USERNAME || password !== AUTH_PASSWORD) {
     return sendJson(response, 401, { error: 'INVALID_LOGIN', message: '用户名或密码错误' });
   }
+  const { row, resetAdminSessions } = ensureEnvUser(username, password);
+  migrateLegacyOwnership(row.id, { resetAdminSessions });
   const token = createSession(row.id);
   await persist();
   sendJson(response, 200, { token, user: { id: row.id, username: row.username } });
+}
+
+function ensureEnvUser(username, password) {
+  const now = new Date().toISOString();
+  const salt = randomUUID();
+  const passwordHash = hashPassword(password, salt);
+  const existing = getOne('SELECT * FROM users WHERE username = ?', [username]);
+  if (existing) {
+    if (verifyPassword(password, existing.salt, existing.password_hash)) {
+      return { row: existing, resetAdminSessions: false };
+    }
+    db.run('UPDATE users SET password_hash = ?, salt = ? WHERE id = ?', [passwordHash, salt, existing.id]);
+    return { row: { ...existing, password_hash: passwordHash, salt }, resetAdminSessions: true };
+  }
+  const id = randomUUID();
+  db.run('INSERT INTO users (id, username, password_hash, salt, created_at) VALUES (?, ?, ?, ?, ?)', [
+    id,
+    username,
+    passwordHash,
+    salt,
+    now,
+  ]);
+  return { row: { id, username }, resetAdminSessions: false };
+}
+
+function migrateLegacyOwnership(adminUserId, { resetAdminSessions = false } = {}) {
+  db.run('UPDATE warehouses SET user_id = ? WHERE user_id != ?', [adminUserId, adminUserId]);
+  db.run('UPDATE inventory_transactions SET user_id = ? WHERE user_id != ?', [adminUserId, adminUserId]);
+  db.run('DELETE FROM sessions WHERE user_id != ?', [adminUserId]);
+  if (resetAdminSessions) db.run('DELETE FROM sessions WHERE user_id = ?', [adminUserId]);
 }
 
 async function extractXiaohongshu(request, response, { useCookie = false } = {}) {
@@ -290,32 +311,20 @@ async function extractXiaohongshu(request, response, { useCookie = false } = {})
       return sendJson(response, 422, { error: 'IMAGE_NOT_FOUND', message: '未找到可提取的图片' });
     }
 
-    const images = [];
-    for (const currentImageUrl of imageUrls) {
-      try {
-        images.push({
-          imageUrl: currentImageUrl,
-          imageDataUrl: await fetchImageDataUrl(currentImageUrl),
-        });
-      } catch (error) {
-        logger.info('image_fetch_failed', {
-          url: redactUrl(currentImageUrl),
-          message: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-    if (images.length === 0) {
+    const reachableImageUrls = await filterReachableImageUrls(imageUrls, logger);
+    if (reachableImageUrls.length === 0) {
       throw new Error('小红书图片读取失败');
     }
-    const normalized = normalizeExtractedImagePayload({ imageUrl: images[0].imageUrl, imageDataUrl: images[0].imageDataUrl, title });
+
+    const images = reachableImageUrls.map((currentImageUrl) => ({ imageUrl: currentImageUrl }));
+    const normalized = normalizeExtractedImagePayload({ imageUrl: images[0].imageUrl, title });
     const payload = {
       imageUrl: normalized.imageUrl,
-      imageDataUrl: images[0].imageDataUrl,
       title: normalized.title,
       images,
     };
 
-    logger.info('extract_success', { imageCount: imageUrls.length, url: payload.imageUrl });
+    logger.info('extract_success', { imageCount: reachableImageUrls.length, rejectedImageCount: imageUrls.length - reachableImageUrls.length, url: payload.imageUrl });
     sendJson(response, 200, payload);
   } catch (error) {
     logger.error('extract_failed', { message: error instanceof Error ? error.message : String(error) });
@@ -323,11 +332,52 @@ async function extractXiaohongshu(request, response, { useCookie = false } = {})
   }
 }
 
+async function filterReachableImageUrls(imageUrls, logger) {
+  const checks = await Promise.all(imageUrls.map(async (imageUrl) => {
+    const reachable = await isFetchableImageUrl(imageUrl);
+    if (!reachable) logger.info('image_probe_failed', { url: redactUrl(imageUrl) });
+    return reachable ? imageUrl : '';
+  }));
+  return checks.filter(Boolean);
+}
+
+async function isFetchableImageUrl(imageUrl) {
+  try {
+    const response = await fetch(imageUrl, {
+      headers: imageRequestHeaders(),
+    });
+    if (!response.ok) return false;
+    const reader = response.body?.getReader?.();
+    if (reader) {
+      await reader.read();
+      await reader.cancel();
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function downloadXiaohongshuImage(request, response) {
+  const body = await readJson(request);
+  const imageUrl = String(body.imageUrl || '').trim();
+  if (!isSupportedXiaohongshuImageUrl(imageUrl)) {
+    return sendJson(response, 400, { error: 'INVALID_INPUT', message: '图片链接无效' });
+  }
+  try {
+    const imageDataUrl = await fetchImageDataUrl(imageUrl);
+    return sendJson(response, 200, { imageDataUrl });
+  } catch (error) {
+    return sendJson(response, 502, {
+      error: 'EXTRACT_FAILED',
+      message: error instanceof Error ? error.message : '小红书图片读取失败',
+    });
+  }
+}
+
 async function fetchImageDataUrl(imageUrl) {
   const imageResponse = await fetch(imageUrl, {
-    headers: {
-      accept: 'image/avif,image/webp,image/png,image/jpeg,*/*',
-    },
+    headers: imageRequestHeaders(),
   });
   if (!imageResponse.ok) {
     throw new Error(`小红书图片读取失败: ${imageResponse.status}`);
@@ -349,6 +399,21 @@ async function fetchImageDataUrl(imageUrl) {
   }
   const contentType = normalizeImageContentType(imageResponse.headers.get('content-type') || 'image/webp');
   return `data:${contentType};base64,${Buffer.concat(chunks).toString('base64')}`;
+}
+
+function imageRequestHeaders() {
+  return {
+    accept: 'image/avif,image/webp,image/png,image/jpeg,*/*',
+  };
+}
+
+function isSupportedXiaohongshuImageUrl(imageUrl) {
+  try {
+    const hostname = new URL(imageUrl).hostname;
+    return hostname === 'ci.xiaohongshu.com' || /(?:^|\.)xhscdn\.com$/i.test(hostname);
+  } catch {
+    return false;
+  }
 }
 
 function normalizeImageContentType(contentType) {
@@ -445,8 +510,8 @@ function getUserFromRequest(request) {
     `SELECT users.id, users.username
      FROM sessions
      JOIN users ON users.id = sessions.user_id
-     WHERE sessions.token = ? AND sessions.expires_at > ?`,
-    [token, new Date().toISOString()],
+     WHERE sessions.token = ? AND sessions.expires_at > ? AND users.username = ?`,
+    [token, new Date().toISOString(), AUTH_USERNAME],
   );
 }
 

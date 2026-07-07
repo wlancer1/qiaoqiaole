@@ -5,6 +5,14 @@ import path from 'node:path';
 test.use({ baseURL: 'http://127.0.0.1:5174' });
 
 const uploadFixture = path.resolve('image.png');
+const testUsername = 'admin';
+const testPassword = 'qiaoqiaole123';
+
+async function loginFromDialog(dialog: ReturnType<import('@playwright/test').Page['getByRole']>) {
+  await dialog.getByRole('textbox', { name: '用户名' }).fill(testUsername);
+  await dialog.getByLabel('密码').fill(testPassword);
+  await dialog.getByRole('button', { name: '登录并继续' }).click();
+}
 
 async function expectNoPageScrollbar(page: import('@playwright/test').Page) {
   const metrics = await page.locator('body').evaluate(() => ({
@@ -31,6 +39,46 @@ async function createBlankCanvasFromHome(page: import('@playwright/test').Page, 
   await expect(page.getByLabel('H5 画布编辑器')).toBeVisible();
 }
 
+async function pinchOpenSplitPreview(page: import('@playwright/test').Page) {
+  const target = page.locator('.split-image-container');
+  const box = await target.boundingBox();
+  expect(box).not.toBeNull();
+  const centerX = box!.x + box!.width / 2;
+  const centerY = box!.y + box!.height / 2;
+  const client = await page.context().newCDPSession(page);
+  await client.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 2 });
+  await client.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [
+      { x: centerX - 28, y: centerY, id: 1 },
+      { x: centerX + 28, y: centerY, id: 2 },
+    ],
+  });
+  await client.send('Input.dispatchTouchEvent', {
+    type: 'touchMove',
+    touchPoints: [
+      { x: centerX - 92, y: centerY, id: 1 },
+      { x: centerX + 92, y: centerY, id: 2 },
+    ],
+  });
+  await page.waitForTimeout(100);
+  await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+}
+
+function longSideFromSplitInfo(text: string) {
+  const numbers = text.match(/\d+/g)?.map(Number) ?? [];
+  return Math.max(...numbers);
+}
+
+async function readCssScale(page: import('@playwright/test').Page, selector: string) {
+  return page.locator(selector).evaluate((node) => {
+    const transform = getComputedStyle(node).transform;
+    if (!transform || transform === 'none') return 1;
+    const matrix = new DOMMatrixReadOnly(transform);
+    return matrix.a;
+  });
+}
+
 test('uploads from the H5 home page, configures split count, previews, then imports into canvas', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
@@ -48,7 +96,45 @@ test('uploads from the H5 home page, configures split count, previews, then impo
   await expectNoPageScrollbar(page);
   await expect(page.locator('.split-info-value')).toContainText('18');
   await expect(page.getByLabel('分割预览图')).toBeVisible();
+  await expect(page.locator('.split-preview-canvas')).toBeVisible();
+  await expect(page.locator('.split-image-zoom-wrapper')).toHaveCSS('touch-action', 'none');
+  await expect(page.locator('.split-image-zoom-content')).toHaveCSS('touch-action', 'none');
+  await expect(page.locator('.split-preview-canvas')).toHaveCSS('touch-action', 'none');
+  await expect.poll(async () => {
+    return page.locator('.split-preview-canvas').evaluate((node) => {
+      const canvas = node as HTMLCanvasElement;
+      if (canvas.width === 0 || canvas.height === 0) return false;
+      const context = canvas.getContext('2d');
+      if (!context) return false;
+      const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
+      let nonWhitePixels = 0;
+      for (let index = 0; index < data.length; index += 4 * 32) {
+        const red = data[index];
+        const green = data[index + 1];
+        const blue = data[index + 2];
+        const alpha = data[index + 3];
+        if (alpha > 0 && (red < 245 || green < 245 || blue < 245)) nonWhitePixels += 1;
+        if (nonWhitePixels > 8) return true;
+      }
+      return false;
+    });
+  }).toBe(true);
   await expect(page.locator('.split-red-line')).toHaveCount(0);
+
+  const splitTransformBefore = await page.locator('.split-image-zoom-content').evaluate((node) => getComputedStyle(node).transform);
+  await page.getByRole('button', { name: '放大分割预览' }).click();
+  await page.waitForTimeout(250);
+  const splitTransformAfter = await page.locator('.split-image-zoom-content').evaluate((node) => getComputedStyle(node).transform);
+  expect(splitTransformAfter).not.toBe(splitTransformBefore);
+
+  await page.getByRole('button', { name: '重置分割预览' }).click();
+  await page.waitForTimeout(250);
+  const touchScaleBefore = await readCssScale(page, '.split-image-zoom-content');
+  const splitInfoBeforePinch = await page.locator('.split-info-value').innerText();
+  const longSideBeforePinch = longSideFromSplitInfo(splitInfoBeforePinch);
+  await pinchOpenSplitPreview(page);
+  await expect.poll(async () => longSideFromSplitInfo(await page.locator('.split-info-value').innerText())).toBeGreaterThan(longSideBeforePinch);
+  await expect.poll(async () => readCssScale(page, '.split-image-zoom-content')).toBeCloseTo(touchScaleBefore, 1);
 
   await page.getByRole('slider', { name: '长边格数' }).fill('24');
   await expect(page.locator('.split-info-value')).toContainText('24');
@@ -125,6 +211,10 @@ test('opens upload drawing modal and extracts an image from a Xiaohongshu link',
   await expect(dialog.getByRole('button', { name: '选择图纸' })).toBeVisible();
 
   await dialog.getByRole('button', { name: '小红书提取' }).click();
+  const loginDialog = page.getByRole('dialog', { name: '登录面板' });
+  await expect(loginDialog).toBeVisible();
+  await loginFromDialog(loginDialog);
+  await expect(loginDialog).toHaveCount(0);
   await dialog.getByRole('textbox', { name: '小红书链接' }).fill('https://www.xiaohongshu.com/explore/test-note');
   await dialog.getByRole('button', { name: '提取图片', exact: true }).click();
 
@@ -152,7 +242,8 @@ test('keeps login validation messages visible outside the canvas', async ({ page
   await page.getByRole('button', { name: '登录' }).click();
   await page.getByRole('button', { name: '登录并继续' }).click();
 
-  await expect(page.getByRole('status')).toContainText('请输入用户名和至少4位密码。');
+  await expect(page.getByRole('status')).toContainText('请输入用户名和密码。');
+  await expect(page.getByRole('status')).toHaveCount(0, { timeout: 4000 });
 });
 
 test('ignores late Xiaohongshu extraction responses after closing the upload modal', async ({ page }) => {
@@ -178,6 +269,9 @@ test('ignores late Xiaohongshu extraction responses after closing the upload mod
   await page.getByRole('button', { name: '上传', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '上传图纸' });
   await dialog.getByRole('button', { name: '小红书提取' }).click();
+  const loginDialog = page.getByRole('dialog', { name: '登录面板' });
+  await expect(loginDialog).toBeVisible();
+  await loginFromDialog(loginDialog);
   await dialog.getByRole('textbox', { name: '小红书链接' }).fill('https://www.xiaohongshu.com/explore/test-note');
   await dialog.getByRole('button', { name: '提取图片', exact: true }).click();
   await expect(dialog.getByRole('button', { name: '提取中...' })).toBeVisible();
@@ -192,19 +286,30 @@ test('ignores late Xiaohongshu extraction responses after closing the upload mod
 
 test('lets users choose one image when Xiaohongshu extraction returns multiple note images', async ({ page }) => {
   const imageDataUrl = `data:image/png;base64,${fs.readFileSync(uploadFixture).toString('base64')}`;
+  let imageDownloadCount = 0;
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route('**/api/xiaohongshu/extract', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        imageDataUrl,
+        imageUrl: 'https://ci.xiaohongshu.com/note-1',
         title: '多图笔记',
         images: [
-          { imageDataUrl },
-          { imageDataUrl },
+          { imageUrl: 'https://ci.xiaohongshu.com/note-1' },
+          { imageUrl: 'https://ci.xiaohongshu.com/note-2' },
         ],
       }),
+    });
+  });
+  await page.route('**/api/xiaohongshu/image', async (route) => {
+    imageDownloadCount += 1;
+    const body = route.request().postDataJSON() as { imageUrl?: string };
+    expect(body.imageUrl).toBe('https://ci.xiaohongshu.com/note-2');
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ imageDataUrl }),
     });
   });
 
@@ -212,14 +317,19 @@ test('lets users choose one image when Xiaohongshu extraction returns multiple n
   await page.getByRole('button', { name: '上传', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '上传图纸' });
   await dialog.getByRole('button', { name: '小红书提取' }).click();
+  const loginDialog = page.getByRole('dialog', { name: '登录面板' });
+  await expect(loginDialog).toBeVisible();
+  await loginFromDialog(loginDialog);
   await dialog.getByRole('textbox', { name: '小红书链接' }).fill('https://www.xiaohongshu.com/explore/test-note');
   await dialog.getByRole('button', { name: '提取图片', exact: true }).click();
 
   await expect(dialog.getByText('选择笔记图片')).toBeVisible();
   await expect(dialog.getByRole('button', { name: '选择第 2 张小红书图片' })).toBeVisible();
-  await expect(dialog.locator('.xhs-image-grid img').first()).toHaveAttribute('src', /^data:image\/png;base64,/);
+  await expect(dialog.locator('.xhs-image-grid img').first()).toHaveAttribute('src', 'https://ci.xiaohongshu.com/note-1');
+  expect(imageDownloadCount).toBe(0);
   await dialog.getByRole('button', { name: '选择第 2 张小红书图片' }).click();
   await expect(page.getByRole('heading', { name: '分割' })).toBeVisible();
+  expect(imageDownloadCount).toBe(1);
 });
 
 test('shows STL export only in the peg board workflow', async ({ page }) => {
@@ -236,26 +346,23 @@ test('shows STL export only in the peg board workflow', async ({ page }) => {
 });
 
 test('logs in from profile and manages bead warehouse stock by count and grams', async ({ page }) => {
+  const warehouseName = `MARD 常用色仓库 ${Date.now()}`;
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
-  const username = `aaa_${Date.now()}`;
 
   await page.getByRole('button', { name: '我的' }).click();
   await page.getByRole('button', { name: /豆子仓库/ }).click();
   const loginDialog = page.getByRole('dialog', { name: '登录面板' });
   await expect(loginDialog).toBeVisible();
-  await loginDialog.getByRole('button', { name: '注册' }).click();
-  await loginDialog.getByRole('textbox', { name: '用户名' }).fill(username);
-  await loginDialog.getByLabel('密码').fill('123456');
-  await loginDialog.getByRole('button', { name: '注册并登录' }).click();
+  await loginFromDialog(loginDialog);
 
   await expect(page.getByLabel('豆子仓库')).toBeVisible();
   await page.getByRole('button', { name: '新建豆子仓库' }).click();
   const warehouseDialog = page.getByRole('dialog', { name: '新建豆子仓库' });
-  await warehouseDialog.getByRole('textbox', { name: '仓库名称' }).fill('MARD 常用色仓库');
+  await warehouseDialog.getByRole('textbox', { name: '仓库名称' }).fill(warehouseName);
   await warehouseDialog.getByRole('textbox', { name: '仓库备注' }).fill('E2E');
   await warehouseDialog.getByRole('button', { name: '创建仓库' }).click();
-  await expect(page.getByRole('button', { name: 'MARD 常用色仓库' })).toBeVisible();
+  await expect(page.getByRole('button', { name: warehouseName })).toBeVisible();
 
   await page.getByRole('button', { name: /^A1 库存 0 颗$/ }).click();
   await page.getByRole('button', { name: /^A2 库存 0 颗$/ }).click();
@@ -272,12 +379,11 @@ test('logs in from profile and manages bead warehouse stock by count and grams',
 });
 
 test('rejects invalid warehouse inventory mutations', async ({ request }) => {
-  const username = `api_${Date.now()}`;
-  const registerResponse = await request.post('/api/auth/register', {
-    data: { username, password: '123456' },
+  const loginResponse = await request.post('/api/auth/login', {
+    data: { username: testUsername, password: testPassword },
   });
-  expect(registerResponse.ok()).toBe(true);
-  const { token } = (await registerResponse.json()) as { token: string };
+  expect(loginResponse.ok()).toBe(true);
+  const { token } = (await loginResponse.json()) as { token: string };
 
   const warehouseResponse = await request.post('/api/warehouses', {
     headers: { authorization: `Bearer ${token}` },
@@ -328,6 +434,26 @@ test('rejects invalid warehouse inventory mutations', async ({ request }) => {
   const { inventory } = (await inventoryResponse.json()) as { inventory: Record<string, number> };
   expect(inventory.A1).toBe(5);
   expect(inventory.A2 ?? 0).toBe(0);
+});
+
+test('keeps existing admin sessions valid after another admin login', async ({ request }) => {
+  const firstLogin = await request.post('/api/auth/login', {
+    data: { username: testUsername, password: testPassword },
+  });
+  expect(firstLogin.ok()).toBe(true);
+  const { token: firstToken } = (await firstLogin.json()) as { token: string };
+
+  const secondLogin = await request.post('/api/auth/login', {
+    data: { username: testUsername, password: testPassword },
+  });
+  expect(secondLogin.ok()).toBe(true);
+
+  const meResponse = await request.get('/api/me', {
+    headers: { authorization: `Bearer ${firstToken}` },
+  });
+  expect(meResponse.ok()).toBe(true);
+  const { user } = (await meResponse.json()) as { user: { username: string } };
+  expect(user.username).toBe(testUsername);
 });
 
 test('rejects malformed API JSON bodies as client errors', async ({ request }) => {

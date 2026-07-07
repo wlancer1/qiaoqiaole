@@ -6,9 +6,9 @@ export default defineConfig({
   use: { trace: 'retain-on-failure' },
   webServer: [
     {
-      command: 'SQLITE_PATH=/tmp/qiaoqiaole-e2e.sqlite npm run dev:api',
+      command: 'SQLITE_PATH=/tmp/qiaoqiaole-e2e.sqlite QIAOQIAOLE_USERNAME=admin QIAOQIAOLE_PASSWORD=qiaoqiaole123 npm run dev:api',
       url: 'http://127.0.0.1:3000/api/health',
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
     },
     {
       command: 'npm run dev:web -- --port 5173',

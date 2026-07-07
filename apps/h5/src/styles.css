@@ -301,6 +301,7 @@ input:focus-visible {
   text-align: center;
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.1);
   pointer-events: none;
+  animation: app-status-in 180ms ease-out;
 }
 
 .upload-drawing-panel {
@@ -1747,6 +1748,29 @@ input:focus-visible {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
   pointer-events: none;
   z-index: 10;
+  animation: canvas-status-in 180ms ease-out;
+}
+
+@keyframes app-status-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes canvas-status-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
 }
 
 .canvas-zoom-controls {
@@ -2160,32 +2184,90 @@ input:focus-visible {
 
 /* Image preview area */
 .split-image-container {
+  position: relative;
   flex: 1;
   min-height: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   padding: 20px 20px 14px;
   overflow: hidden;
+  touch-action: none;
+}
+
+.split-image-zoom-wrapper {
+  width: 100% !important;
+  height: 100% !important;
+  overflow: hidden !important;
+  touch-action: none !important;
+  overscroll-behavior: contain;
+}
+
+.split-image-zoom-content {
+  width: 100% !important;
+  height: 100% !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  touch-action: none !important;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .split-image-frame {
   position: relative;
   width: 100%;
   max-width: 520px;
-  aspect-ratio: 1;
+  max-height: 100%;
   background: #ffffff;
   border-radius: 14px;
   overflow: hidden;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.16);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
-.split-image-frame img {
+.split-zoom-controls {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 5;
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 12px;
+  background: rgba(17, 19, 21, 0.72);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.split-zoom-controls button {
+  display: grid;
+  place-items: center;
+  min-width: 36px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 820;
+}
+
+.split-zoom-controls button:active {
+  transform: scale(0.96);
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.split-preview-canvas {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: contain;
   background: #fff;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 /* Grid overlay (split lines) */

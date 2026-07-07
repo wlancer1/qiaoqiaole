@@ -20,7 +20,6 @@ type CanvasKind = 'image' | 'grid';
 type CanvasTool = 'brush' | 'eraser' | 'fill' | 'eyedropper' | 'pan';
 type WorkMode = 'bead' | 'peg';
 type WarehouseUnit = 'count' | 'gram';
-type AuthMode = 'login' | 'register';
 type Warehouse = { id: string; name: string; remark: string; colorSystem: string };
 type XhsExtractedImage = { imageUrl?: string; imageDataUrl?: string };
 type IconName =
@@ -51,6 +50,8 @@ const WHITE_BEAD_COLOR = nearestPaletteColor(255, 255, 255, MARD_221_HEX);
 const BEADS_PER_GRAM = 15;
 const WAREHOUSE_LETTERS = ['全部', ...Array.from(new Set(MARD_221_COLORS.map((color) => color.code.charAt(0))))];
 const API_BASE = '/api';
+const STATUS_VISIBLE_MS = 2800;
+const STICKY_STATUS_PREFIXES = ['正在'];
 
 type UploadedSplitImage = {
   name: string;
@@ -78,7 +79,7 @@ function H5App() {
   const [selectedColor, setSelectedColor] = useState<string>(MARD_221_COLORS[0]?.hex ?? '#faf4c8');
   const [selectedCode, setSelectedCode] = useState<string>(MARD_221_COLORS[0]?.code ?? 'A1');
   const [tool, setTool] = useState<CanvasTool>('brush');
-  const [status, setStatus] = useState('设置画布尺寸或上传图片开始。');
+  const [status, setStatus] = useState('');
   const [history, setHistory] = useState<Cell[][]>([]);
   const [future, setFuture] = useState<Cell[][]>([]);
   const [showPaletteSearch, setShowPaletteSearch] = useState(false);
@@ -86,7 +87,6 @@ function H5App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loginName, setLoginName] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
-  const [authMode, setAuthMode] = useState<AuthMode>('login');
   const [authToken, setAuthToken] = useState('');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
@@ -142,6 +142,11 @@ function H5App() {
     isPinching: false,
     moved: false,
   });
+  const splitPinchRef = useRef({
+    active: false,
+    startDistance: 0,
+    startLongSide: DEFAULT_SPLIT_LONG_SIDE,
+  });
 
   useEffect(() => {
     if (canvasKind !== 'image') return;
@@ -163,6 +168,13 @@ function H5App() {
   useEffect(() => {
     activeWarehouseIdRef.current = activeWarehouseId;
   }, [activeWarehouseId]);
+
+  useEffect(() => {
+    if (!status) return;
+    if (STICKY_STATUS_PREFIXES.some((prefix) => status.startsWith(prefix))) return;
+    const timer = window.setTimeout(() => setStatus(''), STATUS_VISIBLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [status]);
 
   const totalBeads = useMemo(() => cells.filter((cell) => !cell.transparent).length, [cells]);
   const usedColors = useMemo(() => {
@@ -303,15 +315,15 @@ function H5App() {
   const submitLogin = async () => {
     const username = loginName.trim();
     const password = loginPassword;
-    if (!username || password.length < 4) {
-      setStatus('请输入用户名和至少4位密码。');
+    if (!username || !password) {
+      setStatus('请输入用户名和密码。');
       return;
     }
     const requestSeq = authRequestSeqRef.current + 1;
     authRequestSeqRef.current = requestSeq;
     setIsAuthenticating(true);
     try {
-      const payload = await requestApi<{ token: string; user: { username: string } }>(`/auth/${authMode}`, {
+      const payload = await requestApi<{ token: string; user: { username: string } }>('/auth/login', {
         method: 'POST',
         body: JSON.stringify({ username, password }),
       });
@@ -321,18 +333,14 @@ function H5App() {
       setIsLoggedIn(true);
       setShowLoginModal(false);
       setLoginPassword('');
-      setStatus(`${authMode === 'register' ? '注册并登录成功' : '登录成功'}：${payload.user.username}。`);
+      setStatus(`登录成功：${payload.user.username}。`);
       await loadWarehouses(payload.token);
       const pendingAuthAction = pendingAuthActionRef.current;
       pendingAuthActionRef.current = null;
       pendingAuthAction?.();
     } catch (error) {
       if (authRequestSeqRef.current !== requestSeq) return;
-      if (authMode === 'login') {
-        setStatus(error instanceof Error ? error.message : '登录失败');
-      } else {
-        setStatus(error instanceof Error ? error.message : '注册失败');
-      }
+      setStatus(error instanceof Error ? error.message : '登录失败');
     } finally {
       if (authRequestSeqRef.current === requestSeq) setIsAuthenticating(false);
     }
@@ -501,6 +509,30 @@ function H5App() {
     setStatus(`分割数量已调整为 ${nextSize.cols} x ${nextSize.rows}。`);
   };
 
+  const handleSplitTouchStart = (event: React.TouchEvent) => {
+    if (event.touches.length !== 2) return;
+    const distance = touchDistance(event.touches[0], event.touches[1]);
+    splitPinchRef.current = {
+      active: true,
+      startDistance: distance,
+      startLongSide: splitLongSide,
+    };
+  };
+
+  const handleSplitTouchMove = (event: React.TouchEvent) => {
+    if (!splitPinchRef.current.active || event.touches.length !== 2) return;
+    if (event.cancelable) event.preventDefault();
+    const distance = touchDistance(event.touches[0], event.touches[1]);
+    const delta = distance - splitPinchRef.current.startDistance;
+    const nextLongSide = splitPinchRef.current.startLongSide + Math.round(delta / 12);
+    updateSplitLongSide(nextLongSide);
+  };
+
+  const handleSplitTouchEnd = (event: React.TouchEvent) => {
+    if (event.touches.length >= 2) return;
+    splitPinchRef.current.active = false;
+  };
+
   const importSplitToCanvas = () => {
     if (!uploadedSplitImage) return;
     const nextCells = cellsFromImage(uploadedSplitImage.imageData, splitRows, splitCols, uploadedSplitImage.crop);
@@ -555,6 +587,10 @@ function H5App() {
   };
 
   const extractXiaohongshuImage = async () => {
+    if (!isLoggedIn) {
+      requireLogin(() => setShowXhsInput(true));
+      return;
+    }
     const url = extractUrlFromText(xhsLink);
     if (!url || !/xiaohongshu\.com|xhslink\.com/i.test(url)) {
       setStatus('请输入有效的小红书链接。');
@@ -590,8 +626,7 @@ function H5App() {
   };
 
   const importXhsImage = async (image: XhsExtractedImage, title = xhsExtractedTitle) => {
-    const source = image.imageDataUrl || image.imageUrl || '';
-    if (!source) {
+    if (!image.imageDataUrl && !image.imageUrl) {
       setStatus('未找到可用图片。');
       return;
     }
@@ -599,6 +634,14 @@ function H5App() {
     xhsImportSeqRef.current = requestSeq;
     try {
       setStatus('正在载入小红书图片。');
+      let source = image.imageDataUrl || '';
+      if (!source && image.imageUrl) {
+        const payload = await requestApi<{ imageDataUrl: string }>('/xiaohongshu/image', {
+          method: 'POST',
+          body: JSON.stringify({ imageUrl: image.imageUrl }),
+        });
+        source = payload.imageDataUrl;
+      }
       const imageData = await loadImageDataFromUrl(source);
       if (xhsImportSeqRef.current !== requestSeq || !showUploadModal) return;
       loadSplitImage(safeImageFilename(title || 'xiaohongshu-drawing', 'image/png'), imageData);
@@ -800,11 +843,49 @@ function H5App() {
         </header>
 
         <section className="split-main">
-          <div className="split-image-container" aria-label="分割预览图">
-            <div className="split-image-frame">
-              <img src={uploadedSplitImage.url} alt="待分割图片" />
-              <GridOverlay rows={splitRows} cols={splitCols} />
-            </div>
+          <div
+            className="split-image-container"
+            aria-label="分割预览图"
+            onTouchStartCapture={handleSplitTouchStart}
+            onTouchMoveCapture={handleSplitTouchMove}
+            onTouchEndCapture={handleSplitTouchEnd}
+            onTouchCancelCapture={handleSplitTouchEnd}
+          >
+            <TransformWrapper
+              initialScale={1}
+              minScale={0.6}
+              maxScale={8}
+              centerOnInit={true}
+              doubleClick={{ disabled: true }}
+              wheel={{ step: 0.12 }}
+              pinch={{ disabled: true }}
+            >
+              {({ zoomIn, zoomOut, resetTransform }) => (
+                <>
+                  <TransformComponent
+                    wrapperClass="split-image-zoom-wrapper"
+                    contentClass="split-image-zoom-content"
+                  >
+                    <div
+                      className="split-image-frame"
+                      style={{ aspectRatio: `${uploadedSplitImage.crop.width} / ${uploadedSplitImage.crop.height}` }}
+                    >
+                      <SplitPreviewCanvas
+                        imageData={uploadedSplitImage.imageData}
+                        crop={uploadedSplitImage.crop}
+                        rows={splitRows}
+                        cols={splitCols}
+                      />
+                    </div>
+                  </TransformComponent>
+                  <div className="split-zoom-controls" aria-label="分割预览缩放控制">
+                    <button aria-label="缩小分割预览" onClick={() => zoomOut(0.3)}>−</button>
+                    <button aria-label="重置分割预览" onClick={() => resetTransform()}>1:1</button>
+                    <button aria-label="放大分割预览" onClick={() => zoomIn(0.3)}>+</button>
+                  </div>
+                </>
+              )}
+            </TransformWrapper>
           </div>
 
           <div className="split-controls-card">
@@ -1011,7 +1092,9 @@ function H5App() {
                 </>
               )}
             </TransformWrapper>
-            <p className="canvas-status">{status}</p>
+            {status ? (
+              <p className="canvas-status" role="status" aria-live="polite">{status}</p>
+            ) : null}
           </section>
         </section>
 
@@ -1076,7 +1159,9 @@ function H5App() {
   if (screen === 'warehouse') {
     return (
       <main className="warehouse-page" aria-label="豆子仓库">
-        <p className="app-status" role="status" aria-live="polite">{status}</p>
+        {status ? (
+          <p className="app-status" role="status" aria-live="polite">{status}</p>
+        ) : null}
         {/* Topbar */}
         <header className="split-topbar wh-topbar">
           <button className="split-icon-btn" aria-label="返回" onClick={() => { setActiveTab('profile'); setScreen('home'); }}>
@@ -1122,7 +1207,7 @@ function H5App() {
               {warehouse.name}
             </button>
           ))}
-          <button className="wh-create-warehouse-btn" onClick={() => setShowWarehouseCreateModal(true)}>新建仓库</button>
+          <button className="wh-create-warehouse-btn" onClick={() => setShowWarehouseCreateModal(true)}>新建豆子仓库</button>
         </div>
 
         {warehouses.length === 0 ? (
@@ -1272,7 +1357,9 @@ function H5App() {
   return (
     <main className="h5-home-shell">
       <input ref={fileInputRef} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void handleUpload(event.target.files?.[0])} />
-      {/* <p className="app-status" role="status" aria-live="polite">{status}</p> */}
+      {status ? (
+        <p className="app-status" role="status" aria-live="polite">{status}</p>
+      ) : null}
       {activeTab === 'home' ? (
         <section className="home-page">
           {/* Header */}
@@ -1371,7 +1458,7 @@ function H5App() {
                   </button>
                   <button
                     className={showXhsInput ? 'upload-source-option active' : 'upload-source-option'}
-                    onClick={() => setShowXhsInput(true)}
+                    onClick={() => requireLogin(() => setShowXhsInput(true))}
                   >
                     <span className="upload-source-icon"><Icon name="spark" /></span>
                     <span>
@@ -1417,6 +1504,46 @@ function H5App() {
               </div>
             </div>
           ) : null}
+          {showLoginModal ? (
+            <div className="home-create-modal" role="dialog" aria-label="登录面板">
+              <div className="home-create-panel">
+                <div className="home-create-head">
+                  <strong>登录</strong>
+                  <button aria-label="关闭登录" onClick={() => {
+                    authRequestSeqRef.current += 1;
+                    setIsAuthenticating(false);
+                    pendingAuthActionRef.current = null;
+                    setShowLoginModal(false);
+                  }}>关闭</button>
+                </div>
+                <div className="login-form">
+                  <label>
+                    <span>用户名</span>
+                    <input
+                      type="text"
+                      aria-label="用户名"
+                      placeholder="输入用户名"
+                      value={loginName}
+                      onChange={(event) => setLoginName(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>密码</span>
+                    <input
+                      type="password"
+                      aria-label="密码"
+                      placeholder="输入密码"
+                      value={loginPassword}
+                      onChange={(event) => setLoginPassword(event.target.value)}
+                    />
+                  </label>
+                </div>
+                <button className="home-create-submit" onClick={() => void submitLogin()} disabled={isAuthenticating}>
+                  {isAuthenticating ? '处理中...' : '登录并继续'}
+                </button>
+              </div>
+            </div>
+          ) : null}
         </section>
       ) : (
         <section className="profile-page">
@@ -1457,17 +1584,13 @@ function H5App() {
             <div className="home-create-modal" role="dialog" aria-label="登录面板">
               <div className="home-create-panel">
                 <div className="home-create-head">
-                  <strong>{authMode === 'login' ? '登录' : '注册'}</strong>
+                  <strong>登录</strong>
                   <button aria-label="关闭登录" onClick={() => {
                     authRequestSeqRef.current += 1;
                     setIsAuthenticating(false);
                     pendingAuthActionRef.current = null;
                     setShowLoginModal(false);
                   }}>关闭</button>
-                </div>
-                <div className="auth-mode-tabs" role="group" aria-label="账号操作">
-                  <button className={authMode === 'login' ? 'active' : ''} onClick={() => setAuthMode('login')}>登录</button>
-                  <button className={authMode === 'register' ? 'active' : ''} onClick={() => setAuthMode('register')}>注册</button>
                 </div>
                 <div className="login-form">
                   <label>
@@ -1485,14 +1608,14 @@ function H5App() {
                     <input
                       type="password"
                       aria-label="密码"
-                      placeholder="至少4位"
+                      placeholder="输入密码"
                       value={loginPassword}
                       onChange={(event) => setLoginPassword(event.target.value)}
                     />
                   </label>
                 </div>
                 <button className="home-create-submit" onClick={() => void submitLogin()} disabled={isAuthenticating}>
-                  {isAuthenticating ? '处理中...' : authMode === 'login' ? '登录并继续' : '注册并登录'}
+                  {isAuthenticating ? '处理中...' : '登录并继续'}
                 </button>
               </div>
             </div>
@@ -1653,6 +1776,103 @@ function GridOverlay({ rows, cols, className = '' }: { rows: number; cols: numbe
       ))}
     </div>
   );
+}
+
+function touchDistance(first: React.Touch, second: React.Touch): number {
+  return Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY);
+}
+
+function SplitPreviewCanvas({
+  imageData,
+  crop,
+  rows,
+  cols,
+}: {
+  imageData: ImageData;
+  crop: { x: number; y: number; width: number; height: number };
+  rows: number;
+  cols: number;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const sourceCanvas = document.createElement('canvas');
+    sourceCanvas.width = imageData.width;
+    sourceCanvas.height = imageData.height;
+    const sourceContext = sourceCanvas.getContext('2d');
+    if (!sourceContext) return;
+    sourceContext.putImageData(imageData, 0, 0);
+
+    let frameId = 0;
+    const draw = () => {
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+
+      const pixelRatio = Math.max(1, window.devicePixelRatio || 1);
+      const width = Math.max(1, Math.round(rect.width * pixelRatio));
+      const height = Math.max(1, Math.round(rect.height * pixelRatio));
+      if (canvas.width !== width) canvas.width = width;
+      if (canvas.height !== height) canvas.height = height;
+
+      const context = canvas.getContext('2d');
+      if (!context) return;
+      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      context.clearRect(0, 0, rect.width, rect.height);
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, rect.width, rect.height);
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = 'high';
+      context.drawImage(sourceCanvas, crop.x, crop.y, crop.width, crop.height, 0, 0, rect.width, rect.height);
+
+      context.lineWidth = 1;
+      context.strokeStyle = 'rgba(32, 142, 220, 0.46)';
+      context.beginPath();
+      for (let x = 1; x < cols; x += 1) {
+        const px = (x / cols) * rect.width;
+        context.moveTo(px, 0);
+        context.lineTo(px, rect.height);
+      }
+      for (let y = 1; y < rows; y += 1) {
+        const py = (y / rows) * rect.height;
+        context.moveTo(0, py);
+        context.lineTo(rect.width, py);
+      }
+      context.stroke();
+
+      context.lineWidth = 1.5;
+      context.strokeStyle = 'rgba(20, 105, 180, 0.72)';
+      context.beginPath();
+      for (let x = 5; x < cols; x += 5) {
+        const px = (x / cols) * rect.width;
+        context.moveTo(px, 0);
+        context.lineTo(px, rect.height);
+      }
+      for (let y = 5; y < rows; y += 5) {
+        const py = (y / rows) * rect.height;
+        context.moveTo(0, py);
+        context.lineTo(rect.width, py);
+      }
+      context.stroke();
+    };
+
+    const scheduleDraw = () => {
+      cancelAnimationFrame(frameId);
+      frameId = requestAnimationFrame(draw);
+    };
+
+    scheduleDraw();
+    const resizeObserver = new ResizeObserver(scheduleDraw);
+    resizeObserver.observe(canvas);
+    return () => {
+      cancelAnimationFrame(frameId);
+      resizeObserver.disconnect();
+    };
+  }, [cols, crop.height, crop.width, crop.x, crop.y, imageData, rows]);
+
+  return <canvas ref={canvasRef} className="split-preview-canvas" aria-label="切割画布预览" />;
 }
 
 function createBlankCells(rows: number, cols: number): Cell[] {
