@@ -9,7 +9,7 @@ services:
     depends_on:
       - api
     ports:
-      - "9999:80"
+      - "8843:80"
   api:
     build:
       context: .
