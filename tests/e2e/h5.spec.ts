@@ -325,7 +325,8 @@ test('lets users choose one image when Xiaohongshu extraction returns multiple n
 
   await expect(dialog.getByText('选择笔记图片')).toBeVisible();
   await expect(dialog.getByRole('button', { name: '选择第 2 张小红书图片' })).toBeVisible();
-  await expect(dialog.locator('.xhs-image-grid img').first()).toHaveAttribute('src', 'https://ci.xiaohongshu.com/note-1');
+  await expect(dialog.locator('.xhs-image-grid img').first()).toHaveAttribute('src', /\/api\/xiaohongshu\/proxy\?url=/);
+  await expect(dialog.locator('.xhs-image-grid img').first()).not.toHaveAttribute('src', /^https:\/\/ci\.xiaohongshu\.com/);
   expect(imageDownloadCount).toBe(0);
   await dialog.getByRole('button', { name: '选择第 2 张小红书图片' }).click();
   await expect(page.getByRole('heading', { name: '分割' })).toBeVisible();

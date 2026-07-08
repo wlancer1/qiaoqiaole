@@ -1492,7 +1492,7 @@ function H5App() {
                               aria-label={`选择第 ${index + 1} 张小红书图片`}
                               onClick={() => void importXhsImage(image)}
                             >
-                              <img src={image.imageDataUrl || image.imageUrl} alt="" />
+                              <img src={xhsPreviewSrc(image)} alt="" />
                               <span>{index + 1}</span>
                             </button>
                           ))}
@@ -1957,6 +1957,11 @@ function extractUrlFromText(text: string): string {
   return match?.[0]?.trim() ?? text.trim();
 }
 
+function xhsPreviewSrc(image: XhsExtractedImage): string {
+  if (image.imageDataUrl) return image.imageDataUrl;
+  if (!image.imageUrl) return '';
+  return `${API_BASE}/xiaohongshu/proxy?url=${encodeURIComponent(image.imageUrl)}`;
+}
 
 function safeImageFilename(filename: string, type: string): string {
   const base = filename

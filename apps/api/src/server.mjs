@@ -162,6 +162,9 @@ async function route(request, response) {
     if (!user) return;
     return downloadXiaohongshuImage(request, response);
   }
+  if (request.method === 'GET' && url.pathname === '/api/xiaohongshu/proxy') {
+    return proxyXiaohongshuImage(url, response);
+  }
 
   const user = requireUser(request, response);
   if (!user) return;
@@ -375,6 +378,48 @@ async function downloadXiaohongshuImage(request, response) {
   }
 }
 
+async function proxyXiaohongshuImage(url, response) {
+  const imageUrl = String(url.searchParams.get('url') || '').trim();
+  if (!isSupportedXiaohongshuImageUrl(imageUrl)) {
+    return sendJson(response, 400, { error: 'INVALID_INPUT', message: '图片链接无效' });
+  }
+  try {
+    const imageResponse = await fetch(imageUrl, {
+      headers: imageRequestHeaders(),
+    });
+    if (!imageResponse.ok) {
+      return sendJson(response, 502, { error: 'EXTRACT_FAILED', message: `小红书图片读取失败: ${imageResponse.status}` });
+    }
+    const contentLength = Number(imageResponse.headers.get('content-length') || 0);
+    if (contentLength > MAX_EXTRACT_IMAGE_BYTES) {
+      return sendJson(response, 413, { error: 'IMAGE_TOO_LARGE', message: '小红书图片超过大小限制' });
+    }
+    const contentType = normalizeImageContentType(imageResponse.headers.get('content-type') || 'image/webp');
+    response.writeHead(200, {
+      ...corsHeaders(),
+      'content-type': contentType,
+      'cache-control': 'public, max-age=86400',
+    });
+
+    let totalBytes = 0;
+    for await (const chunk of imageResponse.body) {
+      const buffer = Buffer.from(chunk);
+      totalBytes += buffer.length;
+      if (totalBytes > MAX_EXTRACT_IMAGE_BYTES) {
+        response.destroy(new Error('小红书图片超过大小限制'));
+        return;
+      }
+      response.write(buffer);
+    }
+    response.end();
+  } catch {
+    if (!response.headersSent) {
+      return sendJson(response, 502, { error: 'EXTRACT_FAILED', message: '小红书图片读取失败' });
+    }
+    response.destroy();
+  }
+}
+
 async function fetchImageDataUrl(imageUrl) {
   const imageResponse = await fetch(imageUrl, {
     headers: imageRequestHeaders(),
@@ -404,6 +449,8 @@ async function fetchImageDataUrl(imageUrl) {
 function imageRequestHeaders() {
   return {
     accept: 'image/avif,image/webp,image/png,image/jpeg,*/*',
+    referer: 'https://www.xiaohongshu.com/',
+    'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
   };
 }
 
