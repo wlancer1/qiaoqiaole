@@ -21,7 +21,7 @@ The alignment screen uses a white, compact step header inspired by the reference
 - A centered four-step progress indicator with step two active and step one complete.
 - A blue “确认对齐” action on the right that invokes the current next-step behavior.
 
-The existing title-based split header remains available to quick-split mode. Browser address bars and bottom browser controls are not recreated.
+The existing title-based split header remains available to quick-split mode. In alignment mode, the back button returns to quick split while retaining the uploaded image and current quick-split values; the existing quick-split back button continues to return home. Browser address bars and bottom browser controls are not recreated.
 
 ### Alignment Canvas
 
@@ -30,7 +30,7 @@ The alignment canvas sits on a dark checkerboard work surface and uses most of t
 - Remove the white rounded-card appearance and heavy frame shadow in alignment mode.
 - Keep the drawing’s aspect ratio and center it within the available stage.
 - Render the alignment grid as thin blue lines.
-- Add a bottom-right dark status pill showing the current grid spacing and view scale.
+- Add a bottom-right dark status pill showing the current grid spacing to two decimals and a fixed `100%` view scale, for example `12.64px · 100%`.
 - Add a compact instruction row beneath the stage with a blue dot and the text “请使用九宫格将网格与图纸格子对齐”.
 
 ### Direct-Manipulation Handles
@@ -43,6 +43,7 @@ Use the selected “B” treatment: reference-like visuals with a larger invisib
 - The “移动” label attaches to the left edge of the move ring.
 - The “缩放” label attaches to the right edge of the scale ring.
 - Initial positions remain proportional to the drawing area, approximately 22%/26% for move and 52%/58% for scale, so they remain meaningful across image aspect ratios.
+- Positions continue to derive from the current grid offset and cell size, so the rings follow the manipulated grid instead of remaining permanently fixed. Their visible ring, side label, and 48px hit area are clamped inside the drawing frame with at least a 4px inset, including for wide and tall images.
 - The visual ring must not be implemented as a filled button or use the current 56px presentation.
 
 ### Bottom Controls
@@ -51,6 +52,8 @@ In alignment mode, replace the current mode switch, large readout card, and larg
 
 - Left column: “微移” label and a compact four-direction nudge pad.
 - Right column: “调整格子大小” label, decrement control, numeric grid-spacing readout, and increment control, followed by a two-line helper description.
+- The center of the nudge pad shows the normalized `X` and `Y` offsets on two lines so the existing offset feedback is retained without a separate readout card.
+- The helper copy is exactly “调整网格线间距” on the first line and “使其与图纸格线对齐” on the second line.
 - Controls keep 44px minimum touch targets even when their visual surfaces are smaller.
 - The controls may scroll internally on short screens, but the page must not overflow horizontally.
 
@@ -62,6 +65,8 @@ Quick-split retains its current controls because the requested reference describ
 2. Entering “对格子” displays the redesigned alignment composition without resetting the current alignment values.
 3. Dragging the move handle converts screen deltas into source-image deltas through `alignDeltaFromScreen`, then updates the two offsets.
 4. Dragging the scale handle converts the drag delta into cell-size changes through `updateAlignCellSize`.
+   - Dragging toward the bottom or right increases grid spacing; dragging toward the top or left decreases it.
+   - When the axes oppose each other, the axis with the larger absolute delta determines the signed change. This avoids cancellation from the existing `(deltaX + deltaY) / 2` rule.
 5. Handle movement continues to be coalesced with `requestAnimationFrame` via the existing deferred commit path.
 6. Direction buttons nudge the offsets. Minus and plus buttons adjust the cell size.
 7. “确认对齐” uses the existing transition to split preview, and import continues to call `cellsFromAlignedGrid`.
@@ -75,6 +80,7 @@ No new alignment model, persistence layer, API request, or asset is introduced.
 - No horizontal document overflow at supported widths.
 - All actionable controls expose an accessible name and a touch target of at least 44px; the two direct-manipulation handles use a 48px hit area.
 - Pointer and touch dragging remain supported.
+- Alignment mode fixes the `TransformWrapper` view at 100%: pinch, wheel zoom, and background panning are disabled. Quick-split keeps its existing transform behavior.
 - `touch-action: none` is limited to the interactive canvas/handle region so the control panel can scroll when necessary.
 - Respect safe-area insets at the top and bottom.
 - Desktop remains usable with a mouse, but no separate desktop visual redesign is required.
@@ -94,10 +100,15 @@ Add or update Playwright coverage before production styling changes:
 - Assert the alignment screen exposes the step header and “确认对齐” action.
 - Assert visible handle rings are approximately 36px while their interactive buttons are at least 48px.
 - Assert move and scale labels are horizontally attached on the expected side of their rings.
+- Assert the handle ring, label, and hit target remain within the drawing frame for both wide and tall uploaded fixtures.
 - Assert the dark work surface, instruction row, status pill, nudge controls, and grid-spacing controls are present in alignment mode.
 - Assert the document has no horizontal overflow at 320×720, 390×844, and 430×932.
+- At 320×720, assert the alignment control region can scroll vertically while the document remains horizontally contained.
+- Assert switching back from alignment returns to quick split without navigating home, and re-entering alignment retains the alignment values.
+- Assert alignment mode reports `100%` and disables transform zoom/pan while quick split retains the existing transform behavior.
+- Add a scale-drag regression assertion for opposing-axis motion so the dominant axis changes grid spacing instead of cancelling out.
 - Retain the existing behavioral test proving drag-to-move, drag-to-scale, preview, and import still work.
-- Run the focused H5 Playwright test, the H5 build, and a fresh mobile screenshot comparison before completion.
+- Run the focused H5 Playwright test, the H5 build, and a fresh screenshot at 390×844 before completion. Compare the screenshot against the supplied reference’s web-content region, accepting antialiasing differences but requiring the following measurable bounds: 36px ± 2px visible rings, at least 48px hit targets, horizontally attached labels, no white rounded image card, and no horizontal overflow.
 
 ## Files and Boundaries
 
