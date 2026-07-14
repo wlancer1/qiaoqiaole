@@ -43,7 +43,7 @@ Use the selected “B” treatment: reference-like visuals with a larger invisib
 - The “移动” label attaches to the left edge of the move ring.
 - The “缩放” label attaches to the right edge of the scale ring.
 - Initial positions remain proportional to the drawing area, approximately 22%/26% for move and 52%/58% for scale, so they remain meaningful across image aspect ratios.
-- Positions continue to derive from the current grid offset and cell size, so the rings follow the manipulated grid instead of remaining permanently fixed. Their visible ring, side label, and 48px hit area are clamped inside the drawing frame with at least a 4px inset, including for wide and tall images.
+- Ring centers continue to derive from the current grid offset and cell size using the existing source-space formula: move at `offset + 2 × cellSize` and scale at `offset + 4 × cellSize`, converted to frame percentages. In normal aspect ratios, center positions are clamped to keep the 36px visible ring inside the drawing frame. For a frame dimension smaller than 36px, that axis falls back to the frame midpoint. The side labels and 48px transparent hit areas may extend from the drawing onto the checkerboard work surface, matching the reference, and alignment mode must not clip them at the drawing-frame edge.
 - The visual ring must not be implemented as a filled button or use the current 56px presentation.
 
 ### Bottom Controls
@@ -52,7 +52,7 @@ In alignment mode, replace the current mode switch, large readout card, and larg
 
 - Left column: “微移” label and a compact four-direction nudge pad.
 - Right column: “调整格子大小” label, decrement control, numeric grid-spacing readout, and increment control, followed by a two-line helper description.
-- The center of the nudge pad shows the normalized `X` and `Y` offsets on two lines so the existing offset feedback is retained without a separate readout card.
+- The center of the nudge pad shows the normalized offsets as `X 0.0` and `Y 0.0` on two lines, using one decimal place, so the existing offset feedback is retained without a separate readout card.
 - The helper copy is exactly “调整网格线间距” on the first line and “使其与图纸格线对齐” on the second line.
 - Controls keep 44px minimum touch targets even when their visual surfaces are smaller.
 - The controls may scroll internally on short screens, but the page must not overflow horizontally.
@@ -81,6 +81,7 @@ No new alignment model, persistence layer, API request, or asset is introduced.
 - All actionable controls expose an accessible name and a touch target of at least 44px; the two direct-manipulation handles use a 48px hit area.
 - Pointer and touch dragging remain supported.
 - Alignment mode fixes the `TransformWrapper` view at 100%: pinch, wheel zoom, and background panning are disabled. Quick-split keeps its existing transform behavior.
+- Switching between quick split and alignment remounts/resets the transform view to 100%, avoiding hidden zoom state across the two different interaction modes.
 - `touch-action: none` is limited to the interactive canvas/handle region so the control panel can scroll when necessary.
 - Respect safe-area insets at the top and bottom.
 - Desktop remains usable with a mouse, but no separate desktop visual redesign is required.
@@ -100,7 +101,7 @@ Add or update Playwright coverage before production styling changes:
 - Assert the alignment screen exposes the step header and “确认对齐” action.
 - Assert visible handle rings are approximately 36px while their interactive buttons are at least 48px.
 - Assert move and scale labels are horizontally attached on the expected side of their rings.
-- Assert the handle ring, label, and hit target remain within the drawing frame for both wide and tall uploaded fixtures.
+- Assert the visible ring center remains mapped to the drawing while the label and hit target remain visible and usable on the checkerboard for both wide and tall uploaded fixtures.
 - Assert the dark work surface, instruction row, status pill, nudge controls, and grid-spacing controls are present in alignment mode.
 - Assert the document has no horizontal overflow at 320×720, 390×844, and 430×932.
 - At 320×720, assert the alignment control region can scroll vertically while the document remains horizontally contained.
