@@ -42,8 +42,8 @@ Use the selected “B” treatment: reference-like visuals with a larger invisib
 - Visual treatment: translucent center, neutral inner ring/crosshair, blue outer halo, restrained shadow.
 - The “移动” label attaches to the left edge of the move ring.
 - The “缩放” label attaches to the right edge of the scale ring.
-- Initial positions remain proportional to the drawing area, approximately 22%/26% for move and 52%/58% for scale, so they remain meaningful across image aspect ratios.
-- Ring centers continue to derive from the current grid offset and cell size using the existing source-space formula: move at `offset + 2 × cellSize` and scale at `offset + 4 × cellSize`, converted to frame percentages. In normal aspect ratios, center positions are clamped to keep the 36px visible ring inside the drawing frame. For a frame dimension smaller than 36px, that axis falls back to the frame midpoint. The side labels and 48px transparent hit areas may extend from the drawing onto the checkerboard work surface, matching the reference, and alignment mode must not clip them at the drawing-frame edge.
+- Ring centers derive from the current grid offset and cell size in source space, then convert to frame percentages. The move center uses `X = offsetX + 4 × cellSize` and `Y = offsetY + 5 × cellSize`; the scale center uses `X = offsetX + 9 × cellSize` and `Y = offsetY + 10 × cellSize`. On the default 18-cell square this produces approximately 22%/28% and 50%/56%, closely matching the reference while still following grid changes.
+- In normal aspect ratios, center positions are clamped to keep the 36px visible ring inside the drawing frame. For a frame dimension smaller than 36px, that axis falls back to the frame midpoint. The side labels and 48px transparent hit areas may extend from the drawing onto the checkerboard work surface, matching the reference, and alignment mode must not clip them at the drawing-frame edge.
 - The visual ring must not be implemented as a filled button or use the current 56px presentation.
 
 ### Bottom Controls
