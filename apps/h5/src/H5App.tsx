@@ -19,6 +19,9 @@ type AppScreen = 'home' | 'profile' | 'split' | 'split-preview' | 'canvas' | 'wa
 type CanvasKind = 'image' | 'grid';
 type CanvasTool = 'brush' | 'eraser' | 'fill' | 'eyedropper' | 'pan';
 type WorkMode = 'bead' | 'peg';
+type SplitMode = 'quick' | 'align';
+type GridHandle = 'move' | 'scale';
+type GridHandlePosition = { x: number; y: number };
 type WarehouseUnit = 'count' | 'gram';
 type Warehouse = { id: string; name: string; remark: string; colorSystem: string };
 type XhsExtractedImage = { imageUrl?: string; imageDataUrl?: string };
@@ -59,6 +62,18 @@ type UploadedSplitImage = {
   crop: { x: number; y: number; width: number; height: number };
   url: string;
 };
+
+type AlignedGrid = {
+  rows: number;
+  cols: number;
+  cellSize: number;
+  offsetX: number;
+  offsetY: number;
+  cropWidth: number;
+  cropHeight: number;
+};
+
+const GRID_CONTROL_CELLS = 6;
 
 const canvasTools: Array<{ tool: CanvasTool; label: string; icon: IconName }> = [
   { tool: 'brush', label: '画笔工具', icon: 'brush' },
@@ -102,9 +117,14 @@ function H5App() {
   const [warehouseAmount, setWarehouseAmount] = useState('100');
   const [beadStock, setBeadStock] = useState<Record<string, number>>({});
   const [uploadedSplitImage, setUploadedSplitImage] = useState<UploadedSplitImage | null>(null);
+  const [splitMode, setSplitMode] = useState<SplitMode>('quick');
   const [splitLongSide, setSplitLongSide] = useState(DEFAULT_SPLIT_LONG_SIDE);
   const [splitRows, setSplitRows] = useState(DEFAULT_SPLIT_LONG_SIDE);
   const [splitCols, setSplitCols] = useState(DEFAULT_SPLIT_LONG_SIDE);
+  const [alignCellSize, setAlignCellSize] = useState(1);
+  const [alignOffsetX, setAlignOffsetX] = useState(0);
+  const [alignOffsetY, setAlignOffsetY] = useState(0);
+  const [gridFrameOrigin, setGridFrameOrigin] = useState<GridHandlePosition>({ x: 40, y: 40 });
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showXhsInput, setShowXhsInput] = useState(false);
   const [xhsLink, setXhsLink] = useState('');
@@ -147,6 +167,20 @@ function H5App() {
     startDistance: 0,
     startLongSide: DEFAULT_SPLIT_LONG_SIDE,
   });
+  const splitGridHandleDragRef = useRef<{
+    handle: GridHandle | null;
+    lastX: number;
+    lastY: number;
+  }>({
+    handle: null,
+    lastX: 0,
+    lastY: 0,
+  });
+  const splitLiveLongSideRef = useRef(DEFAULT_SPLIT_LONG_SIDE);
+  const splitLiveAlignCellSizeRef = useRef(1);
+  const splitLiveAlignOffsetRef = useRef({ x: 0, y: 0 });
+  const splitLiveGridFrameOriginRef = useRef<GridHandlePosition>({ x: 40, y: 40 });
+  const splitAlignFrameRef = useRef(0);
 
   useEffect(() => {
     if (canvasKind !== 'image') return;
@@ -170,6 +204,26 @@ function H5App() {
   }, [activeWarehouseId]);
 
   useEffect(() => {
+    splitLiveLongSideRef.current = splitLongSide;
+  }, [splitLongSide]);
+
+  useEffect(() => {
+    splitLiveAlignCellSizeRef.current = alignCellSize;
+  }, [alignCellSize]);
+
+  useEffect(() => {
+    splitLiveAlignOffsetRef.current = { x: alignOffsetX, y: alignOffsetY };
+  }, [alignOffsetX, alignOffsetY]);
+
+  useEffect(() => {
+    splitLiveGridFrameOriginRef.current = gridFrameOrigin;
+  }, [gridFrameOrigin]);
+
+  useEffect(() => () => {
+    if (splitAlignFrameRef.current) cancelAnimationFrame(splitAlignFrameRef.current);
+  }, []);
+
+  useEffect(() => {
     if (!status) return;
     if (STICKY_STATUS_PREFIXES.some((prefix) => status.startsWith(prefix))) return;
     const timer = window.setTimeout(() => setStatus(''), STATUS_VISIBLE_MS);
@@ -184,11 +238,21 @@ function H5App() {
     }
     return [...counts.entries()].sort((left, right) => right[1] - left[1]);
   }, [cells]);
+  const alignedGrid = useMemo(() => (
+    uploadedSplitImage
+      ? gridSizeFromAlignment(uploadedSplitImage.crop, alignCellSize, alignOffsetX, alignOffsetY)
+      : { rows: splitRows, cols: splitCols, offsetX: 0, offsetY: 0, cellSize: 1, cropWidth: 1, cropHeight: 1 }
+  ), [alignCellSize, alignOffsetX, alignOffsetY, splitCols, splitRows, uploadedSplitImage]);
+  const activeSplitRows = splitMode === 'align' ? alignedGrid.rows : splitRows;
+  const activeSplitCols = splitMode === 'align' ? alignedGrid.cols : splitCols;
   const splitPreviewCells = useMemo(() => {
     if (screen !== 'split-preview') return [];
     if (!uploadedSplitImage) return [];
+    if (splitMode === 'align') {
+      return cellsFromAlignedGrid(uploadedSplitImage.imageData, alignedGrid, uploadedSplitImage.crop);
+    }
     return cellsFromImage(uploadedSplitImage.imageData, splitRows, splitCols, uploadedSplitImage.crop);
-  }, [screen, splitCols, splitRows, uploadedSplitImage]);
+  }, [alignedGrid, screen, splitCols, splitMode, splitRows, uploadedSplitImage]);
   const filteredPaletteColors = useMemo(() => {
     const query = paletteQuery.trim().toLowerCase();
     if (!query) return MARD_221_COLORS;
@@ -501,6 +565,8 @@ function H5App() {
 
   const updateSplitLongSide = (value: number) => {
     const nextLongSide = Math.max(4, Math.min(MAX_AUTO_GRID_SIDE, Math.round(value)));
+    if (nextLongSide === splitLiveLongSideRef.current) return;
+    splitLiveLongSideRef.current = nextLongSide;
     setSplitLongSide(nextLongSide);
     if (!uploadedSplitImage) return;
     const nextSize = gridSizeFromImageBounds(uploadedSplitImage.crop.width, uploadedSplitImage.crop.height, nextLongSide);
@@ -509,7 +575,136 @@ function H5App() {
     setStatus(`分割数量已调整为 ${nextSize.cols} x ${nextSize.rows}。`);
   };
 
+  const resetAlignment = () => {
+    if (!uploadedSplitImage) return;
+    const nextCellSize = initialAlignCellSize(uploadedSplitImage.crop, splitCols, splitRows);
+    const nextOffset = centeredAlignmentOffset(uploadedSplitImage.crop, nextCellSize);
+    splitLiveAlignCellSizeRef.current = nextCellSize;
+    splitLiveAlignOffsetRef.current = nextOffset;
+    const nextOrigin = centeredGridControlOrigin(uploadedSplitImage.crop, nextCellSize, nextOffset);
+    splitLiveGridFrameOriginRef.current = nextOrigin;
+    setAlignCellSize(nextCellSize);
+    setAlignOffsetX(nextOffset.x);
+    setAlignOffsetY(nextOffset.y);
+    setGridFrameOrigin(nextOrigin);
+    setStatus('已重置对格子参数。');
+  };
+
+  const scheduleAlignStateCommit = () => {
+    if (splitAlignFrameRef.current) return;
+    splitAlignFrameRef.current = requestAnimationFrame(() => {
+      splitAlignFrameRef.current = 0;
+      setAlignCellSize(splitLiveAlignCellSizeRef.current);
+      setAlignOffsetX(splitLiveAlignOffsetRef.current.x);
+      setAlignOffsetY(splitLiveAlignOffsetRef.current.y);
+    });
+  };
+
+  const updateAlignCellSize = (value: number, options: { deferred?: boolean; silent?: boolean } = {}) => {
+    if (!uploadedSplitImage) return;
+    const { crop } = uploadedSplitImage;
+    const origin = splitLiveGridFrameOriginRef.current;
+    const originX = (origin.x / 100) * crop.width;
+    const originY = (origin.y / 100) * crop.height;
+    const maxCellSize = Math.max(1, Math.min(
+      (crop.width - originX) / GRID_CONTROL_CELLS,
+      (crop.height - originY) / GRID_CONTROL_CELLS,
+    ));
+    const nextCellSize = Math.max(1, Math.min(maxCellSize, value));
+    splitLiveAlignCellSizeRef.current = nextCellSize;
+    splitLiveAlignOffsetRef.current = { x: originX, y: originY };
+    if (options.deferred) {
+      scheduleAlignStateCommit();
+    } else {
+      setAlignCellSize(nextCellSize);
+      setAlignOffsetX(originX);
+      setAlignOffsetY(originY);
+    }
+    if (!options.silent) setStatus(`格距已调整为 ${nextCellSize.toFixed(1)}px。`);
+  };
+
+  const nudgeAlignOffset = (deltaX: number, deltaY: number, options: { deferred?: boolean } = {}) => {
+    const nextOffset = {
+      x: splitLiveAlignOffsetRef.current.x + deltaX,
+      y: splitLiveAlignOffsetRef.current.y + deltaY,
+    };
+    splitLiveAlignOffsetRef.current = nextOffset;
+    if (options.deferred) {
+      scheduleAlignStateCommit();
+      return;
+    }
+    setAlignOffsetX(nextOffset.x);
+    setAlignOffsetY(nextOffset.y);
+  };
+
+  const alignDeltaFromScreen = (deltaX: number, deltaY: number, target: Element) => {
+    if (!uploadedSplitImage) return { x: 0, y: 0 };
+    const frame = target.closest('.split-image-frame') ?? target.querySelector('.split-image-frame') ?? target;
+    const rect = frame.getBoundingClientRect();
+    return {
+      x: rect.width > 0 ? (deltaX / rect.width) * uploadedSplitImage.crop.width : 0,
+      y: rect.height > 0 ? (deltaY / rect.height) * uploadedSplitImage.crop.height : 0,
+    };
+  };
+
+  const gridPointFromScreen = (clientX: number, clientY: number, target: Element) => {
+    if (!uploadedSplitImage) return { x: 0, y: 0 };
+    const frame = target.closest('.split-image-frame') ?? target.querySelector('.split-image-frame') ?? target;
+    const rect = frame.getBoundingClientRect();
+    return {
+      x: rect.width > 0 ? ((clientX - rect.left) / rect.width) * uploadedSplitImage.crop.width : 0,
+      y: rect.height > 0 ? ((clientY - rect.top) / rect.height) * uploadedSplitImage.crop.height : 0,
+    };
+  };
+
+  const moveGridControlFrame = (deltaX: number, deltaY: number, options: { deferred?: boolean } = {}) => {
+    if (!uploadedSplitImage) return;
+    const { crop } = uploadedSplitImage;
+    const currentOrigin = splitLiveGridFrameOriginRef.current;
+    const currentX = (currentOrigin.x / 100) * crop.width;
+    const currentY = (currentOrigin.y / 100) * crop.height;
+    const frameSize = splitLiveAlignCellSizeRef.current * GRID_CONTROL_CELLS;
+    const nextX = Math.max(0, Math.min(Math.max(0, crop.width - frameSize), currentX + deltaX));
+    const nextY = Math.max(0, Math.min(Math.max(0, crop.height - frameSize), currentY + deltaY));
+    const nextOrigin = {
+      x: (nextX / crop.width) * 100,
+      y: (nextY / crop.height) * 100,
+    };
+    splitLiveGridFrameOriginRef.current = nextOrigin;
+    setGridFrameOrigin(nextOrigin);
+    nudgeAlignOffset(nextX - currentX, nextY - currentY, options);
+  };
+
+  const startGridHandleDrag = (handle: GridHandle, clientX: number, clientY: number) => {
+    splitGridHandleDragRef.current = {
+      handle,
+      lastX: clientX,
+      lastY: clientY,
+    };
+  };
+
+  const continueGridHandleDrag = (clientX: number, clientY: number, target: Element) => {
+    const current = splitGridHandleDragRef.current;
+    const activeHandle = current.handle;
+    if (!activeHandle) return;
+    if (activeHandle === 'move') {
+      const delta = alignDeltaFromScreen(clientX - current.lastX, clientY - current.lastY, target);
+      moveGridControlFrame(delta.x, delta.y, { deferred: true });
+    } else {
+      if (!uploadedSplitImage) return;
+      const point = gridPointFromScreen(clientX, clientY, target);
+      const origin = splitLiveGridFrameOriginRef.current;
+      const originX = (origin.x / 100) * uploadedSplitImage.crop.width;
+      const originY = (origin.y / 100) * uploadedSplitImage.crop.height;
+      const nextCellSize = ((point.x - originX) + (point.y - originY)) / (GRID_CONTROL_CELLS * 2);
+      updateAlignCellSize(nextCellSize, { deferred: true, silent: true });
+    }
+    splitGridHandleDragRef.current.lastX = clientX;
+    splitGridHandleDragRef.current.lastY = clientY;
+  };
+
   const handleSplitTouchStart = (event: React.TouchEvent) => {
+    if (splitMode === 'align') return;
     if (event.touches.length !== 2) return;
     const distance = touchDistance(event.touches[0], event.touches[1]);
     splitPinchRef.current = {
@@ -520,6 +715,7 @@ function H5App() {
   };
 
   const handleSplitTouchMove = (event: React.TouchEvent) => {
+    if (splitMode === 'align') return;
     if (!splitPinchRef.current.active || event.touches.length !== 2) return;
     if (event.cancelable) event.preventDefault();
     const distance = touchDistance(event.touches[0], event.touches[1]);
@@ -531,15 +727,45 @@ function H5App() {
   const handleSplitTouchEnd = (event: React.TouchEvent) => {
     if (event.touches.length >= 2) return;
     splitPinchRef.current.active = false;
+    splitGridHandleDragRef.current.handle = null;
+  };
+
+  const endGridHandleDrag = () => {
+    splitGridHandleDragRef.current.handle = null;
+  };
+
+  const handleGridHandlePointerDown = (handle: GridHandle, event: React.PointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    startGridHandleDrag(handle, event.clientX, event.clientY);
+  };
+
+  const handleGridHandlePointerMove = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!splitGridHandleDragRef.current.handle) return;
+    event.preventDefault();
+    event.stopPropagation();
+    continueGridHandleDrag(event.clientX, event.clientY, event.currentTarget);
+  };
+
+  const handleGridHandlePointerEnd = (event: React.PointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    endGridHandleDrag();
   };
 
   const importSplitToCanvas = () => {
     if (!uploadedSplitImage) return;
-    const nextCells = cellsFromImage(uploadedSplitImage.imageData, splitRows, splitCols, uploadedSplitImage.crop);
-    setRows(splitRows);
-    setCols(splitCols);
-    setCfgRows(splitRows);
-    setCfgCols(splitCols);
+    const nextCells = splitMode === 'align'
+      ? cellsFromAlignedGrid(uploadedSplitImage.imageData, alignedGrid, uploadedSplitImage.crop)
+      : cellsFromImage(uploadedSplitImage.imageData, splitRows, splitCols, uploadedSplitImage.crop);
+    setRows(activeSplitRows);
+    setCols(activeSplitCols);
+    setCfgRows(activeSplitRows);
+    setCfgCols(activeSplitCols);
     setCells(nextCells);
     setCanvasKind('image');
     setHistory([]);
@@ -548,7 +774,7 @@ function H5App() {
     setPanX(0);
     setPanY(0);
     setScreen('canvas');
-    setStatus(`已导入画布：${splitCols} x ${splitRows}。`);
+    setStatus(`已导入画布：${activeSplitCols} x ${activeSplitRows}。`);
   };
 
   const loadSplitImage = (name: string, imageData: ImageData) => {
@@ -556,9 +782,20 @@ function H5App() {
     const url = imageDataToUrl(imageData);
     const { rows: defaultRows, cols: defaultCols } = gridSizeFromImageBounds(crop.width, crop.height, DEFAULT_SPLIT_LONG_SIDE);
     setUploadedSplitImage({ name, imageData, crop, url });
+    setSplitMode('quick');
     setSplitLongSide(DEFAULT_SPLIT_LONG_SIDE);
     setSplitRows(defaultRows);
     setSplitCols(defaultCols);
+    const defaultCellSize = initialAlignCellSize(crop, defaultCols, defaultRows);
+    const defaultOffset = centeredAlignmentOffset(crop, defaultCellSize);
+    splitLiveAlignCellSizeRef.current = defaultCellSize;
+    splitLiveAlignOffsetRef.current = defaultOffset;
+    const defaultFrameOrigin = centeredGridControlOrigin(crop, defaultCellSize, defaultOffset);
+    splitLiveGridFrameOriginRef.current = defaultFrameOrigin;
+    setAlignCellSize(defaultCellSize);
+    setAlignOffsetX(defaultOffset.x);
+    setAlignOffsetY(defaultOffset.y);
+    setGridFrameOrigin(defaultFrameOrigin);
     setHistory([]);
     setFuture([]);
     setScreen('split');
@@ -831,7 +1068,7 @@ function H5App() {
 
   if (screen === 'split' && uploadedSplitImage) {
     return (
-      <main className="split-page">
+      <main className={`split-page split-page--${splitMode}`}>
         <header className="split-topbar">
           <button className="split-icon-btn" aria-label="返回首页" onClick={() => setScreen('home')}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -859,8 +1096,9 @@ function H5App() {
               doubleClick={{ disabled: true }}
               wheel={{ step: 0.12 }}
               pinch={{ disabled: true }}
+              panning={{ disabled: splitMode === 'align' }}
             >
-              {({ zoomIn, zoomOut, resetTransform }) => (
+              {() => (
                 <>
                   <TransformComponent
                     wrapperClass="split-image-zoom-wrapper"
@@ -873,50 +1111,89 @@ function H5App() {
                       <SplitPreviewCanvas
                         imageData={uploadedSplitImage.imageData}
                         crop={uploadedSplitImage.crop}
-                        rows={splitRows}
-                        cols={splitCols}
+                        rows={activeSplitRows}
+                        cols={activeSplitCols}
+                        alignment={splitMode === 'align' ? alignedGrid : undefined}
                       />
+                      {splitMode === 'align' ? (
+                        <GridAlignmentHandles
+                          grid={alignedGrid}
+                          origin={gridFrameOrigin}
+                          onPointerDown={handleGridHandlePointerDown}
+                          onPointerMove={handleGridHandlePointerMove}
+                          onPointerEnd={handleGridHandlePointerEnd}
+                        />
+                      ) : null}
                     </div>
                   </TransformComponent>
-                  <div className="split-zoom-controls" aria-label="分割预览缩放控制">
-                    <button aria-label="缩小分割预览" onClick={() => zoomOut(0.3)}>−</button>
-                    <button aria-label="重置分割预览" onClick={() => resetTransform()}>1:1</button>
-                    <button aria-label="放大分割预览" onClick={() => zoomIn(0.3)}>+</button>
-                  </div>
                 </>
               )}
             </TransformWrapper>
           </div>
 
           <div className="split-controls-card">
+            <div className="split-mode-switch" aria-label="分割模式">
+              <button
+                className={splitMode === 'quick' ? 'active' : ''}
+                onClick={() => setSplitMode('quick')}
+              >快速分割</button>
+              <button
+                className={splitMode === 'align' ? 'active' : ''}
+                onClick={() => setSplitMode('align')}
+              >对格子</button>
+            </div>
             <div className="split-info-row">
               <span className="split-info-label">分割数量</span>
-              <span className="split-info-value">{splitCols} × {splitRows}</span>
+              <span className="split-info-value">{activeSplitCols} × {activeSplitRows}</span>
             </div>
-            <div className="split-slider-row">
-              <button
-                className="split-step-btn"
-                aria-label="减少格数"
-                onClick={() => updateSplitLongSide(splitLongSide - 1)}
-              >−</button>
-              <div className="split-slider-wrap">
-                <input
-                  aria-label="长边格数"
-                  type="range"
-                  min="4"
-                  max="80"
-                  value={splitLongSide}
-                  className="split-range"
-                  onChange={(event) => updateSplitLongSide(Number(event.target.value))}
-                />
-                <span className="split-slider-value">长边 {splitLongSide} 格</span>
+            {splitMode === 'quick' ? (
+              <div className="split-slider-row">
+                <button
+                  className="split-step-btn"
+                  aria-label="减少格数"
+                  onClick={() => updateSplitLongSide(splitLongSide - 1)}
+                >−</button>
+                <div className="split-slider-wrap">
+                  <input
+                    aria-label="长边格数"
+                    type="range"
+                    min="4"
+                    max="80"
+                    value={splitLongSide}
+                    className="split-range"
+                    onChange={(event) => updateSplitLongSide(Number(event.target.value))}
+                  />
+                  <span className="split-slider-value">长边 {splitLongSide} 格</span>
+                </div>
+                <button
+                  className="split-step-btn"
+                  aria-label="增加格数"
+                  onClick={() => updateSplitLongSide(splitLongSide + 1)}
+                >+</button>
               </div>
-              <button
-                className="split-step-btn"
-                aria-label="增加格数"
-                onClick={() => updateSplitLongSide(splitLongSide + 1)}
-              >+</button>
-            </div>
+            ) : (
+              <div className="split-align-panel">
+                <div className="split-align-readout">
+                  格距 {alignedGrid.cellSize.toFixed(1)}px｜偏移 X {alignedGrid.offsetX.toFixed(1)} Y {alignedGrid.offsetY.toFixed(1)}
+                </div>
+                <div className="split-align-controls" aria-label="对格子微调">
+                  <div className="split-nudge-pad" aria-label="移动网格">
+                    <button aria-label="上移网格" onClick={() => moveGridControlFrame(0, -1)}>↑</button>
+                    <span className="split-nudge-center">移动</span>
+                    <button aria-label="下移网格" onClick={() => moveGridControlFrame(0, 1)}>↓</button>
+                    <button aria-label="左移网格" onClick={() => moveGridControlFrame(-1, 0)}>←</button>
+                    <span />
+                    <button aria-label="右移网格" onClick={() => moveGridControlFrame(1, 0)}>→</button>
+                  </div>
+                  <div className="split-cell-actions" aria-label="缩放网格">
+                    <button aria-label="减小格距" onClick={() => updateAlignCellSize(alignCellSize - 1)}>− 格距</button>
+                    <div className="split-cell-size-value">{alignedGrid.cellSize.toFixed(2)} px / 格</div>
+                    <button aria-label="增大格距" onClick={() => updateAlignCellSize(alignCellSize + 1)}>+ 格距</button>
+                    <button aria-label="重置对格" onClick={resetAlignment}>重置</button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </section>
       </main>
@@ -937,7 +1214,7 @@ function H5App() {
         </header>
 
         <div className="split-preview-meta">
-          <span className="split-meta-chip">{splitCols} × {splitRows} 格</span>
+          <span className="split-meta-chip">{activeSplitCols} × {activeSplitRows} 格</span>
           <span className="split-meta-desc">确认效果后点击「导入画布」继续编辑。</span>
         </div>
 
@@ -1782,29 +2059,117 @@ function touchDistance(first: React.Touch, second: React.Touch): number {
   return Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY);
 }
 
+function GridAlignmentHandles({
+  grid,
+  origin,
+  onPointerDown,
+  onPointerMove,
+  onPointerEnd,
+}: {
+  grid: AlignedGrid;
+  origin: GridHandlePosition;
+  onPointerDown: (handle: GridHandle, event: React.PointerEvent<HTMLButtonElement>) => void;
+  onPointerMove: (event: React.PointerEvent<HTMLButtonElement>) => void;
+  onPointerEnd: (event: React.PointerEvent<HTMLButtonElement>) => void;
+}) {
+  const frameWidth = (grid.cellSize * GRID_CONTROL_CELLS / Math.max(1, grid.cropWidth)) * 100;
+  const frameHeight = (grid.cellSize * GRID_CONTROL_CELLS / Math.max(1, grid.cropHeight)) * 100;
+  const handles: Array<{ id: GridHandle; label: string; text: string; className: string }> = [
+    { id: 'move', label: '按住移动网格', text: '移动', className: 'move' },
+    { id: 'scale', label: '按住缩放网格', text: '缩放', className: 'scale' },
+  ];
+
+  return (
+    <div className="split-grid-handle-layer" aria-hidden={false}>
+      <div
+        className="split-grid-control-frame"
+        data-grid-span={GRID_CONTROL_CELLS}
+        style={{
+          left: `${origin.x}%`,
+          top: `${origin.y}%`,
+          width: `${frameWidth}%`,
+          height: `${frameHeight}%`,
+        }}
+      />
+      {handles.map((handle) => (
+        <button
+          key={handle.id}
+          type="button"
+          aria-label={handle.label}
+          className={`split-grid-handle ${handle.className}`}
+          style={{
+            left: `${origin.x + (handle.id === 'scale' ? frameWidth : 0)}%`,
+            top: `${origin.y + (handle.id === 'scale' ? frameHeight : 0)}%`,
+          }}
+          onPointerDown={(event) => onPointerDown(handle.id, event)}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerEnd}
+          onPointerCancel={onPointerEnd}
+        >
+          <span className="split-grid-handle-ring" aria-hidden="true" />
+          <span className="split-grid-handle-label">{handle.text}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function drawAlignedGridLines(
+  context: CanvasRenderingContext2D,
+  rect: { width: number; height: number },
+  startX: number,
+  startY: number,
+  stepX: number,
+  stepY: number,
+  majorEvery = 1,
+) {
+  if (stepX <= 0 || stepY <= 0) return;
+  let firstColumn = Math.floor(-startX / stepX);
+  while (startX + firstColumn * stepX > 0) firstColumn -= 1;
+  for (let column = firstColumn; startX + column * stepX <= rect.width; column += 1) {
+    if (column % majorEvery !== 0) continue;
+    const px = startX + column * stepX;
+    context.moveTo(px, 0);
+    context.lineTo(px, rect.height);
+  }
+
+  let firstRow = Math.floor(-startY / stepY);
+  while (startY + firstRow * stepY > 0) firstRow -= 1;
+  for (let row = firstRow; startY + row * stepY <= rect.height; row += 1) {
+    if (row % majorEvery !== 0) continue;
+    const py = startY + row * stepY;
+    context.moveTo(0, py);
+    context.lineTo(rect.width, py);
+  }
+}
+
 function SplitPreviewCanvas({
   imageData,
   crop,
   rows,
   cols,
+  alignment,
 }: {
   imageData: ImageData;
   crop: { x: number; y: number; width: number; height: number };
   rows: number;
   cols: number;
+  alignment?: AlignedGrid;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const sourceCanvas = useMemo(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = imageData.width;
+    canvas.height = imageData.height;
+    const context = canvas.getContext('2d');
+    if (!context) return null;
+    context.putImageData(imageData, 0, 0);
+    return canvas;
+  }, [imageData]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const sourceCanvas = document.createElement('canvas');
-    sourceCanvas.width = imageData.width;
-    sourceCanvas.height = imageData.height;
-    const sourceContext = sourceCanvas.getContext('2d');
-    if (!sourceContext) return;
-    sourceContext.putImageData(imageData, 0, 0);
+    if (!canvas || !sourceCanvas) return;
 
     let frameId = 0;
     const draw = () => {
@@ -1830,30 +2195,46 @@ function SplitPreviewCanvas({
       context.lineWidth = 1;
       context.strokeStyle = 'rgba(32, 142, 220, 0.46)';
       context.beginPath();
-      for (let x = 1; x < cols; x += 1) {
-        const px = (x / cols) * rect.width;
-        context.moveTo(px, 0);
-        context.lineTo(px, rect.height);
-      }
-      for (let y = 1; y < rows; y += 1) {
-        const py = (y / rows) * rect.height;
-        context.moveTo(0, py);
-        context.lineTo(rect.width, py);
+      if (alignment) {
+        const startX = (alignment.offsetX / crop.width) * rect.width;
+        const startY = (alignment.offsetY / crop.height) * rect.height;
+        const stepX = (alignment.cellSize / crop.width) * rect.width;
+        const stepY = (alignment.cellSize / crop.height) * rect.height;
+        drawAlignedGridLines(context, rect, startX, startY, stepX, stepY);
+      } else {
+        for (let x = 1; x < cols; x += 1) {
+          const px = (x / cols) * rect.width;
+          context.moveTo(px, 0);
+          context.lineTo(px, rect.height);
+        }
+        for (let y = 1; y < rows; y += 1) {
+          const py = (y / rows) * rect.height;
+          context.moveTo(0, py);
+          context.lineTo(rect.width, py);
+        }
       }
       context.stroke();
 
       context.lineWidth = 1.5;
       context.strokeStyle = 'rgba(20, 105, 180, 0.72)';
       context.beginPath();
-      for (let x = 5; x < cols; x += 5) {
-        const px = (x / cols) * rect.width;
-        context.moveTo(px, 0);
-        context.lineTo(px, rect.height);
-      }
-      for (let y = 5; y < rows; y += 5) {
-        const py = (y / rows) * rect.height;
-        context.moveTo(0, py);
-        context.lineTo(rect.width, py);
+      if (alignment) {
+        const startX = (alignment.offsetX / crop.width) * rect.width;
+        const startY = (alignment.offsetY / crop.height) * rect.height;
+        const stepX = (alignment.cellSize / crop.width) * rect.width;
+        const stepY = (alignment.cellSize / crop.height) * rect.height;
+        drawAlignedGridLines(context, rect, startX, startY, stepX, stepY, 5);
+      } else {
+        for (let x = 5; x < cols; x += 5) {
+          const px = (x / cols) * rect.width;
+          context.moveTo(px, 0);
+          context.lineTo(px, rect.height);
+        }
+        for (let y = 5; y < rows; y += 5) {
+          const py = (y / rows) * rect.height;
+          context.moveTo(0, py);
+          context.lineTo(rect.width, py);
+        }
       }
       context.stroke();
     };
@@ -1870,7 +2251,7 @@ function SplitPreviewCanvas({
       cancelAnimationFrame(frameId);
       resizeObserver.disconnect();
     };
-  }, [cols, crop.height, crop.width, crop.x, crop.y, imageData, rows]);
+  }, [alignment, cols, crop.height, crop.width, crop.x, crop.y, rows, sourceCanvas]);
 
   return <canvas ref={canvasRef} className="split-preview-canvas" aria-label="切割画布预览" />;
 }
@@ -1895,6 +2276,74 @@ function gridSizeFromImageBounds(width: number, height: number, longSide = MAX_A
   };
 }
 
+function initialAlignCellSize(crop: { width: number; height: number }, cols: number, rows: number): number {
+  const requestedSize = Math.max(crop.width / Math.max(1, cols), crop.height / Math.max(1, rows));
+  return Math.max(1, Math.min(
+    requestedSize,
+    crop.width / GRID_CONTROL_CELLS,
+    crop.height / GRID_CONTROL_CELLS,
+  ));
+}
+
+function centeredAlignmentOffset(crop: { width: number; height: number }, cellSize: number) {
+  const safeCellSize = Math.max(1, cellSize);
+  const cols = Math.max(1, Math.floor(crop.width / safeCellSize));
+  const rows = Math.max(1, Math.floor(crop.height / safeCellSize));
+  return {
+    x: Math.max(0, (crop.width - cols * safeCellSize) / 2),
+    y: Math.max(0, (crop.height - rows * safeCellSize) / 2),
+  };
+}
+
+function centeredGridControlOrigin(
+  crop: { width: number; height: number },
+  cellSize: number,
+  offset: { x: number; y: number },
+): GridHandlePosition {
+  const frameSize = cellSize * GRID_CONTROL_CELLS;
+  const centeredGridLine = (size: number, gridOffset: number) => {
+    const maxStart = Math.max(0, size - frameSize);
+    const minIndex = Math.ceil(-gridOffset / cellSize);
+    const maxIndex = Math.floor((maxStart - gridOffset) / cellSize);
+    if (maxIndex < minIndex) return maxStart / 2;
+    const target = maxStart / 2;
+    const targetIndex = Math.round((target - gridOffset) / cellSize);
+    const index = Math.max(minIndex, Math.min(maxIndex, targetIndex));
+    return gridOffset + index * cellSize;
+  };
+  return {
+    x: (centeredGridLine(crop.width, offset.x) / Math.max(1, crop.width)) * 100,
+    y: (centeredGridLine(crop.height, offset.y) / Math.max(1, crop.height)) * 100,
+  };
+}
+
+function normalizeGridOffset(offset: number, cellSize: number): number {
+  const safeCellSize = Math.max(1, cellSize);
+  return ((offset % safeCellSize) + safeCellSize) % safeCellSize;
+}
+
+function gridSizeFromAlignment(
+  crop: { width: number; height: number },
+  cellSize: number,
+  offsetX: number,
+  offsetY: number,
+): AlignedGrid {
+  const safeCellSize = Math.max(1, cellSize);
+  const normalizedOffsetX = normalizeGridOffset(offsetX, safeCellSize);
+  const normalizedOffsetY = normalizeGridOffset(offsetY, safeCellSize);
+  const safeOffsetX = Math.min(normalizedOffsetX, Math.max(0, crop.width - safeCellSize));
+  const safeOffsetY = Math.min(normalizedOffsetY, Math.max(0, crop.height - safeCellSize));
+  return {
+    cols: Math.max(1, Math.floor((crop.width - safeOffsetX) / safeCellSize)),
+    rows: Math.max(1, Math.floor((crop.height - safeOffsetY) / safeCellSize)),
+    cellSize: safeCellSize,
+    offsetX: safeOffsetX,
+    offsetY: safeOffsetY,
+    cropWidth: crop.width,
+    cropHeight: crop.height,
+  };
+}
+
 function cellsFromImage(
   imageData: ImageData,
   rows: number,
@@ -1914,6 +2363,33 @@ function cellsFromImage(
         const py = Math.min(
           imageData.height - 1,
           Math.floor(crop.y + ((y + (sy + 0.5) / samplesPerCell) / rows) * crop.height),
+        );
+        const offset = (py * imageData.width + px) * 4;
+        pixels.push(imageData.data[offset], imageData.data[offset + 1], imageData.data[offset + 2], imageData.data[offset + 3]);
+      }
+    }
+    return sampleDominantColor(pixels, MARD_221_HEX);
+  }).map((cell) => ({ ...cell, transparent: false }));
+}
+
+function cellsFromAlignedGrid(
+  imageData: ImageData,
+  grid: AlignedGrid,
+  crop = getImageCrop(imageData),
+): Cell[] {
+  const samplesPerCell = 3;
+
+  return buildCellsFromSamples(grid.rows, grid.cols, (x, y) => {
+    const pixels: number[] = [];
+    for (let sy = 0; sy < samplesPerCell; sy += 1) {
+      for (let sx = 0; sx < samplesPerCell; sx += 1) {
+        const px = Math.min(
+          imageData.width - 1,
+          Math.floor(crop.x + grid.offsetX + (x + (sx + 0.5) / samplesPerCell) * grid.cellSize),
+        );
+        const py = Math.min(
+          imageData.height - 1,
+          Math.floor(crop.y + grid.offsetY + (y + (sy + 0.5) / samplesPerCell) * grid.cellSize),
         );
         const offset = (py * imageData.width + px) * 4;
         pixels.push(imageData.data[offset], imageData.data[offset + 1], imageData.data[offset + 2], imageData.data[offset + 3]);

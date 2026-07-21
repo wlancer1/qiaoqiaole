@@ -70,6 +70,33 @@ function longSideFromSplitInfo(text: string) {
   return Math.max(...numbers);
 }
 
+function gridSizeFromText(text: string) {
+  const [cols = 0, rows = 0] = text.match(/\d+/g)?.map(Number) ?? [];
+  return { cols, rows };
+}
+
+async function countGridPixelsInCanvasBand(
+  page: import('@playwright/test').Page,
+  band: 'left' | 'right',
+) {
+  return page.locator('.split-preview-canvas').evaluate((node, bandName) => {
+    const canvas = node as HTMLCanvasElement;
+    const context = canvas.getContext('2d');
+    if (!context) return 0;
+    const bandWidth = Math.max(8, Math.floor(canvas.width * 0.12));
+    const startX = bandName === 'left' ? 0 : canvas.width - bandWidth;
+    const imageData = context.getImageData(startX, 0, bandWidth, canvas.height).data;
+    let count = 0;
+    for (let index = 0; index < imageData.length; index += 4) {
+      const red = imageData[index] ?? 0;
+      const green = imageData[index + 1] ?? 0;
+      const blue = imageData[index + 2] ?? 0;
+      if (blue > red + 24 && blue > green + 8) count += 1;
+    }
+    return count;
+  }, band);
+}
+
 async function readCssScale(page: import('@playwright/test').Page, selector: string) {
   return page.locator(selector).evaluate((node) => {
     const transform = getComputedStyle(node).transform;
@@ -100,6 +127,58 @@ test('uploads from the H5 home page, configures split count, previews, then impo
   await expect(page.locator('.split-image-zoom-wrapper')).toHaveCSS('touch-action', 'none');
   await expect(page.locator('.split-image-zoom-content')).toHaveCSS('touch-action', 'none');
   await expect(page.locator('.split-preview-canvas')).toHaveCSS('touch-action', 'none');
+  await expect(page.locator('.split-zoom-controls')).toHaveCount(0);
+  const splitTouchTargets = await page.locator('.split-topbar button, .split-mode-switch button, .split-step-btn, .split-range').evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const rect = node.getBoundingClientRect();
+      return {
+        label: node.getAttribute('aria-label') ?? node.textContent?.trim() ?? node.className,
+        width: rect.width,
+        height: rect.height,
+      };
+    }),
+  );
+  for (const target of splitTouchTargets) {
+    expect(target.width, `${target.label} width`).toBeGreaterThanOrEqual(44);
+    expect(target.height, `${target.label} height`).toBeGreaterThanOrEqual(44);
+  }
+  await page.getByRole('button', { name: '对格子' }).click();
+  const alignmentHandles = await page.locator('.split-grid-handle').evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const rect = node.getBoundingClientRect();
+      const style = getComputedStyle(node);
+      return {
+        className: node.className,
+        width: rect.width,
+        height: rect.height,
+        borderColor: style.borderColor,
+      };
+    }),
+  );
+  expect(alignmentHandles).toHaveLength(2);
+  for (const handle of alignmentHandles) {
+    expect(handle.width, `${handle.className} width`).toBeGreaterThanOrEqual(50);
+    expect(handle.width, `${handle.className} width`).toBeLessThanOrEqual(56);
+    expect(handle.height, `${handle.className} height`).toBeGreaterThanOrEqual(50);
+    expect(handle.height, `${handle.className} height`).toBeLessThanOrEqual(56);
+  }
+  expect(alignmentHandles.find((handle) => handle.className.includes('move'))?.borderColor).toBe('rgb(32, 142, 220)');
+  expect(alignmentHandles.find((handle) => handle.className.includes('scale'))?.borderColor).toBe('rgb(247, 125, 36)');
+  const alignTouchTargets = await page.locator('.split-align-controls button').evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const rect = node.getBoundingClientRect();
+      return {
+        label: node.getAttribute('aria-label') ?? node.textContent?.trim() ?? node.className,
+        width: rect.width,
+        height: rect.height,
+      };
+    }),
+  );
+  for (const target of alignTouchTargets) {
+    expect(target.width, `${target.label} width`).toBeGreaterThanOrEqual(44);
+    expect(target.height, `${target.label} height`).toBeGreaterThanOrEqual(44);
+  }
+  await page.getByRole('button', { name: '快速分割' }).click();
   await expect.poll(async () => {
     return page.locator('.split-preview-canvas').evaluate((node) => {
       const canvas = node as HTMLCanvasElement;
@@ -121,14 +200,6 @@ test('uploads from the H5 home page, configures split count, previews, then impo
   }).toBe(true);
   await expect(page.locator('.split-red-line')).toHaveCount(0);
 
-  const splitTransformBefore = await page.locator('.split-image-zoom-content').evaluate((node) => getComputedStyle(node).transform);
-  await page.getByRole('button', { name: '放大分割预览' }).click();
-  await page.waitForTimeout(250);
-  const splitTransformAfter = await page.locator('.split-image-zoom-content').evaluate((node) => getComputedStyle(node).transform);
-  expect(splitTransformAfter).not.toBe(splitTransformBefore);
-
-  await page.getByRole('button', { name: '重置分割预览' }).click();
-  await page.waitForTimeout(250);
   const touchScaleBefore = await readCssScale(page, '.split-image-zoom-content');
   const splitInfoBeforePinch = await page.locator('.split-info-value').innerText();
   const longSideBeforePinch = longSideFromSplitInfo(splitInfoBeforePinch);
@@ -184,6 +255,150 @@ test('uploads from the H5 home page, configures split count, previews, then impo
 
   const hasPageOverflow = await page.locator('body').evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   expect(hasPageOverflow).toBe(false);
+});
+
+test('aligns the split grid to an existing pixel drawing before import', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.locator('input[type="file"]').setInputFiles(uploadFixture);
+
+  await expect(page.getByRole('heading', { name: '分割' })).toBeVisible();
+  await page.getByRole('button', { name: '对格子' }).click();
+  await expect(page.locator('.split-align-readout')).toContainText('格距');
+  const initialReadout = await page.locator('.split-align-readout').innerText();
+  const [, cellSizeText, offsetXText, offsetYText] = initialReadout.match(/格距 ([\d.]+)px.*偏移 X ([\d.]+) Y ([\d.]+)/) ?? [];
+  const [cropWidthText, cropHeightText] = (await page.locator('.split-image-frame').getAttribute('style'))
+    ?.match(/aspect-ratio:\s*([\d.]+)\s*\/\s*([\d.]+)/)
+    ?.slice(1) ?? [];
+  const initialGridSize = gridSizeFromText(await page.locator('.split-info-value').innerText());
+  const cellSize = Number(cellSizeText);
+  const offsetX = Number(offsetXText);
+  const offsetY = Number(offsetYText);
+  const cropWidth = Number(cropWidthText);
+  const cropHeight = Number(cropHeightText);
+  expect(offsetX).toBeCloseTo((cropWidth - initialGridSize.cols * cellSize) / 2, 0);
+  expect(offsetY).toBeCloseTo((cropHeight - initialGridSize.rows * cellSize) / 2, 0);
+  await expect(page.getByLabel('按住移动网格')).toBeVisible();
+  await expect(page.getByLabel('按住缩放网格')).toBeVisible();
+  const alignmentHitTargetSizes = await page.locator('.split-grid-handle').evaluateAll((nodes) => nodes.map((node) => {
+    const rect = node.getBoundingClientRect();
+    return { width: rect.width, height: rect.height };
+  }));
+  for (const target of alignmentHitTargetSizes) {
+    expect(target.width).toBeGreaterThanOrEqual(42);
+    expect(target.height).toBeGreaterThanOrEqual(42);
+  }
+  const alignmentHandleSizes = await page.locator('.split-grid-handle-ring').evaluateAll((nodes) => nodes.map((node) => {
+    const rect = node.getBoundingClientRect();
+    return { width: rect.width, height: rect.height };
+  }));
+  expect(alignmentHandleSizes).toHaveLength(2);
+  for (const handle of alignmentHandleSizes) {
+    expect(handle.width).toBeGreaterThanOrEqual(30);
+    expect(handle.height).toBeGreaterThanOrEqual(30);
+    expect(handle.width).toBeLessThanOrEqual(34);
+    expect(handle.height).toBeLessThanOrEqual(34);
+  }
+
+  const imageFrameBox = await page.locator('.split-image-frame').boundingBox();
+  const controlFrame = page.locator('.split-grid-control-frame');
+  await expect(controlFrame).toHaveAttribute('data-grid-span', '6');
+  const controlFrameBox = await controlFrame.boundingBox();
+  expect(imageFrameBox).not.toBeNull();
+  expect(controlFrameBox).not.toBeNull();
+  expect(controlFrameBox!.width).toBeCloseTo((imageFrameBox!.width * cellSize * 6) / cropWidth, 0);
+  expect(controlFrameBox!.height).toBeCloseTo((imageFrameBox!.height * cellSize * 6) / cropHeight, 0);
+
+  const initialMoveHandleBox = await page.getByLabel('按住移动网格').boundingBox();
+  const initialScaleHandleBox = await page.getByLabel('按住缩放网格').boundingBox();
+  expect(initialMoveHandleBox).not.toBeNull();
+  expect(initialScaleHandleBox).not.toBeNull();
+  expect(initialMoveHandleBox!.x + initialMoveHandleBox!.width / 2).toBeCloseTo(controlFrameBox!.x, 0);
+  expect(initialMoveHandleBox!.y + initialMoveHandleBox!.height / 2).toBeCloseTo(controlFrameBox!.y, 0);
+  expect(initialScaleHandleBox!.x + initialScaleHandleBox!.width / 2).toBeCloseTo(controlFrameBox!.x + controlFrameBox!.width, 0);
+  expect(initialScaleHandleBox!.y + initialScaleHandleBox!.height / 2).toBeCloseTo(controlFrameBox!.y + controlFrameBox!.height, 0);
+
+  const beforeSize = gridSizeFromText(await page.locator('.split-info-value').innerText());
+  const moveBox = await page.getByLabel('按住移动网格').boundingBox();
+  const scaleBoxBeforeMove = await page.getByLabel('按住缩放网格').boundingBox();
+  const frameBoxBeforeMove = await page.locator('.split-grid-control-frame').boundingBox();
+  expect(moveBox).not.toBeNull();
+  expect(scaleBoxBeforeMove).not.toBeNull();
+  expect(frameBoxBeforeMove).not.toBeNull();
+  const moveStartCenter = {
+    x: moveBox!.x + moveBox!.width / 2,
+    y: moveBox!.y + moveBox!.height / 2,
+  };
+  const expectedMoveDelta = {
+    x: Math.min(40, imageFrameBox!.x + imageFrameBox!.width - (frameBoxBeforeMove!.x + frameBoxBeforeMove!.width)),
+    y: Math.min(30, imageFrameBox!.y + imageFrameBox!.height - (frameBoxBeforeMove!.y + frameBoxBeforeMove!.height)),
+  };
+  await page.mouse.move(moveBox!.x + moveBox!.width / 2, moveBox!.y + moveBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(moveBox!.x + moveBox!.width / 2 + 40, moveBox!.y + moveBox!.height / 2 + 30, { steps: 5 });
+  const draggingMoveBox = await page.getByLabel('按住移动网格').boundingBox();
+  expect(draggingMoveBox).not.toBeNull();
+  expect(draggingMoveBox!.x + draggingMoveBox!.width / 2 - moveStartCenter.x).toBeCloseTo(expectedMoveDelta.x, 0);
+  expect(draggingMoveBox!.y + draggingMoveBox!.height / 2 - moveStartCenter.y).toBeCloseTo(expectedMoveDelta.y, 0);
+  await page.mouse.up();
+  const droppedMoveBox = await page.getByLabel('按住移动网格').boundingBox();
+  expect(droppedMoveBox).not.toBeNull();
+  expect(droppedMoveBox!.x + droppedMoveBox!.width / 2 - moveStartCenter.x).toBeCloseTo(expectedMoveDelta.x, 0);
+  expect(droppedMoveBox!.y + droppedMoveBox!.height / 2 - moveStartCenter.y).toBeCloseTo(expectedMoveDelta.y, 0);
+  const scaleBoxAfterMove = await page.getByLabel('按住缩放网格').boundingBox();
+  const frameBoxAfterMove = await page.locator('.split-grid-control-frame').boundingBox();
+  expect(scaleBoxAfterMove).not.toBeNull();
+  expect(frameBoxAfterMove).not.toBeNull();
+  expect(scaleBoxAfterMove!.x - scaleBoxBeforeMove!.x).toBeCloseTo(expectedMoveDelta.x, 0);
+  expect(scaleBoxAfterMove!.y - scaleBoxBeforeMove!.y).toBeCloseTo(expectedMoveDelta.y, 0);
+  expect(frameBoxAfterMove!.x - frameBoxBeforeMove!.x).toBeCloseTo(expectedMoveDelta.x, 0);
+  expect(frameBoxAfterMove!.y - frameBoxBeforeMove!.y).toBeCloseTo(expectedMoveDelta.y, 0);
+  await expect.poll(async () => page.locator('.split-align-readout').innerText()).not.toBe(initialReadout);
+
+  for (let index = 0; index < Math.ceil(cellSize * 2); index += 1) {
+    await page.getByRole('button', { name: '右移网格' }).click();
+    const readout = await page.locator('.split-align-readout').innerText();
+    const [, , currentOffsetXText] = readout.match(/格距 ([\d.]+)px.*偏移 X ([\d.]+) Y ([\d.]+)/) ?? [];
+    if (Number(currentOffsetXText) >= cellSize - 2) break;
+  }
+  await expect.poll(async () => countGridPixelsInCanvasBand(page, 'left')).toBeGreaterThan(1500);
+  await expect.poll(async () => countGridPixelsInCanvasBand(page, 'right')).toBeGreaterThan(1500);
+
+  await page.getByRole('button', { name: '重置对格' }).click();
+  const movedReadout = await page.locator('.split-align-readout').innerText();
+  const frameBeforeScale = await page.locator('.split-grid-control-frame').boundingBox();
+  const scaleBox = await page.getByLabel('按住缩放网格').boundingBox();
+  expect(frameBeforeScale).not.toBeNull();
+  expect(scaleBox).not.toBeNull();
+  await page.mouse.move(scaleBox!.x + scaleBox!.width / 2, scaleBox!.y + scaleBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(scaleBox!.x + scaleBox!.width / 2 + 60, scaleBox!.y + scaleBox!.height / 2 + 60, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(async () => page.locator('.split-align-readout').innerText()).not.toBe(movedReadout);
+  const frameAfterScale = await page.locator('.split-grid-control-frame').boundingBox();
+  expect(frameAfterScale).not.toBeNull();
+  expect(frameAfterScale!.x).toBeCloseTo(frameBeforeScale!.x, 0);
+  expect(frameAfterScale!.y).toBeCloseTo(frameBeforeScale!.y, 0);
+  expect(frameAfterScale!.width).toBeGreaterThan(frameBeforeScale!.width);
+  expect(frameAfterScale!.height).toBeGreaterThan(frameBeforeScale!.height);
+  const scaledReadout = await page.locator('.split-align-readout').innerText();
+  const [, scaledCellSizeText] = scaledReadout.match(/格距 ([\d.]+)px/) ?? [];
+  const scaledCellSize = Number(scaledCellSizeText);
+  expect(frameAfterScale!.width).toBeCloseTo((imageFrameBox!.width * scaledCellSize * 6) / cropWidth, 0);
+  expect(frameAfterScale!.height).toBeCloseTo((imageFrameBox!.height * scaledCellSize * 6) / cropHeight, 0);
+  const afterSize = gridSizeFromText(await page.locator('.split-info-value').innerText());
+  expect(afterSize.cols * afterSize.rows).toBeLessThan(beforeSize.cols * beforeSize.rows);
+
+  await page.getByRole('button', { name: '下一步' }).click();
+  await expect(page.getByRole('heading', { name: '浏览' })).toBeVisible();
+  await expect(page.locator('.split-meta-chip')).toContainText(`${afterSize.cols} × ${afterSize.rows}`);
+  await page.getByRole('button', { name: '导入画布' }).click();
+
+  const importedSize = await page.locator('.h5-image-canvas').evaluate((node) => {
+    const canvas = node as HTMLCanvasElement;
+    return { cols: canvas.width, rows: canvas.height };
+  });
+  expect(importedSize).toEqual(afterSize);
 });
 
 test('opens upload drawing modal and extracts an image from a Xiaohongshu link', async ({ page }) => {

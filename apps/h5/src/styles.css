@@ -2101,6 +2101,8 @@ input:focus-visible {
 
 /* ─── Split Setup + Browse Flow ─── */
 .split-page {
+  --split-topbar-height: max(56px, calc(48px + env(safe-area-inset-top)));
+  --split-controls-space: 190px;
   height: 100svh;
   min-height: 0;
   overflow: hidden;
@@ -2108,6 +2110,10 @@ input:focus-visible {
   flex-direction: column;
   background: #f1f1ef;
   color: #111315;
+}
+
+.split-page--align {
+  --split-controls-space: 260px;
 }
 
 .split-topbar {
@@ -2118,7 +2124,7 @@ input:focus-visible {
   display: flex;
   align-items: center;
   gap: 0;
-  min-height: max(56px, calc(48px + env(safe-area-inset-top)));
+  min-height: var(--split-topbar-height);
   padding: env(safe-area-inset-top) 16px 0;
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(16px);
@@ -2152,7 +2158,8 @@ input:focus-visible {
 }
 
 .split-action-btn {
-  height: 36px;
+  min-width: 44px;
+  height: 44px;
   padding: 0 18px;
   border-radius: 20px;
   background: #f0f0f0;
@@ -2179,6 +2186,7 @@ input:focus-visible {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  padding-bottom: calc(var(--split-controls-space) + env(safe-area-inset-bottom));
   overflow: hidden;
 }
 
@@ -2187,7 +2195,7 @@ input:focus-visible {
   position: relative;
   flex: 1;
   min-height: 0;
-  padding: 20px 20px 14px;
+  padding: 14px 16px 12px;
   overflow: hidden;
   touch-action: none;
 }
@@ -2213,8 +2221,9 @@ input:focus-visible {
 
 .split-image-frame {
   position: relative;
-  width: 100%;
-  max-width: 520px;
+  width: auto;
+  height: 100%;
+  max-width: min(520px, 100%);
   max-height: 100%;
   background: #ffffff;
   border-radius: 14px;
@@ -2225,42 +2234,10 @@ input:focus-visible {
   -webkit-user-select: none;
 }
 
-.split-zoom-controls {
-  position: absolute;
-  right: 18px;
-  bottom: 18px;
-  z-index: 5;
-  display: flex;
-  gap: 6px;
-  padding: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.72);
-  border-radius: 12px;
-  background: rgba(17, 19, 21, 0.72);
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.18);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
-.split-zoom-controls button {
-  display: grid;
-  place-items: center;
-  min-width: 36px;
-  height: 34px;
-  padding: 0 10px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
-  font-size: 14px;
-  font-weight: 820;
-}
-
-.split-zoom-controls button:active {
-  transform: scale(0.96);
-  background: rgba(255, 255, 255, 0.2);
-}
-
 .split-preview-canvas {
   display: block;
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   background: #fff;
@@ -2268,6 +2245,133 @@ input:focus-visible {
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
+}
+
+.split-grid-handle-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.split-grid-control-frame {
+  position: absolute;
+  border: 1.5px solid rgba(32, 142, 220, 0.92);
+  background: rgba(32, 142, 220, 0.035);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.42), 0 0 0 1px rgba(32, 142, 220, 0.12);
+  pointer-events: none;
+}
+
+.split-grid-handle {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  z-index: 5;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #208edc;
+  pointer-events: auto;
+  touch-action: none;
+  transform: translate(-50%, -50%);
+}
+
+.split-grid-handle-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 32px;
+  height: 32px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 0 0 2px rgba(32, 142, 220, 0.18), 0 4px 10px rgba(32, 142, 220, 0.16);
+  transform: translate(-50%, -50%);
+  transition: transform 100ms, box-shadow 100ms;
+}
+
+.split-grid-handle-ring::before,
+.split-grid-handle-ring::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  background: currentColor;
+  opacity: 0.72;
+  transform: translate(-50%, -50%);
+}
+
+.split-grid-handle-ring::before {
+  width: 13px;
+  height: 2px;
+}
+
+.split-grid-handle-ring::after {
+  width: 2px;
+  height: 13px;
+}
+
+.split-grid-handle.move {
+  cursor: grab;
+}
+
+.split-grid-handle.scale {
+  color: #f77d24;
+  cursor: nwse-resize;
+}
+
+.split-grid-handle:active .split-grid-handle-ring {
+  transform: translate(-50%, -50%) scale(0.96);
+  box-shadow: 0 0 0 3px rgba(32, 142, 220, 0.24), 0 5px 14px rgba(32, 142, 220, 0.18);
+}
+
+.split-grid-handle.scale:active .split-grid-handle-ring {
+  box-shadow: 0 0 0 3px rgba(247, 125, 36, 0.24), 0 5px 14px rgba(247, 125, 36, 0.18);
+}
+
+.split-grid-handle-label {
+  position: absolute;
+  left: calc(50% + 12px);
+  right: auto;
+  top: 50%;
+  min-width: 28px;
+  padding: 2px 4px;
+  border-radius: 999px;
+  background: rgba(32, 142, 220, 0.96);
+  color: #ffffff;
+  font-size: 9px;
+  font-weight: 780;
+  line-height: 1;
+  transform: translateY(-50%);
+  box-shadow: 0 4px 12px rgba(32, 142, 220, 0.22);
+  pointer-events: none;
+}
+
+.split-grid-handle.scale .split-grid-handle-label {
+  left: auto;
+  right: calc(50% + 12px);
+  background: rgba(247, 125, 36, 0.96);
+  box-shadow: 0 4px 12px rgba(247, 125, 36, 0.22);
+}
+
+.split-grid-handle.scale .split-grid-handle-ring {
+  box-shadow: 0 0 0 2px rgba(247, 125, 36, 0.18), 0 4px 10px rgba(247, 125, 36, 0.16);
+}
+
+.split-grid-handle.scale .split-grid-handle-ring::before {
+  width: 12px;
+  height: 2px;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.split-grid-handle.scale .split-grid-handle-ring::after {
+  width: 12px;
+  height: 2px;
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+.split-grid-handle.scale .split-grid-handle-label::after {
+  content: none;
 }
 
 /* Grid overlay (split lines) */
@@ -2298,21 +2402,63 @@ input:focus-visible {
 
 /* Controls card that slides up from bottom */
 .split-controls-card {
-  flex-shrink: 0;
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 30;
+  max-height: calc(100svh - var(--split-topbar-height) - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: #ffffff;
   border-radius: 20px 20px 0 0;
   border-top: 1px solid rgba(0, 0, 0, 0.07);
-  padding: 20px 22px max(24px, env(safe-area-inset-bottom));
+  padding: 12px 16px max(12px, env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 8px;
   box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.07);
+  scrollbar-width: none;
+}
+
+.split-controls-card::-webkit-scrollbar {
+  display: none;
+}
+
+.split-mode-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: #f0f0ef;
+}
+
+.split-mode-switch button {
+  min-height: 44px;
+  border-radius: 9px;
+  color: #6f7478;
+  font-size: 13px;
+  font-weight: 780;
+  transition: background 120ms, color 120ms, transform 80ms;
+}
+
+.split-mode-switch button.active {
+  background: #111315;
+  color: #ffffff;
+  box-shadow: 0 6px 16px rgba(17, 19, 21, 0.16);
+}
+
+.split-mode-switch button:active {
+  transform: scale(0.98);
 }
 
 .split-info-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  min-height: 30px;
+  padding: 0 2px;
 }
 
 .split-info-label {
@@ -2330,19 +2476,21 @@ input:focus-visible {
 
 /* Slider row with +/- stepper buttons */
 .split-slider-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 48px;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .split-step-btn {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: #f0f0f0;
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  border-radius: 14px;
+  background: #f4f4f2;
   color: #111315;
   font-size: 22px;
-  font-weight: 300;
+  font-weight: 520;
   line-height: 1;
   display: grid;
   place-items: center;
@@ -2351,23 +2499,41 @@ input:focus-visible {
   border: 1px solid rgba(0, 0, 0, 0.07);
 }
 
-.split-step-btn:active { transform: scale(0.91); background: #e0e0e0; }
+.split-step-btn:active { transform: scale(0.94); background: #e7e7e3; }
 
 .split-slider-wrap {
-  flex: 1;
+  min-width: 0;
+  min-height: 58px;
+  padding: 6px 12px 8px;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 14px;
+  background: #f7f7f4;
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  justify-content: center;
+  gap: 2px;
 }
 
 .split-range {
   width: 100%;
-  height: 5px;
+  height: 44px;
   appearance: none;
   -webkit-appearance: none;
-  background: #e4e4e4;
+  background: transparent;
   border-radius: 999px;
   outline: none;
+}
+
+.split-range::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: 999px;
+  background: #e4e4e4;
+}
+
+.split-range::-moz-range-track {
+  height: 5px;
+  border-radius: 999px;
+  background: #e4e4e4;
 }
 
 .split-range::-webkit-slider-thumb {
@@ -2395,8 +2561,103 @@ input:focus-visible {
 .split-slider-value {
   font-size: 12px;
   color: #6f7478;
-  font-weight: 500;
+  font-weight: 720;
   text-align: center;
+}
+
+.split-align-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.split-align-readout {
+  min-height: 34px;
+  padding: 8px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 12px;
+  background: #f7f8f7;
+  color: #4f5559;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.split-align-controls {
+  display: grid;
+  grid-template-columns: minmax(146px, 0.72fr) minmax(172px, 1fr);
+  gap: 8px;
+}
+
+.split-nudge-pad {
+  display: grid;
+  grid-template-columns: repeat(3, 44px);
+  grid-template-rows: repeat(2, 44px);
+  place-content: center;
+  gap: 4px;
+  min-height: 100px;
+  padding: 6px;
+  border-radius: 16px;
+  background: #f7f8f7;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.split-cell-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.split-align-controls button,
+.split-nudge-pad button,
+.split-cell-actions button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 6px;
+  border-radius: 12px;
+  background: #f4f4f2;
+  color: #111315;
+  font-size: 13px;
+  font-weight: 780;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  transition: background 120ms, transform 80ms;
+}
+
+.split-nudge-center,
+.split-cell-size-value {
+  min-height: 44px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  color: #6f7478;
+  font-size: 12px;
+  font-weight: 780;
+  text-align: center;
+}
+
+.split-cell-size-value {
+  padding: 0 8px;
+  background: #f7f8f7;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #111315;
+}
+
+.split-cell-actions button:last-child {
+  background: #111315;
+  color: #ffffff;
+  border-color: #111315;
+}
+
+.split-align-controls button:active,
+.split-nudge-pad button:active,
+.split-cell-actions button:active {
+  transform: scale(0.94);
+  background: #e7e7e3;
+}
+
+.split-cell-actions button:last-child:active {
+  background: #2a2d30;
 }
 
 /* ─── Browse page (split-preview) ─── */

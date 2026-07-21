@@ -1,0 +1,104 @@
+<style>
+  .comparison-grid { display:grid; grid-template-columns:minmax(240px,.82fr) minmax(0,1.6fr); gap:20px; align-items:start; }
+  .reference-panel, .directions { min-width:0; }
+  .reference-rebuild { padding:14px; background:#202224; }
+  .reference-rebuild .mini-canvas { height:430px; }
+  .reference-note { margin-top:12px; display:grid; gap:8px; }
+  .reference-note div { display:flex; justify-content:space-between; gap:16px; padding:9px 11px; border-radius:10px; background:var(--surface); border:1px solid var(--border); font-size:12px; }
+  .reference-note strong { color:var(--text); }
+  .reference-note span { color:var(--text-muted); text-align:right; }
+  .cards { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .card { min-width:0; }
+  .card-image { padding:14px; background:#202224; }
+  .mini-canvas { position:relative; height:230px; overflow:hidden; border-radius:12px; background:linear-gradient(90deg,transparent 24%,rgba(30,141,215,.72) 24%,rgba(30,141,215,.72) 24.6%,transparent 24.6%,transparent 49%,rgba(30,141,215,.72) 49%,rgba(30,141,215,.72) 49.6%,transparent 49.6%,transparent 74%,rgba(30,141,215,.72) 74%,rgba(30,141,215,.72) 74.6%,transparent 74.6%),linear-gradient(0deg,transparent 24%,rgba(30,141,215,.72) 24%,rgba(30,141,215,.72) 24.6%,transparent 24.6%,transparent 49%,rgba(30,141,215,.72) 49%,rgba(30,141,215,.72) 49.6%,transparent 49.6%,transparent 74%,rgba(30,141,215,.72) 74%,rgba(30,141,215,.72) 74.6%,transparent 74.6%),#ff5d0b; }
+  .mini-canvas::after { content:"巧乐"; position:absolute; inset:0; display:grid; place-items:center; color:white; font-size:58px; font-weight:900; opacity:.9; }
+  .handle { position:absolute; z-index:2; display:grid; place-items:center; border-radius:999px; box-sizing:border-box; }
+  .handle::before,.handle::after { content:""; position:absolute; left:50%; top:50%; background:currentColor; transform:translate(-50%,-50%); }
+  .handle::before { width:68%; height:1px; }
+  .handle::after { width:1px; height:68%; }
+  .label { position:absolute; top:50%; padding:5px 8px; color:white; background:#257fca; font-size:11px; line-height:1; font-weight:750; white-space:nowrap; transform:translateY(-50%); }
+  .move { left:22%; top:26%; }
+  .scale { left:52%; top:58%; }
+  .move .label { right:calc(100% - 3px); border-radius:7px 2px 2px 7px; }
+  .scale .label { left:calc(100% - 3px); border-radius:2px 7px 7px 2px; }
+  .literal .handle { width:36px; height:36px; border:2px solid rgba(109,113,118,.9); color:rgba(109,113,118,.9); background:rgba(255,255,255,.16); box-shadow:0 0 0 5px rgba(31,138,217,.7),0 4px 12px rgba(0,0,0,.2); }
+  .balanced .hit { position:absolute; z-index:2; width:48px; height:48px; margin:-6px; border:0; background:transparent; }
+  .balanced .handle { width:36px; height:36px; left:6px; top:6px; border:2px solid rgba(109,113,118,.9); color:rgba(109,113,118,.9); background:rgba(255,255,255,.16); box-shadow:0 0 0 5px rgba(31,138,217,.7),0 4px 12px rgba(0,0,0,.2); }
+  .balanced .move { left:22%; top:26%; }
+  .balanced .scale { left:52%; top:58%; }
+  .balanced .label { top:24px; }
+  .bold .handle { width:44px; height:44px; border:2px solid white; color:white; background:rgba(32,142,220,.72); box-shadow:0 5px 14px rgba(0,0,0,.28); }
+  .bold .label { background:rgba(17,19,21,.88); }
+  .metric { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  .metric span { padding:4px 7px; border-radius:999px; background:var(--surface); border:1px solid var(--border); font-size:11px; color:var(--text-muted); }
+  @media (max-width:900px) { .comparison-grid { grid-template-columns:1fr; } .reference-rebuild .mini-canvas { height:300px; } .cards { grid-template-columns:1fr; } }
+</style>
+
+<h2>双圆手柄：选择还原策略</h2>
+<p class="subtitle">左边是参考图局部；右边三种方案都保留现有拖动与缩放逻辑，只调整视觉与页面比例。</p>
+
+<div class="comparison-grid">
+  <section class="reference-panel">
+    <div class="label">REFERENCE</div>
+    <div class="mockup">
+      <div class="mockup-header">参考图的控件结构（内嵌重建）</div>
+      <div class="mockup-body reference-rebuild">
+        <div class="mini-canvas literal">
+          <div class="handle move"><span class="label">移动</span></div>
+          <div class="handle scale"><span class="label">缩放</span></div>
+        </div>
+        <div class="reference-note">
+          <div><strong>圆环</strong><span>约 36px，透明内层，蓝色外圈</span></div>
+          <div><strong>标签</strong><span>移动贴左，缩放贴右</span></div>
+          <div><strong>位置</strong><span>约 22% / 26% 与 52% / 58%</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="directions">
+    <div class="cards">
+      <div class="card" data-choice="literal" onclick="toggleSelect(this)">
+        <div class="card-image">
+          <div class="mini-canvas literal">
+            <div class="handle move"><span class="label">移动</span></div>
+            <div class="handle scale"><span class="label">缩放</span></div>
+          </div>
+        </div>
+        <div class="card-body">
+          <h3>A · 视觉完全照抄</h3>
+          <p>36px 圆环、左右贴标、蓝色外圈。最像参考，但实际触控区域也偏小。</p>
+          <div class="metric"><span>视觉 36px</span><span>触控 36px</span></div>
+        </div>
+      </div>
+
+      <div class="card" data-choice="balanced" onclick="toggleSelect(this)">
+        <div class="card-image">
+          <div class="mini-canvas balanced">
+            <div class="hit move"><div class="handle"><span class="label">移动</span></div></div>
+            <div class="hit scale"><div class="handle"><span class="label">缩放</span></div></div>
+          </div>
+        </div>
+        <div class="card-body">
+          <h3>B · 外观照抄，触控增强</h3>
+          <p>视觉仍是参考图的 36px，但用透明热区扩到 48px。看起来最接近，同时更容易拖动。</p>
+          <div class="metric"><span>视觉 36px</span><span>触控 48px</span><span>推荐</span></div>
+        </div>
+      </div>
+
+      <div class="card" data-choice="bold" onclick="toggleSelect(this)">
+        <div class="card-image">
+          <div class="mini-canvas bold">
+            <div class="handle move"><span class="label">移动</span></div>
+            <div class="handle scale"><span class="label">缩放</span></div>
+          </div>
+        </div>
+        <div class="card-body">
+          <h3>C · 品牌化强化</h3>
+          <p>缩到 44px 并统一为蓝色实心。操作最醒目，但与参考图的轻量圆环仍有明显差距。</p>
+          <div class="metric"><span>视觉 44px</span><span>触控 44px</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
