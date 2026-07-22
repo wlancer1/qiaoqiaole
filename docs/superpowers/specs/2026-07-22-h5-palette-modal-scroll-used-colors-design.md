@@ -20,7 +20,7 @@ The canvas already derives `usedColors` from non-transparent cells and counts oc
 
 ## Ordering Rules
 
-Build the displayed list from `MARD_221_COLORS` using these rules:
+Build the displayed list through a small H5-specific pure function that accepts the canonical palette, the current cells, and the search query. It follows these rules:
 
 1. Apply the current case-insensitive code/hex search filter.
 2. Partition matching colors into used and unused colors by comparing normalized, case-insensitive hex values with the current non-transparent canvas cells.
@@ -32,10 +32,13 @@ The same ordering applies with or without a search query. A blank canvas has no 
 
 If a cell color is not represented in `MARD_221_COLORS`, it contributes no card because the modal continues to display only the canonical 221-color palette.
 
+The implementation must not reuse the existing `usedColors` array order as the tie-breaker. Equal-count colors are ordered by their index in the canonical palette, regardless of cell encounter order.
+
 ## Layout
 
+- Set modal padding to `18px 18px max(18px, env(safe-area-inset-bottom))`.
 - Define the panel rows as `auto auto minmax(0, 1fr)` so the header and search input retain their natural sizes and the results row may shrink.
-- Give the panel a bounded height derived from the existing viewport cap while respecting short mobile screens and safe-area spacing.
+- Set panel `height: min(72svh, 620px)` as a fallback, followed by `height: min(72dvh, 620px)` for browsers with dynamic viewport units. Cap it with `max-height: calc(100dvh - 18px - max(18px, env(safe-area-inset-bottom)))` so it remains inside a short visual viewport and above the bottom safe area or resized on-screen-keyboard viewport.
 - Set the results grid to `min-height: 0`, `overflow-y: auto`, touch momentum scrolling, and contained overscroll.
 - Preserve the current four-column card layout and hidden scrollbar styling.
 
@@ -47,12 +50,25 @@ Selecting a color retains current behavior: update the selected color/code, swit
 
 Extend the H5 Playwright canvas test to verify:
 
-- On a 390 x 844 viewport, the results grid has `scrollHeight > clientHeight` and changing `scrollTop` succeeds while the panel header and search remain visible.
+- On a 390 x 844 viewport, the results grid has `scrollHeight > clientHeight` while the panel header and search remain visible.
+- A wheel gesture over the results changes its `scrollTop` without changing the document scroll position. The computed `overscroll-behavior-y` is `contain`.
+- The stylesheet includes `-webkit-overflow-scrolling: touch` for iOS momentum scrolling; Chromium is not required to expose this non-standard property through computed style.
+- On a short mobile viewport, the modal and panel remain inside the visual viewport and the results still have a positive scrollable height.
 - Used colors appear before unused colors.
 - Multiple used colors are ordered by descending cell count.
 - Equal usage counts retain canonical palette order.
 - A search query filters the list while retaining used-color priority among matching results.
 - Selecting a result still closes the modal and applies the chosen color.
+
+Add unit tests for the pure ordering function to verify:
+
+- a blank canvas preserves the exact canonical order;
+- transparent cells do not contribute usage;
+- normalized uppercase/lowercase hex values count as the same palette color;
+- noncanonical cell colors add no card and do not disturb canonical ordering;
+- used colors sort by descending count;
+- equal-count used colors use canonical palette order rather than cell encounter order;
+- query filtering by code or hex happens before the same usage-priority ordering.
 
 The production build and complete H5 Playwright suite remain the regression gates.
 
