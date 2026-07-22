@@ -9,7 +9,7 @@ Make the H5 canvas eraser immediately recognizable and make canvas movement pred
 - Replace only the canvas toolbar's hand-drawn eraser SVG with the open-source Phosphor `EraserIcon`.
 - Keep the existing toolbar order, sizing, selected state, tool state, and erasing behavior.
 - Complete and verify the existing `pan` tool rather than adding a duplicate hand button or a second transform model.
-- Keep all changes within `apps/h5`, its package dependency declaration, and focused H5 end-to-end coverage.
+- Keep all changes within `apps/h5`, its package dependency declaration, the root npm workspace lockfile, and focused H5 end-to-end coverage.
 - Do not redesign other toolbar icons or alter canvas data, history, export, or reference-image behavior.
 
 ## Eraser Icon
@@ -84,5 +84,5 @@ Run the focused H5 Playwright test, the H5 build, and the relevant existing test
 - `apps/h5/package.json`: Phosphor React dependency.
 - `package-lock.json`: npm workspace dependency lock entry.
 - `apps/h5/src/H5App.tsx`: icon import/rendering, hand-tool naming, transform configuration, and selected-state semantics.
-- `apps/h5/src/styles.css`: grab/grabbing cursor feedback if needed.
+- `apps/h5/src/styles.css`: dedicated Phosphor icon sizing/color boundary and grab/grabbing cursor feedback.
 - `tests/e2e/h5.spec.ts`: icon, pan, gesture-conflict, and accessibility regressions.
