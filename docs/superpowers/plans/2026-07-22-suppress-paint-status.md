@@ -29,7 +29,7 @@ No new production module is warranted because both canvas implementations alread
 
 - [ ] **Step 1: Assert imported-image painting clears an existing status and stays quiet**
 
-After the imported canvas assertion that `已导入画布` is visible, add these helpers and interactions. They select a paint color different from the first source pixel, verify tap and drag mutations, then verify eraser tap and drag mutations:
+Keep the existing `已导入画布` and `paintedPixels === totalPixels` assertions in their current order. Immediately after the full-opacity `importedCanvas` assertion, add these helpers and interactions. They select a paint color different from the first source pixel, verify the selection status is initially visible, verify that the first brush interaction clears it, then verify tap and drag mutations for both tools:
 
 ```ts
 const imageCanvas = page.locator('.h5-image-canvas');
@@ -41,6 +41,7 @@ const brushColor = firstPixel[0] === 254 && firstPixel[1] === 139 && firstPixel[
   ? { code: 'C8', rgba: [15, 84, 192, 255] }
   : { code: 'A7', rgba: [254, 139, 76, 255] };
 await page.getByRole('button', { name: `选择色号 ${brushColor.code}`, exact: true }).click();
+await expect(page.locator('.canvas-status')).toContainText(`已选择色号 ${brushColor.code}`);
 
 const imageCellPoint = async (x: number, y: number) => {
   const box = await imageCanvas.boundingBox();
