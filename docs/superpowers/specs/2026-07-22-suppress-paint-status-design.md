@@ -9,13 +9,14 @@ Keep the H5 canvas unobstructed while the user paints or erases. Successful brus
 - Stop publishing canvas status messages for successful brush strokes.
 - Stop publishing canvas status messages for successful eraser strokes.
 - Do not show no-op messages when a brush targets a cell that already has the selected color or when an eraser targets an empty cell.
+- Clear any existing transient canvas status when a brush or eraser interaction starts, so a prior palette-selection or canvas-operation message does not remain over the drawing while the user paints.
 - Apply the behavior to both grid canvases and imported image canvases, and to both taps and pointer-drag strokes.
 - Preserve cell mutations, undo/redo history, selected colors, and tool behavior.
 - Preserve status messages for fill, eyedropper, uploads, imports, exports, authentication, validation, and errors.
 
 ## Design
 
-Suppress feedback at the source instead of filtering rendered text. Brush and eraser handlers will complete their existing mutations and history commits without assigning a status message. The shared floating status renderer remains unchanged for operations that still need feedback.
+Suppress feedback at the source instead of filtering rendered text. Brush and eraser handlers will clear the current transient status when an interaction starts, then complete their existing mutations and history commits without assigning a new status message. This applies even when the interaction makes no cell change. The shared floating status renderer remains unchanged for operations that still need feedback.
 
 This avoids coupling behavior to Chinese message prefixes and ensures future brush or eraser paths do not briefly publish an announcement before presentation code hides it.
 
@@ -27,8 +28,10 @@ Extend the H5 Playwright canvas-editing coverage to assert that the floating `.c
 - a brush drag stroke;
 - a successful eraser tap;
 - an eraser drag stroke.
+- brushing a cell that already has the selected color;
+- erasing a cell that is already empty.
 
-Retain or add an assertion proving a non-paint operation can still render its status message. Existing drawing, erasing, and undo assertions continue to protect canvas behavior.
+Exercise tap and drag behavior on both the DOM grid canvas and the imported-image canvas so the two event paths cannot regress independently. Retain a concrete assertion that fill still renders its `已填充` status message. Existing drawing, erasing, and undo assertions continue to protect canvas behavior.
 
 ## Non-goals
 
