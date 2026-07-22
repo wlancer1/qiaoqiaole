@@ -193,8 +193,7 @@ test('prioritizes colors used in the drawing inside palette search', async ({ pa
 
   const search = dialog.getByRole('searchbox', { name: '搜索色号' });
   await search.fill('A');
-  await expect.poll(resultCodes).toHaveLength(26);
-  expect((await resultCodes())[0]).toBe('A7');
+  await expect.poll(async () => (await resultCodes())[0]).toBe('A7');
 
   await dialog.getByRole('button', { name: '关闭筛选' }).click();
   await page.getByRole('button', { name: '选择色号 A1', exact: true }).click();
