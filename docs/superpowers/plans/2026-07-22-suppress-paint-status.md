@@ -25,28 +25,111 @@ No new production module is warranted because both canvas implementations alread
 
 **Files:**
 - Modify: `tests/e2e/h5.spec.ts:109-255`
-- Modify: `tests/e2e/h5.spec.ts:759-833`
+- Modify: `tests/e2e/h5.spec.ts:791-864`
 
 - [ ] **Step 1: Assert imported-image painting clears an existing status and stays quiet**
 
-After the imported canvas assertion that `已导入画布` is visible, select the brush and perform a pointer drag on `.h5-image-canvas`. Assert `.canvas-status` has count zero after pointer down/up. Then switch to eraser and repeat at the same canvas coordinates, again asserting no status. This path proves the image canvas uses quiet brush and eraser feedback.
+After the imported canvas assertion that `已导入画布` is visible, add these helpers and interactions. They select a paint color different from the first source pixel, verify tap and drag mutations, then verify eraser tap and drag mutations:
+
+```ts
+const imageCanvas = page.locator('.h5-image-canvas');
+const firstPixel = await imageCanvas.evaluate((node) => {
+  const context = (node as HTMLCanvasElement).getContext('2d')!;
+  return Array.from(context.getImageData(0, 0, 1, 1).data);
+});
+const brushColor = firstPixel[0] === 254 && firstPixel[1] === 139 && firstPixel[2] === 76
+  ? { code: 'C8', rgba: [15, 84, 192, 255] }
+  : { code: 'A7', rgba: [254, 139, 76, 255] };
+await page.getByRole('button', { name: `选择色号 ${brushColor.code}`, exact: true }).click();
+
+const imageCellPoint = async (x: number, y: number) => {
+  const box = await imageCanvas.boundingBox();
+  expect(box).not.toBeNull();
+  const size = await imageCanvas.evaluate((node) => ({
+    cols: (node as HTMLCanvasElement).width,
+    rows: (node as HTMLCanvasElement).height,
+  }));
+  return {
+    x: box!.x + ((x + 0.5) / size.cols) * box!.width,
+    y: box!.y + ((y + 0.5) / size.rows) * box!.height,
+  };
+};
+const imagePixel = (x: number, y: number) => imageCanvas.evaluate((node, point) => {
+  const context = (node as HTMLCanvasElement).getContext('2d')!;
+  return Array.from(context.getImageData(point.x, point.y, 1, 1).data);
+}, { x, y });
+
+const brushTap = await imageCellPoint(0, 0);
+await page.mouse.click(brushTap.x, brushTap.y);
+expect(await imagePixel(0, 0)).toEqual(brushColor.rgba);
+await expect(page.locator('.canvas-status')).toHaveCount(0);
+
+const brushDragStart = await imageCellPoint(0, 1);
+const brushDragEnd = await imageCellPoint(2, 1);
+await page.mouse.move(brushDragStart.x, brushDragStart.y);
+await page.mouse.down();
+await page.mouse.move(brushDragEnd.x, brushDragEnd.y, { steps: 8 });
+await page.mouse.up();
+expect(await imagePixel(0, 1)).toEqual(brushColor.rgba);
+expect(await imagePixel(2, 1)).toEqual(brushColor.rgba);
+await expect(page.locator('.canvas-status')).toHaveCount(0);
+
+await page.getByRole('button', { name: '橡皮工具' }).click();
+await page.mouse.click(brushTap.x, brushTap.y);
+expect((await imagePixel(0, 0))[3]).toBe(0);
+await expect(page.locator('.canvas-status')).toHaveCount(0);
+
+await page.mouse.move(brushDragStart.x, brushDragStart.y);
+await page.mouse.down();
+await page.mouse.move(brushDragEnd.x, brushDragEnd.y, { steps: 8 });
+await page.mouse.up();
+expect((await imagePixel(0, 1))[3]).toBe(0);
+expect((await imagePixel(2, 1))[3]).toBe(0);
+await expect(page.locator('.canvas-status')).toHaveCount(0);
+```
 
 - [ ] **Step 2: Assert grid painting, erasing, and no-op interactions stay quiet**
 
-In `edits a preset H5 grid canvas with brush, eraser, fill, and bottom palette`:
+In `edits a preset H5 grid canvas with brush, eraser, fill, and bottom palette`, add the following assertions at the corresponding existing operations:
 
 ```ts
 await page.getByRole('button', { name: '选择色号 A7' }).click();
 await expect(page.locator('.canvas-status')).toContainText('已选择色号 A7');
 await page.locator('.h5-canvas-cell').nth(300).click();
 await expect(page.locator('.canvas-status')).toHaveCount(0);
+await expect(page.locator('.h5-canvas-cell').nth(300)).not.toHaveClass(/transparent/);
 
 // Repaint the A7 cell (no-op) and keep the canvas quiet.
 await page.locator('.h5-canvas-cell').nth(300).click();
 await expect(page.locator('.canvas-status')).toHaveCount(0);
-```
 
-After brush drag, eraser drag, successful eraser tap, and no-op eraser tap, assert `.canvas-status` has count zero. Keep the existing `已填充` assertion to prove non-paint status feedback remains available. Replace the final assertion that expects `已绘制 ... M15` with an assertion that the target cell changed and `.canvas-status` is absent.
+await dragAcrossGridCells(dragCellIndexes);
+await expect(page.locator('.canvas-status')).toHaveCount(0);
+
+await page.getByRole('button', { name: '橡皮工具' }).click();
+await dragAcrossGridCells(dragCellIndexes);
+await expect(page.locator('.canvas-status')).toHaveCount(0);
+
+const singleClickCell = page.locator('.h5-canvas-cell').nth(301);
+// Keep the existing paint, undo, repaint, and mutation assertions.
+await page.getByRole('button', { name: '橡皮工具' }).click();
+await singleClickCell.click();
+await expect(singleClickCell).toHaveClass(/transparent/);
+await expect(page.locator('.canvas-status')).toHaveCount(0);
+
+// Re-erase the empty cell (no-op) and keep the canvas quiet.
+await singleClickCell.click();
+await expect(page.locator('.canvas-status')).toHaveCount(0);
+
+await page.getByRole('button', { name: '填充工具' }).click();
+await page.locator('.h5-canvas-cell').nth(0).click();
+await expect(page.locator('.canvas-status')).toContainText(/已填充/);
+
+// After selecting M15 through the existing palette dialog:
+await page.locator('.h5-canvas-cell').nth(301).click();
+await expect(page.locator('.h5-canvas-cell').nth(301)).toHaveCSS('background-color', 'rgb(117, 125, 120)');
+await expect(page.locator('.canvas-status')).toHaveCount(0);
+```
 
 - [ ] **Step 3: Run the focused tests and verify RED**
 
@@ -56,14 +139,11 @@ Run:
 npx playwright test tests/e2e/h5.spec.ts -g "uploads from the H5 home page|edits a preset H5 grid canvas"
 ```
 
-Expected: FAIL because brush/eraser paths still render `已绘制`, `已擦除`, or no-op status messages, and completed drag strokes still publish status.
+Expected: both tests FAIL because brush/eraser paths still render `已绘制`, `已擦除`, or no-op status messages, and completed drag strokes still publish status.
 
-- [ ] **Step 4: Commit the failing test**
+- [ ] **Step 4: Preserve the failing-test diff without committing unrelated work**
 
-```bash
-git add tests/e2e/h5.spec.ts
-git commit -m "test: require quiet H5 painting feedback"
-```
+Do not stage or commit `tests/e2e/h5.spec.ts`: it contains pre-existing uncommitted work that belongs to the user. Confirm the intended test hunks with `git diff -- tests/e2e/h5.spec.ts` and continue to Task 2 with the RED evidence recorded in the session.
 
 ### Task 2: Suppress brush and eraser status messages
 
@@ -120,7 +200,7 @@ Run:
 npx playwright test tests/e2e/h5.spec.ts -g "uploads from the H5 home page|edits a preset H5 grid canvas"
 ```
 
-Expected: both focused tests PASS.
+Expected: Playwright reports `2 passed` (timing may vary).
 
 - [ ] **Step 5: Run type/build and H5 regression verification**
 
@@ -144,9 +224,6 @@ git diff -- apps/h5/src/H5App.tsx tests/e2e/h5.spec.ts
 
 Expected: no whitespace errors; production changes only affect brush/eraser status publishing and tests only add the specified coverage.
 
-- [ ] **Step 7: Commit the implementation**
+- [ ] **Step 7: Leave mixed files unstaged for user review**
 
-```bash
-git add apps/h5/src/H5App.tsx tests/e2e/h5.spec.ts
-git commit -m "fix: keep H5 canvas quiet while painting"
-```
+Do not stage or commit `apps/h5/src/H5App.tsx` or `tests/e2e/h5.spec.ts`: both contain substantial pre-existing uncommitted work. Report the exact feature hunks and verification results to the user, leaving all mixed-file changes unstaged.
