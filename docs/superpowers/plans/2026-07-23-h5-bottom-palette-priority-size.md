@@ -48,8 +48,8 @@ Import `filterPaletteByQuery` beside the existing helper and add:
 ```ts
 it('filters an already prioritized list without changing its order', () => {
   const prioritized = [palette[2], palette[0], palette[3], palette[1]];
-  expect(filterPaletteByQuery(prioritized, 'b').map(({ code }) => code))
-    .toEqual(['B1', 'B2']);
+  expect(filterPaletteByQuery(prioritized, '1').map(({ code }) => code))
+    .toEqual(['B1', 'A1']);
   expect(filterPaletteByQuery(prioritized, '#AA').map(({ code }) => code))
     .toEqual(['A1']);
   expect(filterPaletteByQuery(prioritized, '').map(({ code }) => code))
