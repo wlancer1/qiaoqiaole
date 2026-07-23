@@ -2,6 +2,8 @@
 
 ### Added
 
+- Added H5 canvas pan-first toolbar behavior, drag painting/erasing, reference image support, compact mobile rulers/cell labels, and plain color-code labels with black/white contrast.
+- Added focused H5 E2E coverage for mobile canvas layout, drag editing, reference images, palette filtering, and color-code contrast.
 - Added canvas-rendered split previews with touch-driven grid-density adjustment on the H5 split page.
 - Added authenticated, on-demand Xiaohongshu image download flow so extraction returns note image links first and only downloads the selected image.
 - Added fixed admin credential configuration for the API service and E2E environment.

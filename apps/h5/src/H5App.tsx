@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
+import { TransformWrapper, TransformComponent, useTransformEffect } from 'react-zoom-pan-pinch';
 import {
   buildCellsFromSamples,
   buildModelParts,
@@ -14,6 +14,7 @@ import {
   serializeAsciiStl,
   type Cell,
 } from '@qiaoqiaole/core';
+import { filterPaletteByQuery, filterPaletteByUsage } from './palette';
 
 type AppScreen = 'home' | 'profile' | 'split' | 'split-preview' | 'canvas' | 'warehouse';
 type CanvasKind = 'image' | 'grid';
@@ -25,6 +26,7 @@ type GridHandlePosition = { x: number; y: number };
 type WarehouseUnit = 'count' | 'gram';
 type Warehouse = { id: string; name: string; remark: string; colorSystem: string };
 type XhsExtractedImage = { imageUrl?: string; imageDataUrl?: string };
+type ReferenceImage = { name: string; url: string };
 type IconName =
   | 'bell'
   | 'brush'
@@ -63,6 +65,17 @@ type UploadedSplitImage = {
   url: string;
 };
 
+type PaintStroke = {
+  active: boolean;
+  tool: 'brush' | 'eraser';
+  baseCells: Cell[];
+  draftCells: Cell[];
+  changedCount: number;
+  pointerId: number | null;
+  lastCell: { x: number; y: number } | null;
+  initialPainted: boolean;
+};
+
 type AlignedGrid = {
   rows: number;
   cols: number;
@@ -76,11 +89,11 @@ type AlignedGrid = {
 const GRID_CONTROL_CELLS = 6;
 
 const canvasTools: Array<{ tool: CanvasTool; label: string; icon: IconName }> = [
+  { tool: 'pan', label: '手抓移动工具', icon: 'hand' },
   { tool: 'brush', label: '画笔工具', icon: 'brush' },
   { tool: 'eraser', label: '橡皮工具', icon: 'eraser' },
   { tool: 'fill', label: '填充工具', icon: 'fill' },
   { tool: 'eyedropper', label: '取色工具', icon: 'eyedropper' },
-  { tool: 'pan', label: '拖拽工具', icon: 'hand' },
 ];
 
 function H5App() {
@@ -93,7 +106,7 @@ function H5App() {
   const [workMode, setWorkMode] = useState<WorkMode>('bead');
   const [selectedColor, setSelectedColor] = useState<string>(MARD_221_COLORS[0]?.hex ?? '#faf4c8');
   const [selectedCode, setSelectedCode] = useState<string>(MARD_221_COLORS[0]?.code ?? 'A1');
-  const [tool, setTool] = useState<CanvasTool>('brush');
+  const [tool, setTool] = useState<CanvasTool>('pan');
   const [status, setStatus] = useState('');
   const [history, setHistory] = useState<Cell[][]>([]);
   const [future, setFuture] = useState<Cell[][]>([]);
@@ -131,7 +144,10 @@ function H5App() {
   const [isExtractingXhs, setIsExtractingXhs] = useState(false);
   const [xhsExtractedTitle, setXhsExtractedTitle] = useState('');
   const [xhsExtractedImages, setXhsExtractedImages] = useState<XhsExtractedImage[]>([]);
+  const [referenceImage, setReferenceImage] = useState<ReferenceImage | null>(null);
+  const [isReferenceMinimized, setIsReferenceMinimized] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const referenceInputRef = useRef<HTMLInputElement | null>(null);
   const imageCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const pendingAuthActionRef = useRef<(() => void) | null>(null);
   const xhsRequestSeqRef = useRef(0);
@@ -139,9 +155,23 @@ function H5App() {
   const authRequestSeqRef = useRef(0);
   const activeWarehouseIdRef = useRef('');
   const inventoryRequestSeqRef = useRef(0);
+  const cellsRef = useRef(cells);
+  const suppressCanvasClickRef = useRef(false);
+  const paintStrokeRef = useRef<PaintStroke>({
+    active: false,
+    tool: 'brush',
+    baseCells: [],
+    draftCells: [],
+    changedCount: 0,
+    pointerId: null,
+    lastCell: null,
+    initialPainted: true,
+  });
+  const canvasTouchPointersRef = useRef<Set<number>>(new Set());
 
   // Zoom & Pan states for mobile artboard
   const [zoom, setZoom] = useState(1.0);
+  const [canvasScale, setCanvasScale] = useState(1.0);
   const [panX, setPanX] = useState(0);
   const [panY, setPanY] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
@@ -200,6 +230,10 @@ function H5App() {
   }, [canvasKind, cells, cols, rows]);
 
   useEffect(() => {
+    cellsRef.current = cells;
+  }, [cells]);
+
+  useEffect(() => {
     activeWarehouseIdRef.current = activeWarehouseId;
   }, [activeWarehouseId]);
 
@@ -222,6 +256,10 @@ function H5App() {
   useEffect(() => () => {
     if (splitAlignFrameRef.current) cancelAnimationFrame(splitAlignFrameRef.current);
   }, []);
+
+  useEffect(() => () => {
+    if (referenceImage?.url) URL.revokeObjectURL(referenceImage.url);
+  }, [referenceImage]);
 
   useEffect(() => {
     if (!status) return;
@@ -253,11 +291,14 @@ function H5App() {
     }
     return cellsFromImage(uploadedSplitImage.imageData, splitRows, splitCols, uploadedSplitImage.crop);
   }, [alignedGrid, screen, splitCols, splitMode, splitRows, uploadedSplitImage]);
-  const filteredPaletteColors = useMemo(() => {
-    const query = paletteQuery.trim().toLowerCase();
-    if (!query) return MARD_221_COLORS;
-    return MARD_221_COLORS.filter((color) => color.code.toLowerCase().includes(query) || color.hex.toLowerCase().includes(query));
-  }, [paletteQuery]);
+  const prioritizedPaletteColors = useMemo(
+    () => filterPaletteByUsage(MARD_221_COLORS, cells, ''),
+    [cells],
+  );
+  const filteredPaletteColors = useMemo(
+    () => filterPaletteByQuery(prioritizedPaletteColors, paletteQuery),
+    [paletteQuery, prioritizedPaletteColors],
+  );
   const warehouseColors = useMemo(() => {
     const query = warehouseSearch.trim().toLowerCase();
     return MARD_221_COLORS.filter((color) => {
@@ -311,6 +352,18 @@ function H5App() {
   const chooseLocalDrawing = () => {
     closeUploadModal();
     fileInputRef.current?.click();
+  };
+
+  const chooseReferenceImage = () => {
+    referenceInputRef.current?.click();
+  };
+
+  const clearReferenceImage = () => {
+    setReferenceImage((current) => {
+      if (current?.url) URL.revokeObjectURL(current.url);
+      return null;
+    });
+    setIsReferenceMinimized(false);
   };
 
   const requestApi = async <T,>(path: string, options: RequestInit = {}): Promise<T> => {
@@ -521,9 +574,12 @@ function H5App() {
     setWorkMode('bead');
     setHistory([]);
     setFuture([]);
+    setTool('pan');
     setZoom(1.0);
+    setCanvasScale(1.0);
     setPanX(0);
     setPanY(0);
+    clearReferenceImage();
     setShowCreateCanvasModal(false);
     setScreen('canvas');
     setStatus(`已创建 ${nextCols} x ${nextRows} 空白画布。`);
@@ -770,9 +826,12 @@ function H5App() {
     setCanvasKind('image');
     setHistory([]);
     setFuture([]);
+    setTool('pan');
     setZoom(1.0);
+    setCanvasScale(1.0);
     setPanX(0);
     setPanY(0);
+    clearReferenceImage();
     setScreen('canvas');
     setStatus(`已导入画布：${activeSplitCols} x ${activeSplitRows}。`);
   };
@@ -821,6 +880,33 @@ function H5App() {
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  };
+
+  const handleReferenceUpload = (file: File | undefined) => {
+    if (!file) return;
+    if (!/^image\/(png|jpe?g|webp)$/.test(file.type)) {
+      setStatus('请上传 PNG、JPG 或 WebP 参考图。');
+      if (referenceInputRef.current) referenceInputRef.current.value = '';
+      return;
+    }
+    if (file.size > MAX_FILE_SIZE) {
+      setStatus('参考图不能超过 20MB。');
+      if (referenceInputRef.current) referenceInputRef.current.value = '';
+      return;
+    }
+
+    setReferenceImage((current) => {
+      if (current?.url) URL.revokeObjectURL(current.url);
+      return { name: file.name, url: URL.createObjectURL(file) };
+    });
+    setIsReferenceMinimized(false);
+    setStatus(`已载入参考图：${file.name}。`);
+    if (referenceInputRef.current) referenceInputRef.current.value = '';
+  };
+
+  const closeReferenceImage = () => {
+    clearReferenceImage();
+    setStatus('已关闭参考图。');
   };
 
   const extractXiaohongshuImage = async () => {
@@ -894,6 +980,206 @@ function H5App() {
     }
   };
 
+  const paintCellInDraft = (sourceCells: Cell[], x: number, y: number, paintTool: 'brush' | 'eraser') => {
+    const sourceCell = sourceCells.find((item) => item.x === x && item.y === y);
+    if (!sourceCell) return { nextCells: sourceCells, changed: false };
+
+    if (paintTool === 'eraser') {
+      if (sourceCell.transparent) return { nextCells: sourceCells, changed: false };
+      return {
+        nextCells: sourceCells.map((item) => (item.x === x && item.y === y ? { ...item, color: EMPTY_COLOR, transparent: true } : item)),
+        changed: true,
+      };
+    }
+
+    if (!sourceCell.transparent && sourceCell.color.toLowerCase() === selectedColor.toLowerCase()) {
+      return { nextCells: sourceCells, changed: false };
+    }
+
+    return { nextCells: replaceCell(sourceCells, x, y, selectedColor), changed: true };
+  };
+
+  const cellFromCanvasPoint = (clientX: number, clientY: number, rect: DOMRect) => {
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    if (clientX < rect.left || clientX >= rect.right || clientY < rect.top || clientY >= rect.bottom) return null;
+    const x = Math.min(cols - 1, Math.max(0, Math.floor(((clientX - rect.left) / rect.width) * cols)));
+    const y = Math.min(rows - 1, Math.max(0, Math.floor(((clientY - rect.top) / rect.height) * rows)));
+    return { x, y };
+  };
+
+  const paintStrokeAt = (x: number, y: number) => {
+    const stroke = paintStrokeRef.current;
+    if (!stroke.active) return;
+    const { nextCells, changed } = paintCellInDraft(stroke.draftCells, x, y, stroke.tool);
+    if (!changed) return;
+    stroke.draftCells = nextCells;
+    stroke.changedCount += 1;
+    cellsRef.current = nextCells;
+    setCells(nextCells);
+  };
+
+  const resetPaintStroke = () => {
+    paintStrokeRef.current = {
+      active: false,
+      tool: 'brush',
+      baseCells: [],
+      draftCells: [],
+      changedCount: 0,
+      pointerId: null,
+      lastCell: null,
+      initialPainted: true,
+    };
+  };
+
+  const paintInitialStrokeCell = () => {
+    const stroke = paintStrokeRef.current;
+    if (!stroke.active || stroke.initialPainted || !stroke.lastCell) return;
+    stroke.initialPainted = true;
+    paintStrokeAt(stroke.lastCell.x, stroke.lastCell.y);
+  };
+
+  const cancelPaintStroke = () => {
+    const stroke = paintStrokeRef.current;
+    if (!stroke.active) return;
+    if (stroke.changedCount > 0) {
+      cellsRef.current = stroke.baseCells;
+      setCells(stroke.baseCells);
+    }
+    resetPaintStroke();
+    suppressCanvasClickRef.current = false;
+  };
+
+  const beginPaintStroke = (x: number, y: number, pointerId: number, target: EventTarget & Element, deferInitialPaint = false) => {
+    if (tool !== 'brush' && tool !== 'eraser') return false;
+    setStatus('');
+    const baseCells = cellsRef.current;
+    paintStrokeRef.current = {
+      active: true,
+      tool,
+      baseCells,
+      draftCells: baseCells,
+      changedCount: 0,
+      pointerId,
+      lastCell: { x, y },
+      initialPainted: false,
+    };
+    suppressCanvasClickRef.current = true;
+    try {
+      target.setPointerCapture(pointerId);
+    } catch {
+      // Some test/browser targets do not expose capture for synthetic pointers.
+    }
+    if (!deferInitialPaint) {
+      paintInitialStrokeCell();
+    }
+    return true;
+  };
+
+  const continuePaintStroke = (x: number, y: number, pointerId: number) => {
+    const stroke = paintStrokeRef.current;
+    if (!stroke.active || stroke.pointerId !== pointerId) return;
+    const start = stroke.lastCell;
+    if (!start) {
+      paintStrokeAt(x, y);
+      stroke.lastCell = { x, y };
+      return;
+    }
+    paintInitialStrokeCell();
+    const dx = x - start.x;
+    const dy = y - start.y;
+    const steps = Math.max(Math.abs(dx), Math.abs(dy));
+    for (let step = 1; step <= steps; step += 1) {
+      const nextX = Math.round(start.x + (dx * step) / steps);
+      const nextY = Math.round(start.y + (dy * step) / steps);
+      paintStrokeAt(nextX, nextY);
+    }
+    stroke.lastCell = { x, y };
+  };
+
+  const breakPaintStroke = (pointerId: number) => {
+    const stroke = paintStrokeRef.current;
+    if (!stroke.active || stroke.pointerId !== pointerId) return;
+    stroke.lastCell = null;
+  };
+
+  const endPaintStroke = (pointerId: number, target?: EventTarget & Element) => {
+    const stroke = paintStrokeRef.current;
+    if (!stroke.active || stroke.pointerId !== pointerId) return;
+    paintInitialStrokeCell();
+    if (stroke.changedCount > 0) {
+      setHistory((items) => [...items.slice(-24), stroke.baseCells]);
+      setFuture([]);
+    }
+    resetPaintStroke();
+    if (target) {
+      try {
+        target.releasePointerCapture(pointerId);
+      } catch {
+        // Pointer capture may already be released by the browser.
+      }
+    }
+    window.setTimeout(() => {
+      suppressCanvasClickRef.current = false;
+    }, 0);
+  };
+
+  const handleCanvasPointerDownCapture = (event: React.PointerEvent<HTMLElement>) => {
+    if (event.pointerType !== 'touch') return;
+    canvasTouchPointersRef.current.add(event.pointerId);
+    if (canvasTouchPointersRef.current.size > 1) {
+      cancelPaintStroke();
+    }
+  };
+
+  const handleCanvasPointerEndCapture = (event: React.PointerEvent<HTMLElement>) => {
+    if (event.pointerType !== 'touch') return;
+    canvasTouchPointersRef.current.delete(event.pointerId);
+  };
+
+  const handleGridCanvasPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    const isMultiTouch = event.pointerType === 'touch' && canvasTouchPointersRef.current.size > 1;
+    if (isMultiTouch) return;
+    const point = cellFromGridPointer(event.clientX, event.clientY, event.currentTarget);
+    if (!point) return;
+    if (beginPaintStroke(point.x, point.y, event.pointerId, event.currentTarget, event.pointerType === 'touch')) {
+      event.preventDefault();
+    }
+  };
+
+  const handleGridCanvasPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const point = cellFromGridPointer(event.clientX, event.clientY, event.currentTarget);
+    if (!point) {
+      breakPaintStroke(event.pointerId);
+      return;
+    }
+    continuePaintStroke(point.x, point.y, event.pointerId);
+  };
+
+  const handleCanvasPaintPointerEnd = (event: React.PointerEvent<Element>) => {
+    endPaintStroke(event.pointerId, event.currentTarget);
+    if (event.pointerType === 'touch') {
+      canvasTouchPointersRef.current.delete(event.pointerId);
+    }
+  };
+
+  const handleGridCellClick = (cell: Cell) => {
+    if (suppressCanvasClickRef.current) {
+      suppressCanvasClickRef.current = false;
+      return;
+    }
+    handleCellTap(cell);
+  };
+
+  const cellFromGridPointer = (clientX: number, clientY: number, grid: HTMLDivElement) => {
+    const element = document.elementFromPoint(clientX, clientY);
+    const cellElement = element instanceof HTMLElement ? element.closest<HTMLElement>('.h5-canvas-cell') : null;
+    if (!cellElement || !grid.contains(cellElement)) return null;
+    const x = Number(cellElement.dataset.cellX);
+    const y = Number(cellElement.dataset.cellY);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    return { x, y };
+  };
+
   const handleCellTap = (cell: Cell) => {
     if (tool === 'eyedropper') {
       if (!cell.transparent) {
@@ -905,14 +1191,9 @@ function H5App() {
     }
 
     if (tool === 'eraser') {
-      if (cell.transparent) {
-        setStatus('当前格子已经是空白。');
-        return;
-      }
-      commitCells(
-        cells.map((item) => (item.x === cell.x && item.y === cell.y ? { ...item, color: EMPTY_COLOR, transparent: true } : item)),
-        '已擦除当前格子。',
-      );
+      setStatus('');
+      if (cell.transparent) return;
+      commitCells(cells.map((item) => (item.x === cell.x && item.y === cell.y ? { ...item, color: EMPTY_COLOR, transparent: true } : item)));
       return;
     }
 
@@ -926,23 +1207,43 @@ function H5App() {
       return;
     }
 
-    if (!cell.transparent && cell.color.toLowerCase() === selectedColor.toLowerCase()) {
-      setStatus(`当前格子已经是 ${selectedCode}。`);
-      return;
-    }
-    commitCells(replaceCell(cells, cell.x, cell.y, selectedColor), `已绘制 ${selectedCode}。`);
+    if (tool !== 'brush') return;
+    setStatus('');
+    if (!cell.transparent && cell.color.toLowerCase() === selectedColor.toLowerCase()) return;
+    commitCells(replaceCell(cells, cell.x, cell.y, selectedColor));
   };
 
   const handleImageCanvasClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
+    if (suppressCanvasClickRef.current) {
+      suppressCanvasClickRef.current = false;
+      return;
+    }
     if (tool === 'pan') return;
     const canvas = event.currentTarget;
-    const rect = canvas.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return;
-
-    const x = Math.min(cols - 1, Math.max(0, Math.floor(((event.clientX - rect.left) / rect.width) * cols)));
-    const y = Math.min(rows - 1, Math.max(0, Math.floor(((event.clientY - rect.top) / rect.height) * rows)));
+    const point = cellFromCanvasPoint(event.clientX, event.clientY, canvas.getBoundingClientRect());
+    if (!point) return;
+    const { x, y } = point;
     const cell = cells.find((item) => item.x === x && item.y === y);
     if (cell) handleCellTap(cell);
+  };
+
+  const handleImageCanvasPointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const isMultiTouch = event.pointerType === 'touch' && canvasTouchPointersRef.current.size > 1;
+    if (isMultiTouch) return;
+    const point = cellFromCanvasPoint(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect());
+    if (!point) return;
+    if (beginPaintStroke(point.x, point.y, event.pointerId, event.currentTarget, event.pointerType === 'touch')) {
+      event.preventDefault();
+    }
+  };
+
+  const handleImageCanvasPointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const point = cellFromCanvasPoint(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect());
+    if (!point) {
+      breakPaintStroke(event.pointerId);
+      return;
+    }
+    continuePaintStroke(point.x, point.y, event.pointerId);
   };
 
   const exportPatternPng = () => {
@@ -1238,17 +1539,19 @@ function H5App() {
 
   if (screen === 'canvas') {
     return (
-      <main className="h5-canvas-page" aria-label="H5 画布编辑器">
+      <main className={canvasScale >= 1.5 ? 'h5-canvas-page cell-codes-visible' : 'h5-canvas-page'} aria-label="H5 画布编辑器">
         <input ref={fileInputRef} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void handleUpload(event.target.files?.[0])} />
+        <input ref={referenceInputRef} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp" aria-label="参考图文件" onChange={(event) => handleReferenceUpload(event.target.files?.[0])} />
         
         <header className="canvas-topbar">
           <div className="topbar-left">
-            <button className="top-icon-btn close-btn" aria-label="关闭画布" onClick={() => setScreen('home')}>
+            <button className="top-icon-btn close-btn" aria-label="关闭画布" onClick={() => { clearReferenceImage(); setScreen('home'); }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
             </button>
             <button className="top-icon-btn sliders-btn" aria-label="画布设置" onClick={() => setShowSettings(true)}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>
             </button>
+            <span className="canvas-size-pill">{cols}×{rows}</span>
           </div>
           
           <div className="topbar-center">
@@ -1261,6 +1564,9 @@ function H5App() {
           </div>
           
           <div className="topbar-right">
+            <button className="top-icon-btn reference-upload-btn" aria-label="上传参考图" onClick={chooseReferenceImage}>
+              <Icon name="upload" />
+            </button>
             <button className="top-icon-btn save-btn" aria-label="导出拼豆图纸" onClick={exportPatternPng}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><polyline points="9 15 12 18 15 15"></polyline></svg>
             </button>
@@ -1307,6 +1613,7 @@ function H5App() {
                 key={item.tool}
                 className={tool === item.tool ? 'rail-tool active' : 'rail-tool'}
                 aria-label={item.label}
+                aria-pressed={tool === item.tool}
                 onClick={() => setTool(item.tool)}
               >
                 <Icon name={item.icon} />
@@ -1314,61 +1621,111 @@ function H5App() {
             ))}
           </aside>
 
-          <section className="canvas-stage">
+          <section
+            className={tool === 'pan' ? 'canvas-stage is-pan-tool' : 'canvas-stage'}
+            onPointerDownCapture={handleCanvasPointerDownCapture}
+            onPointerUpCapture={handleCanvasPointerEndCapture}
+            onPointerCancelCapture={handleCanvasPointerEndCapture}
+            onLostPointerCapture={handleCanvasPointerEndCapture}
+          >
             <TransformWrapper
               initialScale={1}
               minScale={0.2}
               maxScale={12}
               centerOnInit={true}
-              panning={{ disabled: tool !== 'pan' }}
+              panning={{ disabled: false, excluded: tool === 'pan' ? [] : ['canvas-artwork'] }}
+              pinch={{ disabled: false, allowPanning: true, excluded: [] }}
               doubleClick={{ disabled: true }}
               wheel={{ step: 0.15 }}
             >
               {({ zoomIn, zoomOut, resetTransform }) => (
                 <>
+                  <CanvasScaleObserver onScaleChange={setCanvasScale} />
                   <TransformComponent
                     wrapperStyle={{ width: '100%', height: '100%', overflow: 'hidden' }}
                     contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                   >
                     {canvasKind === 'image' ? (
-                      <div className="h5-image-artboard" style={{ aspectRatio: `${cols} / ${rows}` }}>
+                      <div className="h5-image-artboard" style={{ aspectRatio: `${cols} / ${rows}`, width: `min(calc(${cols} * var(--canvas-cell-size)), calc(100% - var(--canvas-ruler-gutter)))` }}>
+                        <CanvasRulers rows={rows} cols={cols} />
                         <canvas
                           ref={imageCanvasRef}
-                          className="h5-image-canvas"
+                          className="h5-image-canvas canvas-artwork"
                           aria-label="拼豆像素画布"
+                          onPointerDown={handleImageCanvasPointerDown}
+                          onPointerMove={handleImageCanvasPointerMove}
+                          onPointerUp={handleCanvasPaintPointerEnd}
+                          onPointerCancel={handleCanvasPaintPointerEnd}
+                          onLostPointerCapture={handleCanvasPaintPointerEnd}
                           onClick={handleImageCanvasClick}
                         />
                         <GridOverlay rows={rows} cols={cols} className="h5-image-grid-overlay" />
+                        <ImageCellCodeOverlay cells={cells} cols={cols} />
                       </div>
                     ) : (
                       <div
                         className="h5-artboard"
                         style={{
                           aspectRatio: `${cols} / ${rows}`,
+                          width: `min(calc(${cols} * var(--canvas-cell-size)), calc(100% - var(--canvas-ruler-gutter)))`,
                         }}
                       >
-                        <div className="h5-canvas-grid" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
+                        <CanvasRulers rows={rows} cols={cols} />
+                        <div
+                          className="h5-canvas-grid canvas-artwork"
+                          style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
+                          onPointerDown={handleGridCanvasPointerDown}
+                          onPointerMove={handleGridCanvasPointerMove}
+                          onPointerUp={handleCanvasPaintPointerEnd}
+                          onPointerCancel={handleCanvasPaintPointerEnd}
+                          onLostPointerCapture={handleCanvasPaintPointerEnd}
+                        >
                           {cells.map((cell) => (
                             <button
                               key={`${cell.x}-${cell.y}`}
                               className={cell.transparent ? 'h5-canvas-cell transparent' : 'h5-canvas-cell'}
                               style={{ background: cell.transparent ? undefined : cell.color }}
                               aria-label={`格子 ${cell.x + 1},${cell.y + 1}`}
-                              onClick={() => handleCellTap(cell)}
-                            />
+                              data-cell-x={cell.x}
+                              data-cell-y={cell.y}
+                              onClick={() => handleGridCellClick(cell)}
+                            >
+                              {!cell.transparent ? (
+                                <span className="h5-cell-code" style={{ color: colorCodeTextColor(cell.color) }}>
+                                  {colorCodeOf(cell.color)}
+                                </span>
+                              ) : null}
+                            </button>
                           ))}
                         </div>
                       </div>
                     )}
                   </TransformComponent>
                   <div className="canvas-zoom-controls" aria-label="画布缩放控制">
-                    <button aria-label="放大画布" onClick={() => zoomIn(0.35)}>+</button>
-                    <button aria-label="缩小画布" onClick={() => zoomOut(0.35)}>-</button>
-                    <button aria-label="重置画布视图" onClick={() => resetTransform()}>1:1</button>
+                    <button aria-label="放大画布" onClick={() => { zoomIn(0.35); setCanvasScale((value) => Math.min(12, value + 0.35)); }}>+</button>
+                    <button aria-label="缩小画布" onClick={() => { zoomOut(0.35); setCanvasScale((value) => Math.max(0.2, value - 0.35)); }}>-</button>
+                    <button aria-label="重置画布视图" onClick={() => { resetTransform(); setCanvasScale(1); }}>1:1</button>
                   </div>
                 </>
               )}
             </TransformWrapper>
+            {referenceImage ? (
+              <section className={isReferenceMinimized ? 'canvas-reference-window minimized' : 'canvas-reference-window'} aria-label="参考图">
+                <header className="canvas-reference-head">
+                  <strong>参考图</strong>
+                  <span>{referenceImage.name}</span>
+                  <button aria-label={isReferenceMinimized ? '展开参考图' : '最小化参考图'} onClick={() => setIsReferenceMinimized((value) => !value)}>
+                    {isReferenceMinimized ? '+' : '−'}
+                  </button>
+                  <button aria-label="关闭参考图" onClick={closeReferenceImage}>×</button>
+                </header>
+                {!isReferenceMinimized ? (
+                  <div className="canvas-reference-body">
+                    <img src={referenceImage.url} alt="参考图" />
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
             {status ? (
               <p className="canvas-status" role="status" aria-live="polite">{status}</p>
             ) : null}
@@ -1377,7 +1734,7 @@ function H5App() {
 
         <footer className="canvas-palette" aria-label="底部色卡">
           <div className="palette-strip">
-            {MARD_221_COLORS.map((color) => (
+            {prioritizedPaletteColors.map((color) => (
               <button
                 key={color.code}
                 className={selectedCode === color.code ? 'palette-code active' : 'palette-code'}
@@ -1985,6 +2342,15 @@ function Icon({ name }: { name: IconName }) {
           <path d="M10 20v-6h4v6" />
         </svg>
       );
+    case 'hand':
+      return (
+        <svg className="ui-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M8 11V5.5a1.5 1.5 0 0 1 3 0V11" />
+          <path d="M11 10V4.5a1.5 1.5 0 0 1 3 0V11" />
+          <path d="M14 10V6.5a1.5 1.5 0 0 1 3 0V12" />
+          <path d="M17 11.5a1.5 1.5 0 0 1 3 0V14a7 7 0 0 1-7 7h-1.5a6 6 0 0 1-4.7-2.3L3.7 15a1.7 1.7 0 0 1 2.4-2.4L8 14.5V11" />
+        </svg>
+      );
     case 'layers':
       return (
         <svg className="ui-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -2053,6 +2419,76 @@ function GridOverlay({ rows, cols, className = '' }: { rows: number; cols: numbe
       ))}
     </div>
   );
+}
+
+function CanvasRulers({ rows, cols }: { rows: number; cols: number }) {
+  const columnTicks = rulerTicks(cols);
+  const rowTicks = rulerTicks(rows);
+  return (
+    <div className="h5-canvas-rulers" aria-hidden={false}>
+      <div className="h5-column-ruler" aria-label="画布列标尺">
+        {columnTicks.map((tick) => (
+          <span
+            key={`col-${tick}`}
+            className="h5-ruler-label"
+            aria-label={`画布列标 ${tick}`}
+            style={{ left: `${((tick - 0.5) / cols) * 100}%` }}
+          >
+            {tick}
+          </span>
+        ))}
+      </div>
+      <div className="h5-row-ruler" aria-label="画布行标尺">
+        {rowTicks.map((tick) => (
+          <span
+            key={`row-${tick}`}
+            className="h5-ruler-label"
+            aria-label={`画布行标 ${tick}`}
+            style={{ top: `${((tick - 0.5) / rows) * 100}%` }}
+          >
+            {tick}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ImageCellCodeOverlay({ cells, cols }: { cells: Cell[]; cols: number }) {
+  return (
+    <div
+      className="h5-image-code-overlay"
+      aria-label="导入画布色号"
+      style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}
+    >
+      {cells.map((cell) => (
+        <span
+          key={`${cell.x}-${cell.y}`}
+          className="h5-image-cell-code"
+          aria-label={`格子 ${cell.x + 1},${cell.y + 1} 色号 ${colorCodeOf(cell.color)}`}
+          style={{ color: colorCodeTextColor(cell.color) }}
+        >
+          {cell.transparent ? '' : colorCodeOf(cell.color)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function rulerTicks(size: number): number[] {
+  const safeSize = Math.max(1, size);
+  const ticks: number[] = [];
+  for (let tick = 1; tick <= safeSize; tick += 5) {
+    ticks.push(tick);
+  }
+  return ticks;
+}
+
+function CanvasScaleObserver({ onScaleChange }: { onScaleChange: (scale: number) => void }) {
+  useTransformEffect(({ state }) => {
+    onScaleChange(state.scale);
+  });
+  return null;
 }
 
 function touchDistance(first: React.Touch, second: React.Touch): number {
@@ -2468,6 +2904,19 @@ function colorCodeOf(hex: string): string {
   const b = Number.parseInt(normalized.slice(5, 7), 16);
   const nearest = nearestPaletteColor(r, g, b, MARD_221_HEX);
   return MARD_221_COLORS.find((color) => color.hex.toLowerCase() === nearest)?.code ?? hex;
+}
+
+function colorCodeTextColor(hex: string): '#000000' | '#ffffff' {
+  const normalized = normalizeHexForPalette(hex);
+  const relativeChannel = (channel: number) => {
+    const value = channel / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  };
+  const red = relativeChannel(Number.parseInt(normalized.slice(1, 3), 16));
+  const green = relativeChannel(Number.parseInt(normalized.slice(3, 5), 16));
+  const blue = relativeChannel(Number.parseInt(normalized.slice(5, 7), 16));
+  const luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+  return luminance > 0.179 ? '#000000' : '#ffffff';
 }
 
 function sameCells(left: Cell[], right: Cell[]): boolean {
