@@ -17,16 +17,19 @@ Make the H5 canvas bottom palette surface colors already used in the current dra
 - Painting, erasing, filling, undoing, redoing, importing, resizing, or creating a canvas updates the ordering from the current `cells` state.
 - The selected color receives no extra ordering priority. Until it is used in the drawing, it remains in the unused canonical partition.
 
+This specification intentionally supersedes the earlier palette-modal specification's non-goal that canonical order would remain unchanged outside the modal. The new scope explicitly extends the same used-color priority to the bottom strip; the canonical palette data itself remains unchanged.
+
 ## Shared Data Flow
 
 Compute one unfiltered `prioritizedPaletteColors` list from `MARD_221_COLORS` and `cells`. Render the bottom strip from that list.
 
-The search modal must preserve its current query behavior without rescanning the canvas on every paint update:
+Extract or reuse a pure query-only filter that accepts an already ordered palette list and a query. The existing usage-order helper may compose that query-only filter for backward compatibility, but the H5 component follows this data flow:
 
-- When the query is empty, reuse `prioritizedPaletteColors` directly.
-- When the query is non-empty, use the existing `filterPaletteByUsage` query behavior and the current cells. Cell changes do not normally occur while the modal is open; the modal still remains correct if they do.
+- `prioritizedPaletteColors` scans current cells once and contains the full ordered palette.
+- `filteredPaletteColors` applies only the code/hex query filter to `prioritizedPaletteColors`; it never scans cells.
+- When the query is empty, the query-only filter returns the prioritized list in the same order.
 
-This keeps one canvas scan during normal painting and guarantees the bottom strip and unfiltered modal have identical ordering.
+This guarantees one canvas scan per cell-state change, whether the modal is open or closed, and guarantees the bottom strip and unfiltered modal have identical ordering.
 
 ## Sizing and Layout
 
@@ -40,7 +43,9 @@ This keeps one canvas scan during normal painting and guarantees the bottom stri
 
 ## Interaction
 
-Selecting any bottom card preserves existing behavior: select its color and code, switch to the brush, and retain horizontal scrolling. Reordering after a subsequent canvas mutation is expected; selection state follows the color code rather than a fixed list index.
+Selecting any bottom card preserves existing behavior: select its color and code and switch to the brush. The same `.palette-strip` element remains mounted, so ordinary selection does not intentionally reset scrolling.
+
+“Retain horizontal scrolling” means retain the ability to scroll the complete list with touch or horizontal wheel/trackpad input. Dynamic reordering does not promise that the same cards remain visible or that a semantic anchor is restored; the browser may retain the numeric `scrollLeft` while cards move around it. Selection state follows the color code rather than a fixed list index.
 
 ## Testing
 
@@ -50,8 +55,12 @@ Extend H5 Playwright coverage with an independent bottom-palette test that:
 - verifies a known unused color remains present;
 - verifies every sampled card is 44 × 44px, the filter button is 44 × 44px, the label is 12px, and the active indicator is 12 × 3px;
 - verifies the strip remains horizontally scrollable and a horizontal wheel/trackpad gesture changes `scrollLeft`;
+- makes the document horizontally scrollable during the scroll-boundary check and verifies horizontal wheel input over the strip does not move the document;
 - opens the search modal and verifies its unfiltered first cards match the bottom strip;
 - searches for a color and verifies query filtering and selection still work.
+- undoes the one-cell M15 paint and verifies the bottom order changes from `A7, M15` to `A7, A1`, proving current cells—not stale initial counts—drive the list.
+
+Run the 44px geometry assertions at representative viewport widths of 600px, 390px, and 350px, covering the base rules, the `max-width: 480px` block, and the `max-width: 360px` block. Each width must assert card and filter-button dimensions; the 390px case also asserts label and active-indicator dimensions.
 
 Retain the pure helper unit suite, H5 build, palette-specific E2E tests, and complete H5 regression suite as verification gates.
 
@@ -62,3 +71,13 @@ Retain the pure helper unit suite, H5 build, palette-specific E2E tests, and com
 - Changing search-modal card size or grid layout.
 - Changing bottom bar height beyond what follows naturally from 44px controls.
 - Fixing unrelated canvas-tool default-state work in the current dirty worktree.
+
+## Dirty Worktree Boundary
+
+Before implementation, capture the complete baseline diff for `H5App.tsx`, `styles.css`, and `h5.spec.ts`. Limit feature edits to:
+
+- the prioritized/filtered palette memos and bottom-strip data source in `H5App.tsx`;
+- the base, `max-width: 480px`, and `max-width: 360px` palette sizing declarations in `styles.css`;
+- focused helper and bottom-palette tests.
+
+Compare the final mixed-file diff against that baseline, identify the new hunks explicitly, and leave all mixed implementation files unstaged and uncommitted.
