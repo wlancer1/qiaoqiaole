@@ -37,6 +37,8 @@ Run and retain output before edits:
 ```bash
 git status --short
 git diff -- apps/h5/src/H5App.tsx apps/h5/src/styles.css tests/e2e/h5.spec.ts
+sed -n '1,240p' apps/h5/src/palette.ts
+sed -n '1,300p' apps/h5/src/palette.test.ts
 ```
 
 - [ ] **Step 2: Add the failing query-only unit test**
@@ -224,6 +226,7 @@ test('keeps compact bottom palette controls scrollable at H5 breakpoints', async
   expect(indicatorBox).not.toBeNull();
   expect(indicatorBox!.width).toBeCloseTo(12, 0);
   expect(indicatorBox!.height).toBeCloseTo(3, 0);
+  await expect(indicator).toHaveCSS('bottom', '4px');
 
   const initial = await strip.evaluate((node) => ({
     clientWidth: node.clientWidth,
@@ -247,10 +250,10 @@ test('keeps compact bottom palette controls scrollable at H5 breakpoints', async
     document.documentElement.style.overflowX = 'auto';
     window.scrollTo(300, 0);
   });
-  const documentX = await page.evaluate(() => window.scrollX);
-  expect(documentX).toBeGreaterThan(0);
   await strip.evaluate((node) => { node.scrollLeft = node.scrollWidth; });
   await strip.hover();
+  const documentX = await page.evaluate(() => window.scrollX);
+  expect(documentX).toBeGreaterThan(0);
   await page.mouse.wheel(600, 0);
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   expect(await page.evaluate(() => window.scrollX)).toBe(documentX);
@@ -273,7 +276,6 @@ Update base declarations:
 
 ```css
 .palette-strip {
-  gap: 6px;
   overscroll-behavior-x: contain;
 }
 
@@ -297,7 +299,7 @@ Update base declarations:
 }
 ```
 
-In `@media (max-width: 480px)`, remove the calculated six-card `flex-basis`/`min-width` and 48px heights, or replace them explicitly with 44px. In `@media (max-width: 360px)`, remove the 46px card-height override. Preserve safe-area padding, filter icon, footer grid, scrolling, and hidden scrollbars.
+Keep the base `.palette-strip` gap at its existing 8px. In `@media (max-width: 480px)`, preserve the existing 6px gap, remove the calculated six-card `flex-basis`/`min-width` and 48px heights, or replace them explicitly with 44px. In `@media (max-width: 360px)`, remove the 46px card-height override. Preserve safe-area padding, filter icon, footer grid, scrolling, and hidden scrollbars.
 
 - [ ] **Step 4: Run focused geometry and bottom-order tests**
 
