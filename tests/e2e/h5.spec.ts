@@ -609,8 +609,8 @@ test('fits a default grid canvas inside a narrow phone viewport', async ({ page 
   });
   expect(metrics.artboardLeft).toBeGreaterThanOrEqual(metrics.wrapperLeft);
   expect(metrics.artboardRight).toBeLessThanOrEqual(metrics.wrapperRight);
-  expect(metrics.rowLabelLeft).toBeGreaterThanOrEqual(0);
-  expect(metrics.rowLabelRight).toBeLessThanOrEqual(metrics.artboardLeft);
+  expect(metrics.rowLabelLeft).toBeGreaterThanOrEqual(metrics.wrapperLeft);
+  expect(metrics.rowLabelRight).toBeLessThanOrEqual(metrics.wrapperRight);
 });
 
 test('keeps editable grid cells inside compact artboards', async ({ page }) => {

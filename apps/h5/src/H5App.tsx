@@ -1778,8 +1778,10 @@ function H5App() {
             ))}
           </aside>
 
-          <section
+          <div
             className={tool === 'pan' ? 'canvas-stage is-pan-tool' : 'canvas-stage'}
+            role="application"
+            aria-label="画布工作区"
             onPointerDownCapture={handleCanvasPointerDownCapture}
             onPointerUpCapture={handleCanvasPointerEndCapture}
             onPointerCancelCapture={handleCanvasPointerEndCapture}
@@ -1890,7 +1892,7 @@ function H5App() {
             {status ? (
               <p className="canvas-status" role="status" aria-live="polite">{status}</p>
             ) : null}
-          </section>
+          </div>
         </section>
 
         <footer className="canvas-palette" aria-label="底部色卡">
