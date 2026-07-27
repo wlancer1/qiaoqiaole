@@ -1,0 +1,40 @@
+<h2>“对格子”交互边界</h2>
+<p class="subtitle">请选择更接近你想要的操作方式：方格固定，图片在方格外移动或缩放；点击外部区域只放大图片。</p>
+
+<div class="cards" style="grid-template-columns:repeat(2,minmax(0,1fr));">
+  <div class="card" data-choice="A" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:16px;background:#eef0ed;min-height:290px;">
+      <div style="position:relative;height:250px;border-radius:12px;background:#dfe4df;overflow:hidden;">
+        <div style="position:absolute;inset:30px 12px;background:linear-gradient(135deg,#e6b16d,#c86b5e 45%,#5c7890);transform:scale(1.25) rotate(-5deg);opacity:.88;"></div>
+        <div style="position:absolute;left:64px;top:75px;width:125px;height:125px;border:3px solid #208edc;box-shadow:0 0 0 999px rgba(32,142,220,.08);background:repeating-linear-gradient(90deg,transparent 0 24px,rgba(32,142,220,.6) 25px 26px),repeating-linear-gradient(0deg,transparent 0 24px,rgba(32,142,220,.6) 25px 26px);">
+          <span style="position:absolute;left:50%;top:-28px;transform:translateX(-50%);font-size:11px;color:#176aa2;white-space:nowrap;">固定方格</span>
+        </div>
+        <span style="position:absolute;left:12px;bottom:10px;font-size:11px;color:#52605a;">图片层：可移动 / 可缩放</span>
+      </div>
+    </div>
+    <div class="card-body"><h3>A｜固定框叠在图片上</h3><p>方格框位置和大小固定；拖动框外图片移动，双指缩放图片，框内只负责观察对齐效果。</p></div>
+  </div>
+  <div class="card" data-choice="B" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:16px;background:#eef0ed;min-height:290px;">
+      <div style="position:relative;height:250px;border-radius:12px;background:#dfe4df;overflow:hidden;">
+        <div style="position:absolute;inset:24px 8px;background:linear-gradient(135deg,#89a9a0,#d69b58 48%,#98677a);transform:scale(1.25) rotate(4deg);opacity:.88;"></div>
+        <div style="position:absolute;left:64px;top:75px;width:125px;height:125px;border:3px solid #208edc;background:repeating-linear-gradient(90deg,transparent 0 24px,rgba(32,142,220,.6) 25px 26px),repeating-linear-gradient(0deg,transparent 0 24px,rgba(32,142,220,.6) 25px 26px);">
+          <span style="position:absolute;right:-50px;top:-28px;font-size:11px;color:#176aa2;white-space:nowrap;">外部点击：放大图片</span>
+          <span style="position:absolute;right:-28px;bottom:-28px;width:17px;height:17px;border-right:3px solid #208edc;border-bottom:3px solid #208edc;"></span>
+        </div>
+        <span style="position:absolute;left:12px;bottom:10px;font-size:11px;color:#52605a;">方格不随图片变化</span>
+      </div>
+    </div>
+    <div class="card-body"><h3>B｜固定框 + 明确外部手势区</h3><p>将画布分成“框外图片操作区”和“框内观察区”；框外单击/双击放大图片，拖拽移动，双指缩放。</p></div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:18px;">
+  <h3>我目前理解的规则</h3>
+  <ul>
+    <li>方格是固定尺寸和固定位置，不根据导入图片尺寸自动变化。</li>
+    <li>移动、缩放作用对象是图片，不是方格。</li>
+    <li>方格外点击触发图片放大，不触发网格缩放。</li>
+    <li>对格子的目标是让图片内容与固定方格对齐。</li>
+  </ul>
+</div>

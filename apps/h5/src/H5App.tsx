@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { TransformWrapper, TransformComponent, useTransformEffect } from 'react-zoom-pan-pinch';
 import {
   buildCellsFromSamples,
@@ -86,7 +86,7 @@ type AlignedGrid = {
   cropHeight: number;
 };
 
-const GRID_CONTROL_CELLS = 6;
+const GRID_CONTROL_CELLS = 3;
 
 const canvasTools: Array<{ tool: CanvasTool; label: string; icon: IconName }> = [
   { tool: 'pan', label: '手抓移动工具', icon: 'hand' },
@@ -138,6 +138,8 @@ function H5App() {
   const [alignOffsetX, setAlignOffsetX] = useState(0);
   const [alignOffsetY, setAlignOffsetY] = useState(0);
   const [gridFrameOrigin, setGridFrameOrigin] = useState<GridHandlePosition>({ x: 40, y: 40 });
+  const [splitImageScale, setSplitImageScale] = useState(1);
+  const [splitImageOffset, setSplitImageOffset] = useState({ x: 0, y: 0 });
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showXhsInput, setShowXhsInput] = useState(false);
   const [xhsLink, setXhsLink] = useState('');
@@ -197,6 +199,19 @@ function H5App() {
     startDistance: 0,
     startLongSide: DEFAULT_SPLIT_LONG_SIDE,
   });
+  const splitImagePinchRef = useRef({
+    active: false,
+    startDistance: 0,
+    startScale: 1,
+  });
+  const splitImageOffsetRef = useRef({ x: 0, y: 0 });
+  const splitImagePanRef = useRef({
+    active: false,
+    pointerId: null as number | null,
+    lastX: 0,
+    lastY: 0,
+  });
+  const suppressSplitImageClickRef = useRef(false);
   const splitGridHandleDragRef = useRef<{
     handle: GridHandle | null;
     lastX: number;
@@ -697,9 +712,16 @@ function H5App() {
     if (!uploadedSplitImage) return { x: 0, y: 0 };
     const frame = target.closest('.split-image-frame') ?? target.querySelector('.split-image-frame') ?? target;
     const rect = frame.getBoundingClientRect();
+    const baseImageRect = fitSplitImageRect(rect, uploadedSplitImage.crop);
+    const scaledImageRect = scaleRectFromCenter(baseImageRect, splitImageScale);
+    const imageRect = {
+      ...scaledImageRect,
+      x: scaledImageRect.x + splitImageOffsetRef.current.x,
+      y: scaledImageRect.y + splitImageOffsetRef.current.y,
+    };
     return {
-      x: rect.width > 0 ? (deltaX / rect.width) * uploadedSplitImage.crop.width : 0,
-      y: rect.height > 0 ? (deltaY / rect.height) * uploadedSplitImage.crop.height : 0,
+      x: imageRect.width > 0 ? (deltaX / imageRect.width) * uploadedSplitImage.crop.width : 0,
+      y: imageRect.height > 0 ? (deltaY / imageRect.height) * uploadedSplitImage.crop.height : 0,
     };
   };
 
@@ -707,9 +729,16 @@ function H5App() {
     if (!uploadedSplitImage) return { x: 0, y: 0 };
     const frame = target.closest('.split-image-frame') ?? target.querySelector('.split-image-frame') ?? target;
     const rect = frame.getBoundingClientRect();
+    const baseImageRect = fitSplitImageRect(rect, uploadedSplitImage.crop);
+    const scaledImageRect = scaleRectFromCenter(baseImageRect, splitImageScale);
+    const imageRect = {
+      ...scaledImageRect,
+      x: scaledImageRect.x + splitImageOffsetRef.current.x,
+      y: scaledImageRect.y + splitImageOffsetRef.current.y,
+    };
     return {
-      x: rect.width > 0 ? ((clientX - rect.left) / rect.width) * uploadedSplitImage.crop.width : 0,
-      y: rect.height > 0 ? ((clientY - rect.top) / rect.height) * uploadedSplitImage.crop.height : 0,
+      x: imageRect.width > 0 ? ((clientX - rect.left - imageRect.x) / imageRect.width) * uploadedSplitImage.crop.width : 0,
+      y: imageRect.height > 0 ? ((clientY - rect.top - imageRect.y) / imageRect.height) * uploadedSplitImage.crop.height : 0,
     };
   };
 
@@ -760,7 +789,18 @@ function H5App() {
   };
 
   const handleSplitTouchStart = (event: React.TouchEvent) => {
-    if (splitMode === 'align') return;
+    if (splitMode === 'align') {
+      if ((event.target as HTMLElement).closest('.split-grid-handle')) return;
+      suppressSplitImageClickRef.current = false;
+      if (event.touches.length !== 2) return;
+      event.preventDefault();
+      splitImagePinchRef.current = {
+        active: true,
+        startDistance: touchDistance(event.touches[0], event.touches[1]),
+        startScale: splitImageScale,
+      };
+      return;
+    }
     if (event.touches.length !== 2) return;
     const distance = touchDistance(event.touches[0], event.touches[1]);
     splitPinchRef.current = {
@@ -771,7 +811,15 @@ function H5App() {
   };
 
   const handleSplitTouchMove = (event: React.TouchEvent) => {
-    if (splitMode === 'align') return;
+    if (splitMode === 'align') {
+      if (!splitImagePinchRef.current.active || event.touches.length !== 2) return;
+      if (event.cancelable) event.preventDefault();
+      suppressSplitImageClickRef.current = true;
+      const distance = touchDistance(event.touches[0], event.touches[1]);
+      const scaleRatio = distance / Math.max(1, splitImagePinchRef.current.startDistance);
+      setSplitImageScale(clampSplitImageScale(splitImagePinchRef.current.startScale * scaleRatio));
+      return;
+    }
     if (!splitPinchRef.current.active || event.touches.length !== 2) return;
     if (event.cancelable) event.preventDefault();
     const distance = touchDistance(event.touches[0], event.touches[1]);
@@ -782,29 +830,117 @@ function H5App() {
 
   const handleSplitTouchEnd = (event: React.TouchEvent) => {
     if (event.touches.length >= 2) return;
+    splitImagePinchRef.current.active = false;
     splitPinchRef.current.active = false;
     splitGridHandleDragRef.current.handle = null;
+  };
+
+  const handleSplitWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    if (splitMode !== 'align') return;
+    if ((event.target as HTMLElement).closest('.split-grid-handle')) return;
+    event.preventDefault();
+    const factor = event.deltaY < 0 ? 1.12 : 0.9;
+    zoomSplitImageAtPoint(event.clientX, event.clientY, factor, event.currentTarget);
+  };
+
+  const handleSplitClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (splitMode !== 'align') return;
+    if ((event.target as HTMLElement).closest('.split-grid-handle')) return;
+    if (suppressSplitImageClickRef.current) {
+      suppressSplitImageClickRef.current = false;
+      return;
+    }
+    zoomSplitImageAtPoint(event.clientX, event.clientY, 1.12, event.currentTarget);
+  };
+
+  const updateSplitImageOffset = (offset: { x: number; y: number }) => {
+    splitImageOffsetRef.current = offset;
+    setSplitImageOffset(offset);
+  };
+
+  const zoomSplitImageAtPoint = (
+    clientX: number,
+    clientY: number,
+    factor: number,
+    target: Element,
+  ) => {
+    if (!uploadedSplitImage) return;
+    const frame = target.closest('.split-image-frame') ?? target;
+    const rect = frame.getBoundingClientRect();
+    const baseRect = fitSplitImageRect(rect, uploadedSplitImage.crop);
+    const currentRect = {
+      ...scaleRectFromCenter(baseRect, splitImageScale),
+      x: scaleRectFromCenter(baseRect, splitImageScale).x + splitImageOffsetRef.current.x,
+      y: scaleRectFromCenter(baseRect, splitImageScale).y + splitImageOffsetRef.current.y,
+    };
+    const pointX = clientX - rect.left;
+    const pointY = clientY - rect.top;
+    const relativeX = currentRect.width > 0 ? (pointX - currentRect.x) / currentRect.width : 0.5;
+    const relativeY = currentRect.height > 0 ? (pointY - currentRect.y) / currentRect.height : 0.5;
+    const nextScale = clampSplitImageScale(splitImageScale * factor);
+    const nextRect = scaleRectFromCenter(baseRect, nextScale);
+    updateSplitImageOffset({
+      x: pointX - (nextRect.x + relativeX * nextRect.width),
+      y: pointY - (nextRect.y + relativeY * nextRect.height),
+    });
+    setSplitImageScale(nextScale);
+  };
+
+  const handleSplitPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (splitMode !== 'align' || (event.target as HTMLElement).closest('.split-grid-handle')) return;
+    splitImagePanRef.current = {
+      active: true,
+      pointerId: event.pointerId,
+      lastX: event.clientX,
+      lastY: event.clientY,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handleSplitPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const pan = splitImagePanRef.current;
+    if (!pan.active || pan.pointerId !== event.pointerId || splitImagePinchRef.current.active) return;
+    const deltaX = event.clientX - pan.lastX;
+    const deltaY = event.clientY - pan.lastY;
+    if (Math.abs(deltaX) + Math.abs(deltaY) < 1) return;
+    updateSplitImageOffset({
+      x: splitImageOffsetRef.current.x + deltaX,
+      y: splitImageOffsetRef.current.y + deltaY,
+    });
+    suppressSplitImageClickRef.current = true;
+    pan.lastX = event.clientX;
+    pan.lastY = event.clientY;
+  };
+
+  const handleSplitPointerEnd = (event: React.PointerEvent<HTMLDivElement>) => {
+    const pan = splitImagePanRef.current;
+    if (pan.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    splitImagePanRef.current.active = false;
+    splitImagePanRef.current.pointerId = null;
   };
 
   const endGridHandleDrag = () => {
     splitGridHandleDragRef.current.handle = null;
   };
 
-  const handleGridHandlePointerDown = (handle: GridHandle, event: React.PointerEvent<HTMLButtonElement>) => {
+  const handleGridHandlePointerDown = (handle: GridHandle, event: React.PointerEvent<HTMLElement>) => {
     event.preventDefault();
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
     startGridHandleDrag(handle, event.clientX, event.clientY);
   };
 
-  const handleGridHandlePointerMove = (event: React.PointerEvent<HTMLButtonElement>) => {
+  const handleGridHandlePointerMove = (event: React.PointerEvent<HTMLElement>) => {
     if (!splitGridHandleDragRef.current.handle) return;
     event.preventDefault();
     event.stopPropagation();
     continueGridHandleDrag(event.clientX, event.clientY, event.currentTarget);
   };
 
-  const handleGridHandlePointerEnd = (event: React.PointerEvent<HTMLButtonElement>) => {
+  const handleGridHandlePointerEnd = (event: React.PointerEvent<HTMLElement>) => {
     event.preventDefault();
     event.stopPropagation();
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
@@ -855,6 +991,9 @@ function H5App() {
     setAlignOffsetX(defaultOffset.x);
     setAlignOffsetY(defaultOffset.y);
     setGridFrameOrigin(defaultFrameOrigin);
+    setSplitImageScale(1);
+    updateSplitImageOffset({ x: 0, y: 0 });
+    splitImagePinchRef.current.active = false;
     setHistory([]);
     setFuture([]);
     setScreen('split');
@@ -1384,10 +1523,19 @@ function H5App() {
           <div
             className="split-image-container"
             aria-label="分割预览图"
+            data-image-scale={splitMode === 'align' ? splitImageScale : 1}
+            data-image-offset-x={splitMode === 'align' ? splitImageOffset.x : 0}
+            data-image-offset-y={splitMode === 'align' ? splitImageOffset.y : 0}
             onTouchStartCapture={handleSplitTouchStart}
             onTouchMoveCapture={handleSplitTouchMove}
             onTouchEndCapture={handleSplitTouchEnd}
             onTouchCancelCapture={handleSplitTouchEnd}
+            onWheel={handleSplitWheel}
+            onClick={handleSplitClick}
+            onPointerDown={handleSplitPointerDown}
+            onPointerMove={handleSplitPointerMove}
+            onPointerUp={handleSplitPointerEnd}
+            onPointerCancel={handleSplitPointerEnd}
           >
             <TransformWrapper
               initialScale={1}
@@ -1395,7 +1543,7 @@ function H5App() {
               maxScale={8}
               centerOnInit={true}
               doubleClick={{ disabled: true }}
-              wheel={{ step: 0.12 }}
+              wheel={{ step: 0.12, disabled: splitMode === 'align' }}
               pinch={{ disabled: true }}
               panning={{ disabled: splitMode === 'align' }}
             >
@@ -1407,19 +1555,24 @@ function H5App() {
                   >
                     <div
                       className="split-image-frame"
-                      style={{ aspectRatio: `${uploadedSplitImage.crop.width} / ${uploadedSplitImage.crop.height}` }}
+                      data-crop-width={uploadedSplitImage.crop.width}
+                      data-crop-height={uploadedSplitImage.crop.height}
                     >
                       <SplitPreviewCanvas
                         imageData={uploadedSplitImage.imageData}
                         crop={uploadedSplitImage.crop}
                         rows={activeSplitRows}
                         cols={activeSplitCols}
-                        alignment={splitMode === 'align' ? alignedGrid : undefined}
+                          alignment={splitMode === 'align' ? alignedGrid : undefined}
+                          imageScale={splitMode === 'align' ? splitImageScale : 1}
+                          imageOffset={splitMode === 'align' ? splitImageOffset : { x: 0, y: 0 }}
                       />
                       {splitMode === 'align' ? (
                         <GridAlignmentHandles
                           grid={alignedGrid}
-                          origin={gridFrameOrigin}
+                            origin={gridFrameOrigin}
+                            imageScale={splitImageScale}
+                            imageOffset={splitImageOffset}
                           onPointerDown={handleGridHandlePointerDown}
                           onPointerMove={handleGridHandlePointerMove}
                           onPointerEnd={handleGridHandlePointerEnd}
@@ -1522,7 +1675,11 @@ function H5App() {
         <section className="split-browser-container" aria-label="分割浏览预览">
           <div
             className="split-grid-preview"
-            style={{ gridTemplateColumns: `repeat(${splitCols}, 1fr)` }}
+            style={{
+              gridTemplateColumns: `repeat(${activeSplitCols}, minmax(0, 1fr))`,
+              gridTemplateRows: `repeat(${activeSplitRows}, minmax(0, 1fr))`,
+              aspectRatio: `${activeSplitCols} / ${activeSplitRows}`,
+            }}
           >
             {splitPreviewCells.map((cell) => (
               <span
@@ -1633,7 +1790,11 @@ function H5App() {
               minScale={0.2}
               maxScale={12}
               centerOnInit={true}
-              panning={{ disabled: false, excluded: tool === 'pan' ? [] : ['canvas-artwork'] }}
+              panning={{
+                disabled: false,
+                allowLeftClickPan: true,
+                excluded: tool === 'pan' ? [] : ['canvas-artwork'],
+              }}
               pinch={{ disabled: false, allowPanning: true, excluded: [] }}
               doubleClick={{ disabled: true }}
               wheel={{ step: 0.15 }}
@@ -2495,37 +2656,81 @@ function touchDistance(first: React.Touch, second: React.Touch): number {
   return Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY);
 }
 
+function clampSplitImageScale(scale: number): number {
+  return Math.max(0.5, Math.min(8, scale));
+}
+
 function GridAlignmentHandles({
   grid,
   origin,
+  imageScale = 1,
+  imageOffset = { x: 0, y: 0 },
   onPointerDown,
   onPointerMove,
   onPointerEnd,
 }: {
   grid: AlignedGrid;
   origin: GridHandlePosition;
-  onPointerDown: (handle: GridHandle, event: React.PointerEvent<HTMLButtonElement>) => void;
-  onPointerMove: (event: React.PointerEvent<HTMLButtonElement>) => void;
-  onPointerEnd: (event: React.PointerEvent<HTMLButtonElement>) => void;
+  imageScale?: number;
+  imageOffset?: { x: number; y: number };
+  onPointerDown: (handle: GridHandle, event: React.PointerEvent<HTMLElement>) => void;
+  onPointerMove: (event: React.PointerEvent<HTMLElement>) => void;
+  onPointerEnd: (event: React.PointerEvent<HTMLElement>) => void;
 }) {
-  const frameWidth = (grid.cellSize * GRID_CONTROL_CELLS / Math.max(1, grid.cropWidth)) * 100;
-  const frameHeight = (grid.cellSize * GRID_CONTROL_CELLS / Math.max(1, grid.cropHeight)) * 100;
+  const layerRef = useRef<HTMLDivElement | null>(null);
+  const [viewport, setViewport] = useState({ width: 0, height: 0 });
+  useLayoutEffect(() => {
+    const layer = layerRef.current;
+    if (!layer) return;
+    const update = () => {
+      const rect = layer.getBoundingClientRect();
+      setViewport({ width: rect.width, height: rect.height });
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(layer);
+    return () => observer.disconnect();
+  }, []);
+
+  const baseRect = viewport.width > 0 && viewport.height > 0
+    ? fitSplitImageRect(viewport, { width: grid.cropWidth, height: grid.cropHeight })
+    : { x: 0, y: 0, width: viewport.width, height: viewport.height };
+  const scaledImageRect = scaleRectFromCenter(baseRect, imageScale);
+  const imageRect = {
+    ...scaledImageRect,
+    x: scaledImageRect.x + imageOffset.x,
+    y: scaledImageRect.y + imageOffset.y,
+  };
+  const frameWidth = (grid.cellSize * GRID_CONTROL_CELLS / Math.max(1, grid.cropWidth)) * imageRect.width;
+  const frameHeight = (grid.cellSize * GRID_CONTROL_CELLS / Math.max(1, grid.cropHeight)) * imageRect.height;
+  const movePosition = {
+    x: imageRect.x + (origin.x / 100) * imageRect.width,
+    y: imageRect.y + (origin.y / 100) * imageRect.height,
+  };
+  const scalePosition = {
+    x: movePosition.x + frameWidth,
+    y: movePosition.y + frameHeight,
+  };
   const handles: Array<{ id: GridHandle; label: string; text: string; className: string }> = [
     { id: 'move', label: '按住移动网格', text: '移动', className: 'move' },
     { id: 'scale', label: '按住缩放网格', text: '缩放', className: 'scale' },
   ];
 
   return (
-    <div className="split-grid-handle-layer" aria-hidden={false}>
+    <div ref={layerRef} className="split-grid-handle-layer" aria-hidden={false}>
       <div
         className="split-grid-control-frame"
         data-grid-span={GRID_CONTROL_CELLS}
         style={{
-          left: `${origin.x}%`,
-          top: `${origin.y}%`,
-          width: `${frameWidth}%`,
-          height: `${frameHeight}%`,
+          left: `${movePosition.x}px`,
+          top: `${movePosition.y}px`,
+          width: `${frameWidth}px`,
+          height: `${frameHeight}px`,
         }}
+        onPointerDown={(event) => onPointerDown('move', event)}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerEnd}
+        onPointerCancel={onPointerEnd}
       />
       {handles.map((handle) => (
         <button
@@ -2534,8 +2739,8 @@ function GridAlignmentHandles({
           aria-label={handle.label}
           className={`split-grid-handle ${handle.className}`}
           style={{
-            left: `${origin.x + (handle.id === 'scale' ? frameWidth : 0)}%`,
-            top: `${origin.y + (handle.id === 'scale' ? frameHeight : 0)}%`,
+            left: `${(handle.id === 'scale' ? scalePosition : movePosition).x}px`,
+            top: `${(handle.id === 'scale' ? scalePosition : movePosition).y}px`,
           }}
           onPointerDown={(event) => onPointerDown(handle.id, event)}
           onPointerMove={onPointerMove}
@@ -2585,12 +2790,16 @@ function SplitPreviewCanvas({
   rows,
   cols,
   alignment,
+  imageScale = 1,
+  imageOffset = { x: 0, y: 0 },
 }: {
   imageData: ImageData;
   crop: { x: number; y: number; width: number; height: number };
   rows: number;
   cols: number;
   alignment?: AlignedGrid;
+  imageScale?: number;
+  imageOffset?: { x: number; y: number };
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const sourceCanvas = useMemo(() => {
@@ -2622,57 +2831,34 @@ function SplitPreviewCanvas({
       if (!context) return;
       context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
       context.clearRect(0, 0, rect.width, rect.height);
-      context.fillStyle = '#ffffff';
-      context.fillRect(0, 0, rect.width, rect.height);
+      drawCanvasCheckerboard(context, rect);
       context.imageSmoothingEnabled = true;
       context.imageSmoothingQuality = 'high';
-      context.drawImage(sourceCanvas, crop.x, crop.y, crop.width, crop.height, 0, 0, rect.width, rect.height);
-
-      context.lineWidth = 1;
-      context.strokeStyle = 'rgba(32, 142, 220, 0.46)';
+      const baseImageRect = fitSplitImageRect(rect, crop);
+      const safeImageScale = clampSplitImageScale(imageScale);
+      const scaledImageRect = scaleRectFromCenter(baseImageRect, safeImageScale);
+      const imageRect = {
+        ...scaledImageRect,
+        x: scaledImageRect.x + imageOffset.x,
+        y: scaledImageRect.y + imageOffset.y,
+      };
+      context.save();
       context.beginPath();
-      if (alignment) {
-        const startX = (alignment.offsetX / crop.width) * rect.width;
-        const startY = (alignment.offsetY / crop.height) * rect.height;
-        const stepX = (alignment.cellSize / crop.width) * rect.width;
-        const stepY = (alignment.cellSize / crop.height) * rect.height;
-        drawAlignedGridLines(context, rect, startX, startY, stepX, stepY);
-      } else {
-        for (let x = 1; x < cols; x += 1) {
-          const px = (x / cols) * rect.width;
-          context.moveTo(px, 0);
-          context.lineTo(px, rect.height);
-        }
-        for (let y = 1; y < rows; y += 1) {
-          const py = (y / rows) * rect.height;
-          context.moveTo(0, py);
-          context.lineTo(rect.width, py);
-        }
-      }
-      context.stroke();
-
-      context.lineWidth = 1.5;
-      context.strokeStyle = 'rgba(20, 105, 180, 0.72)';
-      context.beginPath();
-      if (alignment) {
-        const startX = (alignment.offsetX / crop.width) * rect.width;
-        const startY = (alignment.offsetY / crop.height) * rect.height;
-        const stepX = (alignment.cellSize / crop.width) * rect.width;
-        const stepY = (alignment.cellSize / crop.height) * rect.height;
-        drawAlignedGridLines(context, rect, startX, startY, stepX, stepY, 5);
-      } else {
-        for (let x = 5; x < cols; x += 5) {
-          const px = (x / cols) * rect.width;
-          context.moveTo(px, 0);
-          context.lineTo(px, rect.height);
-        }
-        for (let y = 5; y < rows; y += 5) {
-          const py = (y / rows) * rect.height;
-          context.moveTo(0, py);
-          context.lineTo(rect.width, py);
-        }
-      }
-      context.stroke();
+      context.rect(0, 0, rect.width, rect.height);
+      context.clip();
+      context.drawImage(
+        sourceCanvas,
+        crop.x,
+        crop.y,
+        crop.width,
+        crop.height,
+        imageRect.x,
+        imageRect.y,
+        imageRect.width,
+        imageRect.height,
+      );
+      drawAttachedSplitGrid(context, imageRect, crop, rows, cols, alignment);
+      context.restore();
     };
 
     const scheduleDraw = () => {
@@ -2687,9 +2873,99 @@ function SplitPreviewCanvas({
       cancelAnimationFrame(frameId);
       resizeObserver.disconnect();
     };
-  }, [alignment, cols, crop.height, crop.width, crop.x, crop.y, rows, sourceCanvas]);
+  }, [alignment, cols, crop.height, crop.width, crop.x, crop.y, imageOffset.x, imageOffset.y, imageScale, rows, sourceCanvas]);
 
   return <canvas ref={canvasRef} className="split-preview-canvas" aria-label="切割画布预览" />;
+}
+
+function drawCanvasCheckerboard(context: CanvasRenderingContext2D, rect: { width: number; height: number }) {
+  const tileSize = 16;
+  context.fillStyle = '#1a1b1d';
+  context.fillRect(0, 0, rect.width, rect.height);
+  context.fillStyle = '#222426';
+  for (let y = 0; y < rect.height; y += tileSize) {
+    for (let x = 0; x < rect.width; x += tileSize) {
+      if ((x / tileSize + y / tileSize) % 2 === 0) context.fillRect(x, y, tileSize, tileSize);
+    }
+  }
+}
+
+function fitSplitImageRect(rect: { width: number; height: number }, crop: { width: number; height: number }) {
+  const scale = Math.min(rect.width / Math.max(1, crop.width), rect.height / Math.max(1, crop.height)) * 0.82;
+  const width = Math.max(1, crop.width * scale);
+  const height = Math.max(1, crop.height * scale);
+  return { x: (rect.width - width) / 2, y: (rect.height - height) / 2, width, height };
+}
+
+function scaleRectFromCenter(rect: { x: number; y: number; width: number; height: number }, scale: number) {
+  const width = rect.width * scale;
+  const height = rect.height * scale;
+  return { x: rect.x + (rect.width - width) / 2, y: rect.y + (rect.height - height) / 2, width, height };
+}
+
+function drawAttachedGridLines(
+  context: CanvasRenderingContext2D,
+  imageRect: { x: number; y: number; width: number; height: number },
+  startX: number,
+  startY: number,
+  stepX: number,
+  stepY: number,
+  majorEvery = 1,
+) {
+  if (stepX <= 0 || stepY <= 0) return;
+  let column = Math.floor((imageRect.x - startX) / stepX);
+  for (let x = startX + column * stepX; x <= imageRect.x + imageRect.width; x += stepX, column += 1) {
+    if (column % majorEvery !== 0) continue;
+    context.moveTo(x, imageRect.y);
+    context.lineTo(x, imageRect.y + imageRect.height);
+  }
+  let row = Math.floor((imageRect.y - startY) / stepY);
+  for (let y = startY + row * stepY; y <= imageRect.y + imageRect.height; y += stepY, row += 1) {
+    if (row % majorEvery !== 0) continue;
+    context.moveTo(imageRect.x, y);
+    context.lineTo(imageRect.x + imageRect.width, y);
+  }
+}
+
+function drawAttachedSplitGrid(
+  context: CanvasRenderingContext2D,
+  imageRect: { x: number; y: number; width: number; height: number },
+  crop: { width: number; height: number },
+  rows: number,
+  cols: number,
+  alignment?: AlignedGrid,
+) {
+  const drawLines = (majorEvery: number) => {
+    if (alignment) {
+      const startX = imageRect.x + (alignment.offsetX / crop.width) * imageRect.width;
+      const startY = imageRect.y + (alignment.offsetY / crop.height) * imageRect.height;
+      const stepX = (alignment.cellSize / crop.width) * imageRect.width;
+      const stepY = (alignment.cellSize / crop.height) * imageRect.height;
+      drawAttachedGridLines(context, imageRect, startX, startY, stepX, stepY, majorEvery);
+      return;
+    }
+    for (let x = majorEvery; x < cols; x += majorEvery) {
+      const px = imageRect.x + (x / cols) * imageRect.width;
+      context.moveTo(px, imageRect.y);
+      context.lineTo(px, imageRect.y + imageRect.height);
+    }
+    for (let y = majorEvery; y < rows; y += majorEvery) {
+      const py = imageRect.y + (y / rows) * imageRect.height;
+      context.moveTo(imageRect.x, py);
+      context.lineTo(imageRect.x + imageRect.width, py);
+    }
+  };
+
+  context.lineWidth = 1;
+  context.strokeStyle = 'rgba(32, 142, 220, 0.46)';
+  context.beginPath();
+  drawLines(1);
+  context.stroke();
+  context.lineWidth = 1.5;
+  context.strokeStyle = 'rgba(20, 105, 180, 0.72)';
+  context.beginPath();
+  drawLines(5);
+  context.stroke();
 }
 
 function createBlankCells(rows: number, cols: number): Cell[] {

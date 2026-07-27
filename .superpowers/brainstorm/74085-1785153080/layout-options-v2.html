@@ -1,0 +1,35 @@
+<h2>分割｜对格子交互方案</h2>
+<p class="subtitle">请看下面两个操作示意。重点：蓝色方格固定，导入图片只在它后面移动和缩放。</p>
+
+<div class="options">
+  <div class="option" data-choice="A" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>固定方格覆盖在图片上</h3>
+      <div style="height:180px;margin:12px 0;padding:12px;background:#e6e9e7;border-radius:10px;position:relative;overflow:hidden;">
+        <div style="position:absolute;inset:35px 15px;background:#d28c65;transform:rotate(-6deg) scale(1.2);"></div>
+        <div style="position:absolute;left:50%;top:50%;width:110px;height:110px;transform:translate(-50%,-50%);border:3px solid #208edc;background:repeating-linear-gradient(90deg,transparent 0 20px,rgba(32,142,220,.7) 21px 22px),repeating-linear-gradient(0deg,transparent 0 20px,rgba(32,142,220,.7) 21px 22px);"></div>
+        <div style="position:absolute;left:12px;bottom:8px;color:#34434b;font-size:12px;">图片可移动 / 双指缩放　　蓝色方格固定</div>
+      </div>
+      <p>图片覆盖在方格后面。拖动和缩放时，只改变图片，不改变方格。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="B" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>固定方格 + 外部图片操作区</h3>
+      <div style="height:180px;margin:12px 0;padding:12px;background:#e6e9e7;border-radius:10px;position:relative;overflow:hidden;">
+        <div style="position:absolute;inset:25px 8px;background:#719a91;transform:rotate(5deg) scale(1.2);"></div>
+        <div style="position:absolute;left:50%;top:50%;width:110px;height:110px;transform:translate(-50%,-50%);border:3px solid #208edc;background:repeating-linear-gradient(90deg,transparent 0 20px,rgba(32,142,220,.7) 21px 22px),repeating-linear-gradient(0deg,transparent 0 20px,rgba(32,142,220,.7) 21px 22px);"></div>
+        <div style="position:absolute;right:8px;top:8px;padding:4px 6px;background:#fff;color:#176aa2;font-size:11px;border-radius:4px;">框外点击 = 放大图片</div>
+        <div style="position:absolute;left:12px;bottom:8px;color:#34434b;font-size:12px;">方格不跟随图片变化</div>
+      </div>
+      <p>框外拖动移动图片；框外点击/双击只放大图片；双指缩放也只作用于图片。</p>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:16px;">
+  <h3>共同规则</h3>
+  <p>固定方格的行列数、位置、大小独立于导入图片。图片只是被调整到方格后面，用于观察内容是否对齐。</p>
+</div>
