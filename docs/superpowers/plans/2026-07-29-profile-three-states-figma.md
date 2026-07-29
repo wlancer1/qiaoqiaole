@@ -72,7 +72,7 @@ Rename changed layers with the `Logged Out /` prefix.
 
 - [ ] **Step 3: Hide authenticated-only content**
 
-Rename the verified badge ellipse, verification check text, four colored swatches, “+82”, progress track, progress fill, both warehouse totals, logout rectangle, and logout text with the `Logged Out /` prefix. Then use `set_visible(false)` on all of them.
+Rename the verified badge ellipse, verification check text, all five swatch circles (four colors plus the “more” swatch), “+82”, progress track, progress fill, both warehouse totals, logout rectangle, and logout text with the `Logged Out /` prefix. Then use `set_visible(false)` on all of them.
 
 Expected: no personal ID, inventory values, verification badge, or logout action remains visible.
 
@@ -104,7 +104,7 @@ Keep `ID 20260729` and the verified badge. Rename changed layers with the `Empty
 
 - [ ] **Step 3: Hide populated inventory content**
 
-Rename four colored swatches, “+82”, progress track, progress fill, and both warehouse totals with the `Empty /` prefix. Then use `set_visible(false)` on all of them.
+Rename all five swatch circles (four colors plus the “more” swatch), “+82”, progress track, progress fill, and both warehouse totals with the `Empty /` prefix. Then use `set_visible(false)` on all of them.
 
 Expected: the warehouse card contains no nonzero stock values or misleading progress.
 
@@ -122,20 +122,26 @@ Use `search_nodes(name: "Profile /")` and `get_nodes_info` or `get_node` on the 
 
 Expected: three 414 × 876 frames at x = 2860, 3322, 3784 and y = 1069, with the exact final names.
 
-- [ ] **Step 2: Export all three screenshots**
+- [ ] **Step 2: Verify state-layer naming**
+
+Run `search_nodes(name: "Logged Out /", root: <logged-out-root>)` and `search_nodes(name: "Empty /", root: <empty-root>)`, then inspect the returned flat node lists.
+
+Expected: every state-modified text layer, every layer hidden for that state, and both newly created CTA layers carry the correct prefix. Specifically, the logged-out result contains at least 25 prefixed layers and the empty result contains at least 19 prefixed layers; no changed or hidden state-specific layer remains under its ambiguous original name.
+
+- [ ] **Step 3: Export all three screenshots**
 
 Run `get_screenshot` for the three root IDs as PNG at 1×.
 
 Expected: each image is 414 × 876, non-empty, uncropped, and shows “我的” active in the bottom tab.
 
-- [ ] **Step 3: Inspect visual acceptance criteria**
+- [ ] **Step 4: Inspect visual acceptance criteria**
 
 Confirm no overlap, clipping, text overflow, hidden icon remnants, or unintended changes. Confirm logged-out contains no personal data or logout action; empty contains zero statistics and clear empty messaging; compare the populated screenshot against the retained preflight baseline and confirm identical rendered content after normalizing for frame position.
 
-- [ ] **Step 4: Correct and re-export if needed**
+- [ ] **Step 5: Correct and re-export if needed**
 
 Use targeted Figwright position, visibility, text, fill, stroke, or typography edits only on the affected state. Re-export all three screenshots after corrections.
 
-- [ ] **Step 5: Record completion**
+- [ ] **Step 6: Record completion**
 
 Report the three final frame IDs and names, the preserved source state, and screenshot verification results. No git commit is required for Figma mutations; commit this plan document only.
