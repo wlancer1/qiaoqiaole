@@ -21,10 +21,12 @@ import {
   getImportAction,
   HomeUploadHero,
   SegmentedControl,
+  SplitCanvasLoading,
   SplitBeadList,
   ThresholdControl,
 } from './H5FlowComponents';
 import { filterPaletteByQuery, filterPaletteByUsage } from './palette';
+import { H5CanvasLayers } from './H5CanvasLayers';
 import {
   DEFAULT_SPLIT_LONG_SIDE,
   MAX_SPLIT_LONG_SIDE,
@@ -35,7 +37,6 @@ import {
 } from './splitConfig';
 
 type AppScreen = 'home' | 'profile' | 'split' | 'split-preview' | 'canvas' | 'warehouse';
-type CanvasKind = 'image' | 'grid';
 type CanvasTool = 'brush' | 'eraser' | 'fill' | 'eyedropper' | 'pan';
 type WorkMode = 'bead' | 'peg';
 type SplitMode = 'quick' | 'align';
@@ -120,7 +121,6 @@ function H5App() {
   const [rows, setRows] = useState<number>(32);
   const [cols, setCols] = useState<number>(32);
   const [cells, setCells] = useState<Cell[]>(() => createBlankCells(32, 32));
-  const [canvasKind, setCanvasKind] = useState<CanvasKind>('grid');
   const [workMode, setWorkMode] = useState<WorkMode>('bead');
   const [selectedColor, setSelectedColor] = useState<string>(MARD_221_COLORS[0]?.hex ?? '#faf4c8');
   const [selectedCode, setSelectedCode] = useState<string>(MARD_221_COLORS[0]?.code ?? 'A1');
@@ -155,6 +155,11 @@ function H5App() {
   const [splitMergeThreshold, setSplitMergeThreshold] = useState(0);
   const [splitPreviewTab, setSplitPreviewTab] = useState<SplitPreviewTab>('settings');
   const deferredSplitMergeThreshold = useDeferredValue(splitMergeThreshold);
+  const [splitPreviewRawCells, setSplitPreviewRawCells] = useState<Cell[]>([]);
+  const [splitPreviewCells, setSplitPreviewCells] = useState<Cell[]>([]);
+  const [splitPreviewLoading, setSplitPreviewLoading] = useState(false);
+  const [splitLoadingStage, setSplitLoadingStage] = useState('正在分析图片...');
+  const [splitLoadingProgress, setSplitLoadingProgress] = useState(15);
   const [alignCellSize, setAlignCellSize] = useState(1);
   const [alignOffsetX, setAlignOffsetX] = useState(0);
   const [alignOffsetY, setAlignOffsetY] = useState(0);
@@ -171,7 +176,6 @@ function H5App() {
   const [isReferenceMinimized, setIsReferenceMinimized] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const referenceInputRef = useRef<HTMLInputElement | null>(null);
-  const imageCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const pendingAuthActionRef = useRef<(() => void) | null>(null);
   const xhsRequestSeqRef = useRef(0);
   const xhsImportSeqRef = useRef(0);
@@ -242,23 +246,7 @@ function H5App() {
   const splitLiveAlignOffsetRef = useRef({ x: 0, y: 0 });
   const splitLiveGridFrameOriginRef = useRef<GridHandlePosition>({ x: 40, y: 40 });
   const splitAlignFrameRef = useRef(0);
-
-  useEffect(() => {
-    if (canvasKind !== 'image') return;
-    const canvas = imageCanvasRef.current;
-    if (!canvas) return;
-    canvas.width = cols;
-    canvas.height = rows;
-    const context = canvas.getContext('2d');
-    if (!context) return;
-    context.clearRect(0, 0, cols, rows);
-    context.imageSmoothingEnabled = false;
-    for (const cell of cells) {
-      if (cell.transparent) continue;
-      context.fillStyle = cell.color;
-      context.fillRect(cell.x, cell.y, 1, 1);
-    }
-  }, [canvasKind, cells, cols, rows]);
+  const splitPreviewJobRef = useRef(0);
 
   useEffect(() => {
     cellsRef.current = cells;
@@ -314,18 +302,6 @@ function H5App() {
   ), [alignCellSize, alignOffsetX, alignOffsetY, splitCols, splitRows, uploadedSplitImage]);
   const activeSplitRows = splitMode === 'align' ? alignedGrid.rows : splitRows;
   const activeSplitCols = splitMode === 'align' ? alignedGrid.cols : splitCols;
-  const rawSplitPreviewCells = useMemo(() => {
-    if (screen !== 'split-preview') return [];
-    if (!uploadedSplitImage) return [];
-    if (splitMode === 'align') {
-      return cellsFromAlignedGrid(uploadedSplitImage.imageData, alignedGrid, uploadedSplitImage.crop);
-    }
-    return cellsFromImage(uploadedSplitImage.imageData, splitRows, splitCols, uploadedSplitImage.crop);
-  }, [alignedGrid, screen, splitCols, splitMode, splitRows, uploadedSplitImage]);
-  const splitPreviewCells = useMemo(
-    () => mergeSimilarCells(rawSplitPreviewCells, deferredSplitMergeThreshold),
-    [rawSplitPreviewCells, deferredSplitMergeThreshold],
-  );
   const splitColorList = useMemo(() => {
     const counts = new Map<string, number>();
     for (const cell of splitPreviewCells) {
@@ -336,6 +312,80 @@ function H5App() {
       .sort((left, right) => right[1] - left[1])
       .map(([color, count]) => ({ color, count, code: colorCodeOf(color) }));
   }, [splitPreviewCells]);
+
+  useEffect(() => {
+    if (screen !== 'split-preview' || !uploadedSplitImage) return;
+    const jobId = splitPreviewJobRef.current + 1;
+    splitPreviewJobRef.current = jobId;
+    let cancelled = false;
+    setSplitPreviewRawCells([]);
+    setSplitPreviewCells([]);
+    setSplitPreviewLoading(true);
+    setSplitLoadingStage('正在分析图片...');
+    setSplitLoadingProgress(15);
+
+    const run = async () => {
+      await yieldToBrowser(180);
+      if (cancelled || splitPreviewJobRef.current !== jobId) return;
+      setSplitLoadingStage('正在匹配拼豆色号...');
+      setSplitLoadingProgress(28);
+      const rawCells = splitMode === 'align'
+        ? await cellsFromAlignedGridAsync(uploadedSplitImage.imageData, alignedGrid, uploadedSplitImage.crop, (progress) => {
+          if (!cancelled && splitPreviewJobRef.current === jobId) setSplitLoadingProgress(28 + Math.round(progress * 0.42));
+        })
+        : await cellsFromImageAsync(uploadedSplitImage.imageData, splitRows, splitCols, uploadedSplitImage.crop, (progress) => {
+          if (!cancelled && splitPreviewJobRef.current === jobId) setSplitLoadingProgress(28 + Math.round(progress * 0.42));
+        });
+      if (cancelled || splitPreviewJobRef.current !== jobId) return;
+      setSplitPreviewRawCells(rawCells);
+      setSplitLoadingStage('正在生成画布...');
+      setSplitLoadingProgress(72);
+      await yieldToBrowser();
+      if (cancelled || splitPreviewJobRef.current !== jobId) return;
+      setSplitLoadingStage('正在统计豆子数量...');
+      setSplitLoadingProgress(86);
+      await yieldToBrowser();
+      if (cancelled || splitPreviewJobRef.current !== jobId) return;
+      setSplitLoadingStage('即将完成...');
+      setSplitLoadingProgress(96);
+      await yieldToBrowser();
+      if (cancelled || splitPreviewJobRef.current !== jobId) return;
+      setSplitLoadingProgress(100);
+      setSplitPreviewLoading(false);
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [alignedGrid, screen, splitCols, splitMode, splitRows, uploadedSplitImage]);
+
+  useEffect(() => {
+    if (screen !== 'split-preview' || splitPreviewRawCells.length === 0) return;
+    let cancelled = false;
+    const run = async () => {
+      if (deferredSplitMergeThreshold === 0) {
+        setSplitPreviewCells(splitPreviewRawCells.map((cell) => ({ ...cell, color: cell.color.toLowerCase() })));
+        return;
+      }
+      setSplitPreviewLoading(true);
+      setSplitLoadingStage('正在匹配拼豆色号...');
+      setSplitLoadingProgress(72);
+      await yieldToBrowser();
+      if (cancelled) return;
+      setSplitPreviewCells(mergeSimilarCells(splitPreviewRawCells, deferredSplitMergeThreshold));
+      setSplitLoadingStage('正在统计豆子数量...');
+      setSplitLoadingProgress(96);
+      await yieldToBrowser();
+      if (cancelled) return;
+      setSplitLoadingProgress(100);
+      setSplitPreviewLoading(false);
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [deferredSplitMergeThreshold, screen, splitPreviewRawCells]);
   const prioritizedPaletteColors = useMemo(
     () => filterPaletteByUsage(MARD_221_COLORS, cells, ''),
     [cells],
@@ -615,7 +665,6 @@ function H5App() {
     setCfgCols(nextCols);
     setCfgRows(nextRows);
     setCells(createBlankCells(nextRows, nextCols));
-    setCanvasKind('grid');
     setWorkMode('bead');
     setHistory([]);
     setFuture([]);
@@ -943,17 +992,12 @@ function H5App() {
   };
 
   const importSplitToCanvas = () => {
-    if (!uploadedSplitImage) return;
-    const rawCells = splitMode === 'align'
-      ? cellsFromAlignedGrid(uploadedSplitImage.imageData, alignedGrid, uploadedSplitImage.crop)
-      : cellsFromImage(uploadedSplitImage.imageData, splitRows, splitCols, uploadedSplitImage.crop);
-    const nextCells = mergeSimilarCells(rawCells, splitMergeThreshold);
+    if (!uploadedSplitImage || splitPreviewCells.length === 0) return;
     setRows(activeSplitRows);
     setCols(activeSplitCols);
     setCfgRows(activeSplitRows);
     setCfgCols(activeSplitCols);
-    setCells(nextCells);
-    setCanvasKind('image');
+    setCells(splitPreviewCells);
     setHistory([]);
     setFuture([]);
     setTool('pan');
@@ -1136,14 +1180,6 @@ function H5App() {
     return { nextCells: replaceCell(sourceCells, x, y, selectedColor), changed: true };
   };
 
-  const cellFromCanvasPoint = (clientX: number, clientY: number, rect: DOMRect) => {
-    if (rect.width <= 0 || rect.height <= 0) return null;
-    if (clientX < rect.left || clientX >= rect.right || clientY < rect.top || clientY >= rect.bottom) return null;
-    const x = Math.min(cols - 1, Math.max(0, Math.floor(((clientX - rect.left) / rect.width) * cols)));
-    const y = Math.min(rows - 1, Math.max(0, Math.floor(((clientY - rect.top) / rect.height) * rows)));
-    return { x, y };
-  };
-
   const paintStrokeAt = (x: number, y: number) => {
     const stroke = paintStrokeRef.current;
     if (!stroke.active) return;
@@ -1273,18 +1309,18 @@ function H5App() {
     canvasTouchPointersRef.current.delete(event.pointerId);
   };
 
-  const handleGridCanvasPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+  const handleCanvasPointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const isMultiTouch = event.pointerType === 'touch' && canvasTouchPointersRef.current.size > 1;
     if (isMultiTouch) return;
-    const point = cellFromGridPointer(event.clientX, event.clientY, event.currentTarget);
+    const point = cellFromCanvasPointer(event.clientX, event.clientY, event.currentTarget);
     if (!point) return;
     if (beginPaintStroke(point.x, point.y, event.pointerId, event.currentTarget, event.pointerType === 'touch')) {
       event.preventDefault();
     }
   };
 
-  const handleGridCanvasPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    const point = cellFromGridPointer(event.clientX, event.clientY, event.currentTarget);
+  const handleCanvasPointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const point = cellFromCanvasPointer(event.clientX, event.clientY, event.currentTarget);
     if (!point) {
       breakPaintStroke(event.pointerId);
       return;
@@ -1299,21 +1335,24 @@ function H5App() {
     }
   };
 
-  const handleGridCellClick = (cell: Cell) => {
+  const handleCanvasClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
     if (suppressCanvasClickRef.current) {
       suppressCanvasClickRef.current = false;
       return;
     }
+    const point = cellFromCanvasPointer(event.clientX, event.clientY, event.currentTarget);
+    if (!point) return;
+    const cell = cells.find((item) => item.x === point.x && item.y === point.y);
+    if (!cell) return;
     handleCellTap(cell);
   };
 
-  const cellFromGridPointer = (clientX: number, clientY: number, grid: HTMLDivElement) => {
-    const element = document.elementFromPoint(clientX, clientY);
-    const cellElement = element instanceof HTMLElement ? element.closest<HTMLElement>('.h5-canvas-cell') : null;
-    if (!cellElement || !grid.contains(cellElement)) return null;
-    const x = Number(cellElement.dataset.cellX);
-    const y = Number(cellElement.dataset.cellY);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  const cellFromCanvasPointer = (clientX: number, clientY: number, canvas: HTMLCanvasElement) => {
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    if (clientX < rect.left || clientX >= rect.right || clientY < rect.top || clientY >= rect.bottom) return null;
+    const x = Math.min(cols - 1, Math.max(0, Math.floor(((clientX - rect.left) / rect.width) * cols)));
+    const y = Math.min(rows - 1, Math.max(0, Math.floor(((clientY - rect.top) / rect.height) * rows)));
     return { x, y };
   };
 
@@ -1348,39 +1387,6 @@ function H5App() {
     setStatus('');
     if (!cell.transparent && cell.color.toLowerCase() === selectedColor.toLowerCase()) return;
     commitCells(replaceCell(cells, cell.x, cell.y, selectedColor));
-  };
-
-  const handleImageCanvasClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
-    if (suppressCanvasClickRef.current) {
-      suppressCanvasClickRef.current = false;
-      return;
-    }
-    if (tool === 'pan') return;
-    const canvas = event.currentTarget;
-    const point = cellFromCanvasPoint(event.clientX, event.clientY, canvas.getBoundingClientRect());
-    if (!point) return;
-    const { x, y } = point;
-    const cell = cells.find((item) => item.x === x && item.y === y);
-    if (cell) handleCellTap(cell);
-  };
-
-  const handleImageCanvasPointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const isMultiTouch = event.pointerType === 'touch' && canvasTouchPointersRef.current.size > 1;
-    if (isMultiTouch) return;
-    const point = cellFromCanvasPoint(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect());
-    if (!point) return;
-    if (beginPaintStroke(point.x, point.y, event.pointerId, event.currentTarget, event.pointerType === 'touch')) {
-      event.preventDefault();
-    }
-  };
-
-  const handleImageCanvasPointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const point = cellFromCanvasPoint(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect());
-    if (!point) {
-      breakPaintStroke(event.pointerId);
-      return;
-    }
-    continuePaintStroke(point.x, point.y, event.pointerId);
   };
 
   const exportPatternPng = () => {
@@ -1697,19 +1703,26 @@ function H5App() {
           title="浏览"
           backLabel="返回分割"
           onBack={() => setScreen('split')}
-          action={getImportAction(splitPreviewCells.length, importSplitToCanvas)}
+          action={getImportAction(splitPreviewLoading ? 0 : splitPreviewCells.length, importSplitToCanvas)}
         />
 
-        <section className="split-browser-container" aria-label="分割浏览预览">
+        <section className="split-browser-container" aria-label="分割浏览预览" aria-busy={splitPreviewLoading}>
           <div
-            className="split-grid-preview"
+            className={`split-grid-preview${splitPreviewLoading ? ' is-loading' : ''}`}
             style={{
               gridTemplateColumns: `repeat(${activeSplitCols}, minmax(0, 1fr))`,
               gridTemplateRows: `repeat(${activeSplitRows}, minmax(0, 1fr))`,
               aspectRatio: `${activeSplitCols} / ${activeSplitRows}`,
             }}
           >
-            {splitPreviewCells.map((cell) => (
+            {splitPreviewLoading ? (
+              <SplitCanvasLoading
+                rows={activeSplitRows}
+                cols={activeSplitCols}
+                stage={splitLoadingStage}
+                progress={splitLoadingProgress}
+              />
+            ) : splitPreviewCells.map((cell) => (
               <span
                 key={`${cell.x}-${cell.y}`}
                 className={cell.transparent ? 'split-preview-cell transparent' : 'split-preview-cell'}
@@ -1757,7 +1770,7 @@ function H5App() {
 
   if (screen === 'canvas') {
     return (
-      <main className={canvasScale >= 1.5 ? 'h5-canvas-page cell-codes-visible' : 'h5-canvas-page'} aria-label="H5 画布编辑器">
+      <main className="h5-canvas-page cell-codes-visible" aria-label="H5 画布编辑器">
         <input ref={fileInputRef} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void handleUpload(event.target.files?.[0])} />
         <input ref={referenceInputRef} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp" aria-label="参考图文件" onChange={(event) => handleReferenceUpload(event.target.files?.[0])} />
         
@@ -1869,61 +1882,32 @@ function H5App() {
                     wrapperStyle={{ width: '100%', height: '100%', overflow: 'hidden' }}
                     contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                   >
-                    {canvasKind === 'image' ? (
-                      <div className="h5-image-artboard" style={{ aspectRatio: `${cols} / ${rows}`, width: `min(calc(${cols} * var(--canvas-cell-size)), calc(100% - var(--canvas-ruler-gutter)))` }}>
-                        <CanvasRulers rows={rows} cols={cols} />
-                        <canvas
-                          ref={imageCanvasRef}
-                          className="h5-image-canvas canvas-artwork"
-                          aria-label="拼豆像素画布"
-                          onPointerDown={handleImageCanvasPointerDown}
-                          onPointerMove={handleImageCanvasPointerMove}
-                          onPointerUp={handleCanvasPaintPointerEnd}
-                          onPointerCancel={handleCanvasPaintPointerEnd}
-                          onLostPointerCapture={handleCanvasPaintPointerEnd}
-                          onClick={handleImageCanvasClick}
-                        />
-                        <GridOverlay rows={rows} cols={cols} className="h5-image-grid-overlay" />
-                        <ImageCellCodeOverlay cells={cells} cols={cols} />
-                      </div>
-                    ) : (
-                      <div
-                        className="h5-artboard"
-                        style={{
-                          aspectRatio: `${cols} / ${rows}`,
-                          width: `min(calc(${cols} * var(--canvas-cell-size)), calc(100% - var(--canvas-ruler-gutter)))`,
-                        }}
+                    <div
+                      className="h5-artboard"
+                      style={{
+                        aspectRatio: `${cols} / ${rows}`,
+                        width: `min(calc(${cols} * var(--canvas-cell-size)), calc(100% - var(--canvas-ruler-gutter)))`,
+                      }}
                       >
                         <CanvasRulers rows={rows} cols={cols} />
-                        <div
-                          className="h5-canvas-grid canvas-artwork"
-                          style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
-                          onPointerDown={handleGridCanvasPointerDown}
-                          onPointerMove={handleGridCanvasPointerMove}
-                          onPointerUp={handleCanvasPaintPointerEnd}
-                          onPointerCancel={handleCanvasPaintPointerEnd}
-                          onLostPointerCapture={handleCanvasPaintPointerEnd}
-                        >
-                          {cells.map((cell) => (
-                            <button
-                              key={`${cell.x}-${cell.y}`}
-                              className={cell.transparent ? 'h5-canvas-cell transparent' : 'h5-canvas-cell'}
-                              style={{ background: cell.transparent ? undefined : cell.color }}
-                              aria-label={`格子 ${cell.x + 1},${cell.y + 1}`}
-                              data-cell-x={cell.x}
-                              data-cell-y={cell.y}
-                              onClick={() => handleGridCellClick(cell)}
-                            >
-                              {!cell.transparent ? (
-                                <span className="h5-cell-code" style={{ color: colorCodeTextColor(cell.color) }}>
-                                  {colorCodeOf(cell.color)}
-                                </span>
-                              ) : null}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                        <H5CanvasLayers
+                          cells={cells}
+                          cols={cols}
+                          rows={rows}
+                          canvasScale={canvasScale}
+                          codesVisible={canvasScale >= 1.5}
+                          getCode={colorCodeOf}
+                          getTextColor={colorCodeTextColor}
+                          gridCanvasProps={{
+                            onPointerDown: handleCanvasPointerDown,
+                            onPointerMove: handleCanvasPointerMove,
+                            onPointerUp: handleCanvasPaintPointerEnd,
+                            onPointerCancel: handleCanvasPaintPointerEnd,
+                            onLostPointerCapture: handleCanvasPaintPointerEnd,
+                            onClick: handleCanvasClick,
+                          }}
+                        />
+                    </div>
                   </TransformComponent>
                   <div className="canvas-zoom-controls" aria-label="画布缩放控制">
                     <button aria-label="放大画布" onClick={() => { zoomIn(0.35); setCanvasScale((value) => Math.min(12, value + 0.35)); }}>+</button>
@@ -2791,27 +2775,6 @@ function CanvasRulers({ rows, cols }: { rows: number; cols: number }) {
   );
 }
 
-function ImageCellCodeOverlay({ cells, cols }: { cells: Cell[]; cols: number }) {
-  return (
-    <div
-      className="h5-image-code-overlay"
-      aria-label="导入画布色号"
-      style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}
-    >
-      {cells.map((cell) => (
-        <span
-          key={`${cell.x}-${cell.y}`}
-          className="h5-image-cell-code"
-          aria-label={`格子 ${cell.x + 1},${cell.y + 1} 色号 ${colorCodeOf(cell.color)}`}
-          style={{ color: colorCodeTextColor(cell.color) }}
-        >
-          {cell.transparent ? '' : colorCodeOf(cell.color)}
-        </span>
-      ))}
-    </div>
-  );
-}
-
 function rulerTicks(size: number): number[] {
   const safeSize = Math.max(1, size);
   const ticks: number[] = [];
@@ -3250,6 +3213,41 @@ function cellsFromImage(
   }).map((cell) => ({ ...cell, transparent: false }));
 }
 
+async function cellsFromImageAsync(
+  imageData: ImageData,
+  rows: number,
+  cols: number,
+  crop = getImageCrop(imageData),
+  onProgress?: (progress: number) => void,
+): Promise<Cell[]> {
+  const samplesPerCell = SPLIT_DOMINANT_SAMPLE_GRID_SIZE;
+  const cells: Cell[] = [];
+
+  for (let y = 0; y < rows; y += 1) {
+    for (let x = 0; x < cols; x += 1) {
+      const pixels: number[] = [];
+      for (let sy = 0; sy < samplesPerCell; sy += 1) {
+        for (let sx = 0; sx < samplesPerCell; sx += 1) {
+          const px = Math.min(
+            imageData.width - 1,
+            Math.floor(crop.x + ((x + (sx + 0.5) / samplesPerCell) / cols) * crop.width),
+          );
+          const py = Math.min(
+            imageData.height - 1,
+            Math.floor(crop.y + ((y + (sy + 0.5) / samplesPerCell) / rows) * crop.height),
+          );
+          const offset = (py * imageData.width + px) * 4;
+          pixels.push(imageData.data[offset], imageData.data[offset + 1], imageData.data[offset + 2], imageData.data[offset + 3]);
+        }
+      }
+      cells.push({ x, y, color: sampleDominantColor(pixels, MARD_221_HEX), transparent: false });
+    }
+    onProgress?.((y + 1) / Math.max(1, rows));
+    if (y % 3 === 2) await yieldToBrowser();
+  }
+  return cells;
+}
+
 function cellsFromAlignedGrid(
   imageData: ImageData,
   grid: AlignedGrid,
@@ -3276,6 +3274,44 @@ function cellsFromAlignedGrid(
     }
     return sampleDominantColor(pixels, MARD_221_HEX);
   }).map((cell) => ({ ...cell, transparent: false }));
+}
+
+async function cellsFromAlignedGridAsync(
+  imageData: ImageData,
+  grid: AlignedGrid,
+  crop = getImageCrop(imageData),
+  onProgress?: (progress: number) => void,
+): Promise<Cell[]> {
+  const samplesPerCell = SPLIT_DOMINANT_SAMPLE_GRID_SIZE;
+  const cells: Cell[] = [];
+
+  for (let y = 0; y < grid.rows; y += 1) {
+    for (let x = 0; x < grid.cols; x += 1) {
+      const pixels: number[] = [];
+      for (let sy = 0; sy < samplesPerCell; sy += 1) {
+        for (let sx = 0; sx < samplesPerCell; sx += 1) {
+          const px = Math.min(
+            imageData.width - 1,
+            Math.floor(crop.x + grid.offsetX + (x + (sx + 0.5) / samplesPerCell) * grid.cellSize),
+          );
+          const py = Math.min(
+            imageData.height - 1,
+            Math.floor(crop.y + grid.offsetY + (y + (sy + 0.5) / samplesPerCell) * grid.cellSize),
+          );
+          const offset = (py * imageData.width + px) * 4;
+          pixels.push(imageData.data[offset], imageData.data[offset + 1], imageData.data[offset + 2], imageData.data[offset + 3]);
+        }
+      }
+      cells.push({ x, y, color: sampleDominantColor(pixels, MARD_221_HEX), transparent: false });
+    }
+    onProgress?.((y + 1) / Math.max(1, grid.rows));
+    if (y % 3 === 2) await yieldToBrowser();
+  }
+  return cells;
+}
+
+function yieldToBrowser(delay = 0): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, delay));
 }
 
 async function loadImageData(file: File): Promise<ImageData> {

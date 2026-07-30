@@ -9,12 +9,79 @@ import {
   FlowTopbar,
   HomeUploadHero,
   SegmentedControl,
+  SplitCanvasLoading,
   SplitBeadList,
   ThresholdControl,
   getImportAction,
 } from './H5FlowComponents';
 
 describe('H5 flow presentation components', () => {
+  it('renders a non-blocking pixel-grid loading state for the generated canvas', () => {
+    const markup = renderToStaticMarkup(createElement(SplitCanvasLoading, {
+      rows: 160,
+      cols: 120,
+      stage: '正在匹配拼豆色号...',
+      progress: 68,
+    }));
+
+    expect(markup).toContain('class="split-canvas-loading"');
+    expect(markup).toContain('aria-busy="true"');
+    expect(markup).toContain('class="split-canvas-loading-grid"');
+    expect(markup.match(/class="split-canvas-loading-pixel/g)?.length).toBe(25);
+    expect(markup).toContain('正在匹配拼豆色号...');
+    expect(markup).toContain('正在生成 120 × 160 格画布');
+    expect(markup).toContain('68%');
+    expect(markup).not.toContain('spinner');
+  });
+
+  it('keeps canvas pixel art sizing on fixed px units for crisp zooming', () => {
+    const styles = fs.readFileSync(path.resolve('apps/h5/src/styles.css'), 'utf8');
+
+    expect(styles).toContain('--canvas-cell-size: 14px;');
+    expect(styles).toContain('--canvas-ruler-gutter: 22px;');
+    expect(styles).toMatch(/\.h5-column-ruler,\s*\.h5-row-ruler\s*\{[^}]*font-size:\s*7px;/s);
+    expect(styles).toContain('.h5-canvas-layers');
+    expect(styles).toContain('.h5-color-canvas');
+    expect(styles).toContain('.h5-code-canvas');
+    expect(styles).toContain('.h5-grid-canvas');
+  });
+
+  it('renders two- and three-character color labels through the dedicated Canvas layer', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+    const layers = fs.readFileSync(path.resolve('apps/h5/src/H5CanvasLayers.tsx'), 'utf8');
+
+    expect(source).toContain('<H5CanvasLayers');
+    expect(source).toContain('<main className="h5-canvas-page cell-codes-visible"');
+    expect(layers).toContain('className="h5-color-canvas"');
+    expect(layers).toContain('className="h5-code-canvas"');
+    expect(layers).toContain('className="h5-grid-canvas canvas-artwork"');
+    expect(source).not.toContain('className="h5-cell-code"');
+    expect(source).not.toContain('h5-' + 'code-overlay');
+  });
+
+  it('renders imported cells through the layered Canvas path', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+
+    expect(source).not.toContain("setCanvasKind('image')");
+    expect(source).not.toContain("canvasKind === 'image'");
+    expect(source).toContain('<H5CanvasLayers');
+    expect(source).toContain('codesVisible={canvasScale >= 1.5}');
+    expect(source).not.toContain('h5-' + 'vector-canvas');
+    expect(source).not.toContain('h5-' + 'vector-grid-lines');
+    expect(source).not.toContain('h5-' + 'code-overlay');
+    expect(source).not.toContain('className="h5-' + 'canvas-cell');
+  });
+
+  it('imports the already computed preview cells without resampling the image', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+    const importBody = source.match(/const importSplitToCanvas = \(\) => \{[\s\S]*?\n  \};/)?.[0] ?? '';
+
+    expect(importBody).toContain('setCells(splitPreviewCells);');
+    expect(importBody).not.toContain('cellsFromImage(');
+    expect(importBody).not.toContain('cellsFromAlignedGrid(');
+    expect(importBody).not.toContain('mergeSimilarCells(');
+  });
+
   it('defers expensive split merge recomputation away from slider input updates', () => {
     const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
     const sourceFile = ts.createSourceFile('H5App.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
