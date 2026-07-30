@@ -1,15 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import {
+  SPLIT_DOMINANT_SAMPLE_GRID_SIZE,
   bucketFill,
   buildCellsFromSamples,
   cropTransparentBounds,
   nearestPaletteColor,
   replaceColor,
   sampleDominantColor,
+  mergeSimilarCells,
 } from './grid';
 import { MARD_221_COLORS, MARD_221_HEX } from './mard221';
 
 describe('grid domain', () => {
+  it('locks split dominant-colour sampling to a five-by-five vote grid', () => {
+    expect(SPLIT_DOMINANT_SAMPLE_GRID_SIZE).toBe(5);
+  });
+
   it('crops to the non-transparent pattern bounds', () => {
     const alpha = [
       0, 0, 0, 0,
@@ -90,5 +96,31 @@ describe('grid domain', () => {
       { x: 0, y: 0, color: '#ffffff', transparent: false },
       { x: 1, y: 0, color: '#222222' },
     ]);
+  });
+
+  it('replaces low-usage cell colors with the nearest sufficiently-used color', () => {
+    const cells = [
+      { x: 0, y: 0, color: '#ff0000' },
+      { x: 1, y: 0, color: '#ff0000' },
+      { x: 0, y: 1, color: '#fe0800' },
+      { x: 1, y: 1, color: '#0000ff' },
+    ];
+
+    expect(mergeSimilarCells(cells, 1)).toEqual([
+      { x: 0, y: 0, color: '#ff0000' },
+      { x: 1, y: 0, color: '#ff0000' },
+      { x: 0, y: 1, color: '#ff0000' },
+      { x: 1, y: 1, color: '#ff0000' },
+    ]);
+  });
+
+  it('preserves colors when every color is below the usage threshold', () => {
+    const cells = [
+      { x: 0, y: 0, color: '#ff0000' },
+      { x: 1, y: 0, color: '#00ff00' },
+      { x: 0, y: 1, color: '#0000ff' },
+    ];
+
+    expect(mergeSimilarCells(cells, 5)).toEqual(cells);
   });
 });

@@ -2,6 +2,8 @@
 
 ### Added
 
+- Added H5 split-preview bead color merging controls and bead list coverage backed by core `mergeSimilarCells` tests.
+- Added H5 E2E coverage for compact split controls, single-slider quick split sizing, centered alignment sizing controls, and matching home/profile hero card heights.
 - Added H5 canvas pan-first toolbar behavior, drag painting/erasing, reference image support, compact mobile rulers/cell labels, and plain color-code labels with black/white contrast.
 - Added focused H5 E2E coverage for mobile canvas layout, drag editing, reference images, palette filtering, and color-code contrast.
 - Added canvas-rendered split previews with touch-driven grid-density adjustment on the H5 split page.
@@ -13,6 +15,7 @@
 
 ### Changed
 
+- Changed H5 quick split sizing to a single slider, tightened split settings layout, removed bottom whitespace from the split controls, and aligned the home/profile hero card height system.
 - Changed the H5 split page preview from DOM image/grid overlays to a high-DPI canvas preview with separate button zoom and pinch-to-adjust split count behavior.
 - Changed login/register behavior to use configured admin login only, with registration disabled at the API.
 - Reworked Xiaohongshu note image extraction to prefer note-scoped image data, avoid comment/static asset images, expose parser diagnostics, and return compressed WebP image URLs.

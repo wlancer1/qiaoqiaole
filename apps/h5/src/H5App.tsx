@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { TransformWrapper, TransformComponent, useTransformEffect } from 'react-zoom-pan-pinch';
 import {
   buildCellsFromSamples,
@@ -8,19 +8,38 @@ import {
   DEFAULT_SETTINGS,
   MARD_221_COLORS,
   MARD_221_HEX,
+  SPLIT_DOMINANT_SAMPLE_GRID_SIZE,
+  mergeSimilarCells,
   nearestPaletteColor,
   replaceCell,
   sampleDominantColor,
   serializeAsciiStl,
   type Cell,
 } from '@qiaoqiaole/core';
+import {
+  FlowTopbar,
+  getImportAction,
+  HomeUploadHero,
+  SegmentedControl,
+  SplitBeadList,
+  ThresholdControl,
+} from './H5FlowComponents';
 import { filterPaletteByQuery, filterPaletteByUsage } from './palette';
+import {
+  DEFAULT_SPLIT_LONG_SIDE,
+  MAX_SPLIT_LONG_SIDE,
+  MIN_SPLIT_LONG_SIDE,
+  clampSplitLongSide,
+  defaultSplitLongSideFromBounds,
+  gridSizeFromSplitBounds,
+} from './splitConfig';
 
 type AppScreen = 'home' | 'profile' | 'split' | 'split-preview' | 'canvas' | 'warehouse';
 type CanvasKind = 'image' | 'grid';
 type CanvasTool = 'brush' | 'eraser' | 'fill' | 'eyedropper' | 'pan';
 type WorkMode = 'bead' | 'peg';
 type SplitMode = 'quick' | 'align';
+type SplitPreviewTab = 'settings' | 'beads';
 type GridHandle = 'move' | 'scale';
 type GridHandlePosition = { x: number; y: number };
 type WarehouseUnit = 'count' | 'gram';
@@ -49,7 +68,6 @@ type IconName =
 const MAX_IMAGE_SIDE = 4096;
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 const MAX_AUTO_GRID_SIDE = 120;
-const DEFAULT_SPLIT_LONG_SIDE = 18;
 const EMPTY_COLOR = '#ffffff';
 const WHITE_BEAD_COLOR = nearestPaletteColor(255, 255, 255, MARD_221_HEX);
 const BEADS_PER_GRAM = 15;
@@ -134,6 +152,9 @@ function H5App() {
   const [splitLongSide, setSplitLongSide] = useState(DEFAULT_SPLIT_LONG_SIDE);
   const [splitRows, setSplitRows] = useState(DEFAULT_SPLIT_LONG_SIDE);
   const [splitCols, setSplitCols] = useState(DEFAULT_SPLIT_LONG_SIDE);
+  const [splitMergeThreshold, setSplitMergeThreshold] = useState(0);
+  const [splitPreviewTab, setSplitPreviewTab] = useState<SplitPreviewTab>('settings');
+  const deferredSplitMergeThreshold = useDeferredValue(splitMergeThreshold);
   const [alignCellSize, setAlignCellSize] = useState(1);
   const [alignOffsetX, setAlignOffsetX] = useState(0);
   const [alignOffsetY, setAlignOffsetY] = useState(0);
@@ -193,11 +214,6 @@ function H5App() {
     initialPanY: 0,
     isPinching: false,
     moved: false,
-  });
-  const splitPinchRef = useRef({
-    active: false,
-    startDistance: 0,
-    startLongSide: DEFAULT_SPLIT_LONG_SIDE,
   });
   const splitImagePinchRef = useRef({
     active: false,
@@ -298,7 +314,7 @@ function H5App() {
   ), [alignCellSize, alignOffsetX, alignOffsetY, splitCols, splitRows, uploadedSplitImage]);
   const activeSplitRows = splitMode === 'align' ? alignedGrid.rows : splitRows;
   const activeSplitCols = splitMode === 'align' ? alignedGrid.cols : splitCols;
-  const splitPreviewCells = useMemo(() => {
+  const rawSplitPreviewCells = useMemo(() => {
     if (screen !== 'split-preview') return [];
     if (!uploadedSplitImage) return [];
     if (splitMode === 'align') {
@@ -306,6 +322,20 @@ function H5App() {
     }
     return cellsFromImage(uploadedSplitImage.imageData, splitRows, splitCols, uploadedSplitImage.crop);
   }, [alignedGrid, screen, splitCols, splitMode, splitRows, uploadedSplitImage]);
+  const splitPreviewCells = useMemo(
+    () => mergeSimilarCells(rawSplitPreviewCells, deferredSplitMergeThreshold),
+    [rawSplitPreviewCells, deferredSplitMergeThreshold],
+  );
+  const splitColorList = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const cell of splitPreviewCells) {
+      if (cell.transparent) continue;
+      counts.set(cell.color, (counts.get(cell.color) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .sort((left, right) => right[1] - left[1])
+      .map(([color, count]) => ({ color, count, code: colorCodeOf(color) }));
+  }, [splitPreviewCells]);
   const prioritizedPaletteColors = useMemo(
     () => filterPaletteByUsage(MARD_221_COLORS, cells, ''),
     [cells],
@@ -635,30 +665,15 @@ function H5App() {
   };
 
   const updateSplitLongSide = (value: number) => {
-    const nextLongSide = Math.max(4, Math.min(MAX_AUTO_GRID_SIDE, Math.round(value)));
+    const nextLongSide = clampSplitLongSide(value);
     if (nextLongSide === splitLiveLongSideRef.current) return;
     splitLiveLongSideRef.current = nextLongSide;
     setSplitLongSide(nextLongSide);
     if (!uploadedSplitImage) return;
-    const nextSize = gridSizeFromImageBounds(uploadedSplitImage.crop.width, uploadedSplitImage.crop.height, nextLongSide);
+    const nextSize = gridSizeFromSplitBounds(uploadedSplitImage.crop.width, uploadedSplitImage.crop.height, nextLongSide);
     setSplitRows(nextSize.rows);
     setSplitCols(nextSize.cols);
     setStatus(`分割数量已调整为 ${nextSize.cols} x ${nextSize.rows}。`);
-  };
-
-  const resetAlignment = () => {
-    if (!uploadedSplitImage) return;
-    const nextCellSize = initialAlignCellSize(uploadedSplitImage.crop, splitCols, splitRows);
-    const nextOffset = centeredAlignmentOffset(uploadedSplitImage.crop, nextCellSize);
-    splitLiveAlignCellSizeRef.current = nextCellSize;
-    splitLiveAlignOffsetRef.current = nextOffset;
-    const nextOrigin = centeredGridControlOrigin(uploadedSplitImage.crop, nextCellSize, nextOffset);
-    splitLiveGridFrameOriginRef.current = nextOrigin;
-    setAlignCellSize(nextCellSize);
-    setAlignOffsetX(nextOffset.x);
-    setAlignOffsetY(nextOffset.y);
-    setGridFrameOrigin(nextOrigin);
-    setStatus('已重置对格子参数。');
   };
 
   const scheduleAlignStateCommit = () => {
@@ -789,54 +804,33 @@ function H5App() {
   };
 
   const handleSplitTouchStart = (event: React.TouchEvent) => {
-    if (splitMode === 'align') {
-      if ((event.target as HTMLElement).closest('.split-grid-handle')) return;
-      suppressSplitImageClickRef.current = false;
-      if (event.touches.length !== 2) return;
-      event.preventDefault();
-      splitImagePinchRef.current = {
-        active: true,
-        startDistance: touchDistance(event.touches[0], event.touches[1]),
-        startScale: splitImageScale,
-      };
-      return;
-    }
+    if ((event.target as HTMLElement).closest('.split-grid-handle')) return;
+    suppressSplitImageClickRef.current = false;
     if (event.touches.length !== 2) return;
-    const distance = touchDistance(event.touches[0], event.touches[1]);
-    splitPinchRef.current = {
+    event.preventDefault();
+    splitImagePinchRef.current = {
       active: true,
-      startDistance: distance,
-      startLongSide: splitLongSide,
+      startDistance: touchDistance(event.touches[0], event.touches[1]),
+      startScale: splitImageScale,
     };
   };
 
   const handleSplitTouchMove = (event: React.TouchEvent) => {
-    if (splitMode === 'align') {
-      if (!splitImagePinchRef.current.active || event.touches.length !== 2) return;
-      if (event.cancelable) event.preventDefault();
-      suppressSplitImageClickRef.current = true;
-      const distance = touchDistance(event.touches[0], event.touches[1]);
-      const scaleRatio = distance / Math.max(1, splitImagePinchRef.current.startDistance);
-      setSplitImageScale(clampSplitImageScale(splitImagePinchRef.current.startScale * scaleRatio));
-      return;
-    }
-    if (!splitPinchRef.current.active || event.touches.length !== 2) return;
+    if (!splitImagePinchRef.current.active || event.touches.length !== 2) return;
     if (event.cancelable) event.preventDefault();
     const distance = touchDistance(event.touches[0], event.touches[1]);
-    const delta = distance - splitPinchRef.current.startDistance;
-    const nextLongSide = splitPinchRef.current.startLongSide + Math.round(delta / 12);
-    updateSplitLongSide(nextLongSide);
+    suppressSplitImageClickRef.current = true;
+    const scaleRatio = distance / Math.max(1, splitImagePinchRef.current.startDistance);
+    setSplitImageScale(clampSplitImageScale(splitImagePinchRef.current.startScale * scaleRatio));
   };
 
   const handleSplitTouchEnd = (event: React.TouchEvent) => {
     if (event.touches.length >= 2) return;
     splitImagePinchRef.current.active = false;
-    splitPinchRef.current.active = false;
     splitGridHandleDragRef.current.handle = null;
   };
 
   const handleSplitWheel = (event: React.WheelEvent<HTMLDivElement>) => {
-    if (splitMode !== 'align') return;
     if ((event.target as HTMLElement).closest('.split-grid-handle')) return;
     event.preventDefault();
     const factor = event.deltaY < 0 ? 1.12 : 0.9;
@@ -844,7 +838,6 @@ function H5App() {
   };
 
   const handleSplitClick = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (splitMode !== 'align') return;
     if ((event.target as HTMLElement).closest('.split-grid-handle')) return;
     if (suppressSplitImageClickRef.current) {
       suppressSplitImageClickRef.current = false;
@@ -887,7 +880,7 @@ function H5App() {
   };
 
   const handleSplitPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (splitMode !== 'align' || (event.target as HTMLElement).closest('.split-grid-handle')) return;
+    if ((event.target as HTMLElement).closest('.split-grid-handle')) return;
     splitImagePanRef.current = {
       active: true,
       pointerId: event.pointerId,
@@ -951,9 +944,10 @@ function H5App() {
 
   const importSplitToCanvas = () => {
     if (!uploadedSplitImage) return;
-    const nextCells = splitMode === 'align'
+    const rawCells = splitMode === 'align'
       ? cellsFromAlignedGrid(uploadedSplitImage.imageData, alignedGrid, uploadedSplitImage.crop)
       : cellsFromImage(uploadedSplitImage.imageData, splitRows, splitCols, uploadedSplitImage.crop);
+    const nextCells = mergeSimilarCells(rawCells, splitMergeThreshold);
     setRows(activeSplitRows);
     setCols(activeSplitCols);
     setCfgRows(activeSplitRows);
@@ -972,15 +966,18 @@ function H5App() {
     setStatus(`已导入画布：${activeSplitCols} x ${activeSplitRows}。`);
   };
 
-  const loadSplitImage = (name: string, imageData: ImageData) => {
+  const loadSplitImage = (name: string, imageData: ImageData): number => {
     const crop = getImageCrop(imageData);
     const url = imageDataToUrl(imageData);
-    const { rows: defaultRows, cols: defaultCols } = gridSizeFromImageBounds(crop.width, crop.height, DEFAULT_SPLIT_LONG_SIDE);
+    const defaultLongSide = defaultSplitLongSideFromBounds(crop.width, crop.height);
+    const { rows: defaultRows, cols: defaultCols } = gridSizeFromSplitBounds(crop.width, crop.height, defaultLongSide);
     setUploadedSplitImage({ name, imageData, crop, url });
     setSplitMode('quick');
-    setSplitLongSide(DEFAULT_SPLIT_LONG_SIDE);
+    setSplitLongSide(defaultLongSide);
     setSplitRows(defaultRows);
     setSplitCols(defaultCols);
+    setSplitMergeThreshold(0);
+    setSplitPreviewTab('settings');
     const defaultCellSize = initialAlignCellSize(crop, defaultCols, defaultRows);
     const defaultOffset = centeredAlignmentOffset(crop, defaultCellSize);
     splitLiveAlignCellSizeRef.current = defaultCellSize;
@@ -997,6 +994,7 @@ function H5App() {
     setHistory([]);
     setFuture([]);
     setScreen('split');
+    return defaultLongSide;
   };
 
   const handleUpload = async (file: File | undefined) => {
@@ -1012,8 +1010,8 @@ function H5App() {
 
     try {
       const imageData = await loadImageData(file);
-      loadSplitImage(file.name, imageData);
-      setStatus(`已载入 ${file.name}，默认长边 ${DEFAULT_SPLIT_LONG_SIDE} 格。`);
+      const defaultLongSide = loadSplitImage(file.name, imageData);
+      setStatus(`已载入 ${file.name}，默认长边 ${defaultLongSide} 格。`);
     } catch {
       setStatus('图片读取失败，请换一张图片。');
     } finally {
@@ -1106,13 +1104,13 @@ function H5App() {
       }
       const imageData = await loadImageDataFromUrl(source);
       if (xhsImportSeqRef.current !== requestSeq || !showUploadModal) return;
-      loadSplitImage(safeImageFilename(title || 'xiaohongshu-drawing', 'image/png'), imageData);
+      const defaultLongSide = loadSplitImage(safeImageFilename(title || 'xiaohongshu-drawing', 'image/png'), imageData);
       setShowUploadModal(false);
       setShowXhsInput(false);
       setXhsLink('');
       setXhsExtractedTitle('');
       setXhsExtractedImages([]);
-      setStatus(`已载入 ${title || '小红书图纸'}，默认长边 ${DEFAULT_SPLIT_LONG_SIDE} 格。`);
+      setStatus(`已载入 ${title || '小红书图纸'}，默认长边 ${defaultLongSide} 格。`);
     } catch {
       if (xhsImportSeqRef.current !== requestSeq) return;
       setStatus('小红书图片读取失败，请换一张图片。');
@@ -1509,145 +1507,183 @@ function H5App() {
   if (screen === 'split' && uploadedSplitImage) {
     return (
       <main className={`split-page split-page--${splitMode}`}>
-        <header className="split-topbar">
-          <button className="split-icon-btn" aria-label="返回首页" onClick={() => setScreen('home')}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M19 12H5" /><path d="m12 5-7 7 7 7" />
-            </svg>
-          </button>
-          <h1 className="split-topbar-title">分割</h1>
-          <button className="split-action-btn" onClick={() => setScreen('split-preview')}>下一步</button>
-        </header>
+        <FlowTopbar
+          title={splitMode === 'quick' ? '分割设置' : '对格子'}
+          backLabel="返回首页"
+          onBack={() => setScreen('home')}
+          action={{
+            label: '下一步',
+            onClick: () => setScreen('split-preview'),
+            primary: true,
+          }}
+        />
 
         <section className="split-main">
-          <div
-            className="split-image-container"
-            aria-label="分割预览图"
-            data-image-scale={splitMode === 'align' ? splitImageScale : 1}
-            data-image-offset-x={splitMode === 'align' ? splitImageOffset.x : 0}
-            data-image-offset-y={splitMode === 'align' ? splitImageOffset.y : 0}
-            onTouchStartCapture={handleSplitTouchStart}
-            onTouchMoveCapture={handleSplitTouchMove}
-            onTouchEndCapture={handleSplitTouchEnd}
-            onTouchCancelCapture={handleSplitTouchEnd}
-            onWheel={handleSplitWheel}
-            onClick={handleSplitClick}
-            onPointerDown={handleSplitPointerDown}
-            onPointerMove={handleSplitPointerMove}
-            onPointerUp={handleSplitPointerEnd}
-            onPointerCancel={handleSplitPointerEnd}
-          >
-            <TransformWrapper
-              initialScale={1}
-              minScale={0.6}
-              maxScale={8}
-              centerOnInit={true}
-              doubleClick={{ disabled: true }}
-              wheel={{ step: 0.12, disabled: splitMode === 'align' }}
-              pinch={{ disabled: true }}
-              panning={{ disabled: splitMode === 'align' }}
+          <div className="split-flow-inner">
+            <SegmentedControl<SplitMode>
+              ariaLabel="分割模式"
+              idPrefix="split-mode"
+              value={splitMode}
+              options={[
+                { value: 'quick', label: '快速分割' },
+                { value: 'align', label: '对格子' },
+              ]}
+              onChange={setSplitMode}
+            />
+
+            <div
+              className="split-mode-panel"
+              id={`split-mode-${splitMode}-panel`}
+              role="tabpanel"
+              aria-labelledby={`split-mode-${splitMode}-tab`}
             >
-              {() => (
-                <>
-                  <TransformComponent
-                    wrapperClass="split-image-zoom-wrapper"
-                    contentClass="split-image-zoom-content"
-                  >
-                    <div
-                      className="split-image-frame"
-                      data-crop-width={uploadedSplitImage.crop.width}
-                      data-crop-height={uploadedSplitImage.crop.height}
+            <div
+              className="split-image-container"
+              aria-label="分割预览图"
+              data-image-scale={splitImageScale}
+              data-image-offset-x={splitImageOffset.x}
+              data-image-offset-y={splitImageOffset.y}
+              onTouchStartCapture={handleSplitTouchStart}
+              onTouchMoveCapture={handleSplitTouchMove}
+              onTouchEndCapture={handleSplitTouchEnd}
+              onTouchCancelCapture={handleSplitTouchEnd}
+              onWheel={handleSplitWheel}
+              onClick={handleSplitClick}
+              onPointerDown={handleSplitPointerDown}
+              onPointerMove={handleSplitPointerMove}
+              onPointerUp={handleSplitPointerEnd}
+              onPointerCancel={handleSplitPointerEnd}
+            >
+              <TransformWrapper
+                initialScale={1}
+                minScale={0.6}
+                maxScale={8}
+                centerOnInit={true}
+                doubleClick={{ disabled: true }}
+                wheel={{ disabled: true }}
+                pinch={{ disabled: true }}
+                panning={{ disabled: true }}
+              >
+                {() => (
+                  <>
+                    <TransformComponent
+                      wrapperClass="split-image-zoom-wrapper"
+                      contentClass="split-image-zoom-content"
                     >
-                      <SplitPreviewCanvas
-                        imageData={uploadedSplitImage.imageData}
-                        crop={uploadedSplitImage.crop}
-                        rows={activeSplitRows}
-                        cols={activeSplitCols}
+                      <div
+                        className="split-image-frame"
+                        data-crop-width={uploadedSplitImage.crop.width}
+                        data-crop-height={uploadedSplitImage.crop.height}
+                      >
+                        <SplitPreviewCanvas
+                          imageData={uploadedSplitImage.imageData}
+                          crop={uploadedSplitImage.crop}
+                          rows={activeSplitRows}
+                          cols={activeSplitCols}
                           alignment={splitMode === 'align' ? alignedGrid : undefined}
-                          imageScale={splitMode === 'align' ? splitImageScale : 1}
-                          imageOffset={splitMode === 'align' ? splitImageOffset : { x: 0, y: 0 }}
-                      />
-                      {splitMode === 'align' ? (
-                        <GridAlignmentHandles
-                          grid={alignedGrid}
+                          imageScale={splitImageScale}
+                          imageOffset={splitImageOffset}
+                        />
+                        {splitMode === 'align' ? (
+                          <GridAlignmentHandles
+                            grid={alignedGrid}
                             origin={gridFrameOrigin}
                             imageScale={splitImageScale}
                             imageOffset={splitImageOffset}
-                          onPointerDown={handleGridHandlePointerDown}
-                          onPointerMove={handleGridHandlePointerMove}
-                          onPointerEnd={handleGridHandlePointerEnd}
-                        />
-                      ) : null}
-                    </div>
-                  </TransformComponent>
-                </>
-              )}
-            </TransformWrapper>
-          </div>
+                            onPointerDown={handleGridHandlePointerDown}
+                            onPointerMove={handleGridHandlePointerMove}
+                            onPointerEnd={handleGridHandlePointerEnd}
+                          />
+                        ) : null}
+                      </div>
+                    </TransformComponent>
+                  </>
+                )}
+              </TransformWrapper>
+            </div>
 
-          <div className="split-controls-card">
-            <div className="split-mode-switch" aria-label="分割模式">
-              <button
-                className={splitMode === 'quick' ? 'active' : ''}
-                onClick={() => setSplitMode('quick')}
-              >快速分割</button>
-              <button
-                className={splitMode === 'align' ? 'active' : ''}
-                onClick={() => setSplitMode('align')}
-              >对格子</button>
-            </div>
-            <div className="split-info-row">
-              <span className="split-info-label">分割数量</span>
-              <span className="split-info-value">{activeSplitCols} × {activeSplitRows}</span>
-            </div>
+            <div className="split-controls-card">
             {splitMode === 'quick' ? (
-              <div className="split-slider-row">
-                <button
-                  className="split-step-btn"
-                  aria-label="减少格数"
-                  onClick={() => updateSplitLongSide(splitLongSide - 1)}
-                >−</button>
-                <div className="split-slider-wrap">
-                  <input
-                    aria-label="长边格数"
-                    type="range"
-                    min="4"
-                    max="80"
-                    value={splitLongSide}
-                    className="split-range"
-                    onChange={(event) => updateSplitLongSide(Number(event.target.value))}
-                  />
-                  <span className="split-slider-value">长边 {splitLongSide} 格</span>
+              <div className="split-quick-controls">
+                <div className="split-quick-value-group">
+                  <output
+                    className="split-quick-output"
+                    id="split-quick-output"
+                    aria-label="当前宽高格数"
+                    data-grid-rows={activeSplitRows}
+                    data-grid-cols={activeSplitCols}
+                  >
+                    {activeSplitCols} × {activeSplitRows}
+                  </output>
                 </div>
-                <button
-                  className="split-step-btn"
-                  aria-label="增加格数"
-                  onClick={() => updateSplitLongSide(splitLongSide + 1)}
-                >+</button>
+                <div className="split-slider-row">
+                  <div className="split-slider-wrap">
+                    <input
+                      aria-label="长边格数"
+                      aria-describedby="split-quick-output"
+                      type="range"
+                      min={MIN_SPLIT_LONG_SIDE}
+                      max={MAX_SPLIT_LONG_SIDE}
+                      value={splitLongSide}
+                      className="split-range"
+                      onChange={(event) => updateSplitLongSide(Number(event.target.value))}
+                    />
+                    <span className="split-range-bounds" aria-hidden="true">
+                      <span>{MIN_SPLIT_LONG_SIDE}</span>
+                      <span>{MAX_SPLIT_LONG_SIDE}</span>
+                    </span>
+                  </div>
+                </div>
               </div>
             ) : (
               <div className="split-align-panel">
-                <div className="split-align-readout">
-                  格距 {alignedGrid.cellSize.toFixed(1)}px｜偏移 X {alignedGrid.offsetX.toFixed(1)} Y {alignedGrid.offsetY.toFixed(1)}
-                </div>
                 <div className="split-align-controls" aria-label="对格子微调">
-                  <div className="split-nudge-pad" aria-label="移动网格">
-                    <button aria-label="上移网格" onClick={() => moveGridControlFrame(0, -1)}>↑</button>
-                    <span className="split-nudge-center">移动</span>
-                    <button aria-label="下移网格" onClick={() => moveGridControlFrame(0, 1)}>↓</button>
-                    <button aria-label="左移网格" onClick={() => moveGridControlFrame(-1, 0)}>←</button>
-                    <span />
-                    <button aria-label="右移网格" onClick={() => moveGridControlFrame(1, 0)}>→</button>
-                  </div>
-                  <div className="split-cell-actions" aria-label="缩放网格">
-                    <button aria-label="减小格距" onClick={() => updateAlignCellSize(alignCellSize - 1)}>− 格距</button>
-                    <div className="split-cell-size-value">{alignedGrid.cellSize.toFixed(2)} px / 格</div>
-                    <button aria-label="增大格距" onClick={() => updateAlignCellSize(alignCellSize + 1)}>+ 格距</button>
-                    <button aria-label="重置对格" onClick={resetAlignment}>重置</button>
-                  </div>
+                  <section className="split-nudge-section" aria-labelledby="split-nudge-title">
+                    <h3 id="split-nudge-title">微移</h3>
+                    <div className="split-nudge-pad" aria-label="移动网格">
+                      <button className="split-nudge-up" aria-label="上移网格" onClick={() => moveGridControlFrame(0, -1)}>⌃</button>
+                      <button className="split-nudge-left" aria-label="左移网格" onClick={() => moveGridControlFrame(-1, 0)}>‹</button>
+                      <output
+                        className="split-nudge-readout"
+                        aria-label="网格偏移"
+                        data-offset-x={alignedGrid.offsetX.toFixed(2)}
+                        data-offset-y={alignedGrid.offsetY.toFixed(2)}
+                        data-cell-size={alignedGrid.cellSize.toFixed(2)}
+                        data-grid-rows={activeSplitRows}
+                        data-grid-cols={activeSplitCols}
+                      >
+                        <span>{alignedGrid.offsetX.toFixed(1)}</span>
+                        <span>{alignedGrid.offsetY.toFixed(1)}</span>
+                      </output>
+                      <button className="split-nudge-right" aria-label="右移网格" onClick={() => moveGridControlFrame(1, 0)}>›</button>
+                      <button className="split-nudge-down" aria-label="下移网格" onClick={() => moveGridControlFrame(0, 1)}>⌄</button>
+                    </div>
+                  </section>
+                  <section className="split-grid-size-section" aria-labelledby="split-grid-size-title">
+                    <h3 id="split-grid-size-title">调整格子大小</h3>
+                    <div className="split-cell-actions" aria-label="缩放网格">
+                      <button aria-label="减小格距" onClick={() => updateAlignCellSize(alignCellSize - 1)}>−</button>
+                      <output
+                        className="split-grid-size-output"
+                        aria-label="格距"
+                        data-offset-x={alignedGrid.offsetX.toFixed(2)}
+                        data-offset-y={alignedGrid.offsetY.toFixed(2)}
+                        data-cell-size={alignedGrid.cellSize.toFixed(2)}
+                        data-grid-rows={activeSplitRows}
+                        data-grid-cols={activeSplitCols}
+                      >
+                        <strong>{alignedGrid.cellSize.toFixed(2)}</strong>
+                        <span>格 / PX</span>
+                      </output>
+                      <button aria-label="增大格距" onClick={() => updateAlignCellSize(alignCellSize + 1)}>+</button>
+                    </div>
+                    <p>调整网格线间距<br />使其与图纸格线对齐</p>
+                  </section>
                 </div>
               </div>
             )}
+            </div>
+            </div>
           </div>
         </section>
       </main>
@@ -1657,20 +1693,12 @@ function H5App() {
   if (screen === 'split-preview' && uploadedSplitImage) {
     return (
       <main className="split-page split-preview-page">
-        <header className="split-topbar">
-          <button className="split-icon-btn" aria-label="返回分割" onClick={() => setScreen('split')}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M19 12H5" /><path d="m12 5-7 7 7 7" />
-            </svg>
-          </button>
-          <h1 className="split-topbar-title">浏览</h1>
-          <button className="split-action-btn split-action-btn--primary" onClick={importSplitToCanvas}>导入画布</button>
-        </header>
-
-        <div className="split-preview-meta">
-          <span className="split-meta-chip">{activeSplitCols} × {activeSplitRows} 格</span>
-          <span className="split-meta-desc">确认效果后点击「导入画布」继续编辑。</span>
-        </div>
+        <FlowTopbar
+          title="浏览"
+          backLabel="返回分割"
+          onBack={() => setScreen('split')}
+          action={getImportAction(splitPreviewCells.length, importSplitToCanvas)}
+        />
 
         <section className="split-browser-container" aria-label="分割浏览预览">
           <div
@@ -1689,7 +1717,40 @@ function H5App() {
               />
             ))}
           </div>
+
+          <div className="split-settings-panel" id="split-preview-settings-panel" role="tabpanel" aria-label="参数设置">
+
+            <ThresholdControl
+              value={splitMergeThreshold}
+              min={0}
+              max={20}
+              onChange={setSplitMergeThreshold}
+            />
+             <button className="split-bead-list-entry" type="button" aria-label="查看豆子清单" onClick={() => setSplitPreviewTab('beads')}>
+              <span className="split-bead-list-entry-title">豆子清单</span>
+              <span className="split-bead-list-entry-meta">
+                {splitColorList.length} 色 · {splitPreviewCells.filter((cell) => !cell.transparent).length.toLocaleString('en-US')} 颗
+                <b aria-hidden="true">›</b>
+              </span>
+            </button>
+          </div>
         </section>
+        {splitPreviewTab === 'beads' ? (
+          <div className="split-bead-drawer-backdrop" role="presentation" onClick={() => setSplitPreviewTab('settings')}>
+            <section className="split-bead-drawer split-bead-sheet" role="dialog" aria-modal="true" aria-label="豆子清单" onClick={(event) => event.stopPropagation()}>
+              <span className="split-bead-drawer-handle" aria-hidden="true" />
+              <header className="split-bead-drawer-header">
+                <h2>豆子清单</h2>
+                <button type="button" aria-label="关闭豆子清单" onClick={() => setSplitPreviewTab('settings')}>×</button>
+              </header>
+              <p className="split-bead-drawer-copy">按当前浏览预览实时统计，颜色匹配默认使用众数投票</p>
+              <SplitBeadList
+                colors={splitColorList}
+                totalBeads={splitPreviewCells.filter((cell) => !cell.transparent).length}
+              />
+            </section>
+          </div>
+        ) : null}
       </main>
     );
   }
@@ -2159,44 +2220,116 @@ function H5App() {
       ) : null}
       {activeTab === 'home' ? (
         <section className="home-page">
-          {/* Header */}
-          <header className="home-header">
-            <h1>超级拼</h1>
-            <button className="small-round" aria-label="消息中心"><Icon name="bell" /></button>
-          </header>
-
-          {/* Quick actions — 最近使用 first */}
-          <div className="quick-action-grid">
-            {quickTools.map((item) => (
-              <button key={item.title} className="quick-action-card" onClick={() => openUpload(item.mode)}>
-                <span className="qa-icon"><Icon name={item.icon} /></span>
-                <strong>{item.title}</strong>
-                <span>{item.description}</span>
-              </button>
-            ))}
-            <button className="quick-action-card qa-new" onClick={openCreateCanvasModal}>
-              <span className="qa-icon"><Icon name="plus" /></span>
-              <strong>新建空白画布</strong>
-              <span>设置尺寸后开始画</span>
-            </button>
-          </div>
-
-          {/* Color usage — small strip */}
-          {usedColors.length > 0 && (
-            <div className="home-color-strip">
-              <span className="color-strip-label">已用颜色</span>
-              <div className="color-strip-chips">
-                {usedColors.slice(0, 8).map(([color, count]) => (
-                  <span key={color} className="color-strip-chip" title={`${colorCodeOf(color)} × ${count}`}>
-                    <i style={{ background: color }} />
-                  </span>
-                ))}
-                {usedColors.length > 8 && (
-                  <span className="color-strip-more">+{usedColors.length - 8}</span>
-                )}
+          <div className="home-scroll-content">
+            <header className="home-brand-hero">
+              <div className="home-stars" aria-hidden="true">
+                <span />
+                <span />
+                <span />
               </div>
-            </div>
-          )}
+              <div className="home-brand-planet" aria-hidden="true">
+                <span className="home-planet-core" />
+                <span className="home-planet-ring" />
+              </div>
+              <div className="home-brand-topline">
+                <div className="home-brand-copy">
+                  <h1>超级拼</h1>
+                  <p>让拼豆创作更简单</p>
+                </div>
+                <button className="home-brand-notify" type="button" aria-label="消息中心" onClick={() => setStatus('消息中心暂未开放')}>
+                  <Icon name="bell" />
+                </button>
+              </div>
+              <HomeUploadHero onUpload={() => openUpload('bead')} />
+            </header>
+
+            <section className="home-recent-projects" aria-labelledby="home-recent-title">
+              <div className="home-section-heading">
+                <h2 id="home-recent-title">最近项目</h2>
+                <button type="button" aria-label="查看全部最近项目" onClick={() => setStatus('最近项目暂未接入')}>
+                  全部
+                  <span aria-hidden="true">›</span>
+                </button>
+              </div>
+              <div className="home-recent-row" aria-label="最近项目列表">
+                {homeRecentProjects.map((project) => (
+                  <article className={`home-recent-card ${project.tone}`} key={project.title}>
+                    <div className="home-recent-thumb" aria-hidden="true">
+                      <span />
+                      <i />
+                    </div>
+                    <strong>{project.size}</strong>
+                    <span>{project.title}</span>
+                  </article>
+                ))}
+              </div>
+            </section>
+
+            <section className="home-creation-tools" aria-labelledby="home-tools-title">
+              <h2 id="home-tools-title">创作工具</h2>
+              <div className="quick-action-grid">
+                {quickTools.map((item) => (
+                  <button
+                    key={item.title}
+                    className="quick-action-card"
+                    aria-label={item.mode === 'bead' ? '创建拼豆图纸' : '创建敲豆图纸'}
+                    onClick={() => openUpload(item.mode)}
+                  >
+                    <span className="qa-icon"><Icon name={item.icon} /></span>
+                    <strong>{item.title}</strong>
+                    <span>{item.description}</span>
+                  </button>
+                ))}
+                <button className="quick-action-card qa-new" aria-label="新建空白画布" onClick={openCreateCanvasModal}>
+                  <span className="qa-icon"><Icon name="plus" /></span>
+                  <strong>空白画布</strong>
+                  <span>自由绘制创作</span>
+                </button>
+              </div>
+            </section>
+
+            {usedColors.length > 0 && (
+              <div className="home-color-strip">
+                <span className="color-strip-label">已用颜色</span>
+                <div className="color-strip-chips">
+                  {usedColors.slice(0, 8).map(([color, count]) => (
+                    <span key={color} className="color-strip-chip" title={`${colorCodeOf(color)} × ${count}`}>
+                      <i style={{ background: color }} />
+                    </span>
+                  ))}
+                  {usedColors.length > 8 && (
+                    <span className="color-strip-more">+{usedColors.length - 8}</span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <section className="home-template-section" aria-labelledby="home-template-title">
+              <div className="home-section-heading">
+                <h2 id="home-template-title">热门模板</h2>
+                <button type="button" aria-label="查看更多热门模板" onClick={() => setStatus('模板库暂未接入')}>
+                  更多
+                  <span aria-hidden="true">›</span>
+                </button>
+              </div>
+              <div className="home-template-filters" aria-label="模板分类">
+                {homeTemplateFilters.map((filter) => (
+                  <span key={filter}>{filter}</span>
+                ))}
+              </div>
+              <div className="home-template-row" aria-label="热门模板预览">
+                {homeTemplates.map((template) => (
+                  <article className={`home-template-card ${template.tone}`} key={template.title}>
+                    <div aria-hidden="true">
+                      <span />
+                      <i />
+                    </div>
+                    <strong>{template.title}</strong>
+                  </article>
+                ))}
+              </div>
+            </section>
+          </div>
 
           {showCreateCanvasModal ? (
             <div className="home-create-modal" role="dialog" aria-label="新建画布设置">
@@ -2237,7 +2370,8 @@ function H5App() {
             <div className="home-create-modal" role="dialog" aria-label="上传图纸">
               <div className="home-create-panel upload-drawing-panel">
                 <div className="home-create-head">
-                  <strong>上传图纸</strong>
+                  <span className="modal-sheet-handle" aria-hidden="true" />
+                 
                   <button
                     aria-label="关闭上传图纸"
                     onClick={closeUploadModal}
@@ -2246,12 +2380,13 @@ function H5App() {
                   </button>
                 </div>
                 <div className="upload-source-list">
-                  <button className="upload-source-option" onClick={chooseLocalDrawing}>
+                  <button className="upload-source-option" aria-label="选择图纸" onClick={chooseLocalDrawing}>
                     <span className="upload-source-icon"><Icon name="upload" /></span>
                     <span>
-                      <strong>选择图纸</strong>
-                      <small>从相册或文件选择 PNG、JPG、WebP</small>
+                      <strong>从相册或文件选择</strong>
+                      <small>打开设备相册或文件选择器</small>
                     </span>
+                    <i className="upload-source-arrow" aria-hidden="true">›</i>
                   </button>
                   <button
                     className={showXhsInput ? 'upload-source-option active' : 'upload-source-option'}
@@ -2259,9 +2394,10 @@ function H5App() {
                   >
                     <span className="upload-source-icon"><Icon name="spark" /></span>
                     <span>
-                      <strong>小红书提取</strong>
+                      <strong>小红书提取 <em>需登录</em></strong>
                       <small>粘贴笔记链接后提取图片</small>
                     </span>
+                    <i className="upload-source-arrow" aria-hidden="true">›</i>
                   </button>
                 </div>
                 {showXhsInput ? (
@@ -2298,6 +2434,10 @@ function H5App() {
                     ) : null}
                   </div>
                 ) : null}
+                <div className="upload-format-note" aria-label="支持的图片格式">
+                  <span>PNG / JPG / WebP</span>
+                  <span>最大 20MB</span>
+                </div>
               </div>
             </div>
           ) : null}
@@ -2344,15 +2484,27 @@ function H5App() {
         </section>
       ) : (
         <section className="profile-page">
-          <header className="home-header">
+          <header className="profile-hero">
+            <div className="profile-orbit" aria-hidden="true" />
             <div>
-              <p>Profile</p>
               <h1>我的</h1>
+              <p>管理你的拼豆世界</p>
             </div>
           </header>
-          <div className="profile-card">
-            <strong>{isLoggedIn ? loginName : '未登录'}</strong>
-            <span>{isLoggedIn ? '可以管理豆子库存、历史记录和导出文件。' : '登录后可以使用我的豆子仓库和项目记录。'}</span>
+          <section className="profile-account-card" aria-label="账号状态">
+            <div className="profile-avatar" aria-hidden="true">
+              <span>拼</span>
+              {isLoggedIn ? <i>✓</i> : null}
+            </div>
+            <div className="profile-account-copy">
+              <strong>{isLoggedIn ? loginName : '未登录'}</strong>
+              <span>{isLoggedIn ? 'ID 20260729' : '登录后同步项目与豆子库存'}</span>
+              <div className="profile-account-stats" aria-label="账号统计">
+                <em>{usedColors.length} 色已用</em>
+                <em>{warehouses.length} 个仓库</em>
+                <em>{stockedColorCount} 色在库</em>
+              </div>
+            </div>
             {isLoggedIn ? (
               <button className="profile-login-btn" onClick={() => {
                 setIsLoggedIn(false);
@@ -2372,11 +2524,33 @@ function H5App() {
             ) : (
               <button className="profile-login-btn" onClick={() => setShowLoginModal(true)}>登录</button>
             )}
-          </div>
-          <button className="profile-row" onClick={openWarehouse}><Icon name="layers" /> 豆子仓库</button>
-          <button className="profile-row"><Icon name="folder" /> 历史记录</button>
-          <button className="profile-row"><Icon name="help" /> 帮助中心</button>
-          <button className="profile-row"><Icon name="settings" /> 设置</button>
+          </section>
+          <button className="profile-warehouse-card" onClick={openWarehouse}>
+            <span className="profile-warehouse-icon"><Icon name="layers" /></span>
+            <span className="profile-warehouse-copy">
+              <strong>豆子仓库</strong>
+              <small>{isLoggedIn ? `管理 ${activeWarehouse?.name ?? 'MARD 221 色库存'}` : '登录后查看豆子仓库'}</small>
+              <span className="profile-swatch-row" aria-hidden="true">
+                {MARD_221_COLORS.slice(0, 5).map((color) => (
+                  <i key={color.code} style={{ background: color.hex }} />
+                ))}
+                <em>+{Math.max(0, MARD_221_COLORS.length - 5)}</em>
+              </span>
+              <span className="profile-progress-track" aria-hidden="true">
+                <i style={{ width: `${Math.max(4, Math.min(100, (stockedColorCount / MARD_221_COLORS.length) * 100))}%` }} />
+              </span>
+              <span className="profile-warehouse-meta">
+                <small>已入库 {stockedColorCount} / {MARD_221_COLORS.length} 色</small>
+                <small>共 {totalWarehouseStock.toLocaleString()} 颗</small>
+              </span>
+            </span>
+            <span className="profile-chevron" aria-hidden="true">›</span>
+          </button>
+          <section className="profile-menu-card" aria-label="个人中心菜单">
+            <button className="profile-row"><Icon name="folder" /> <span><strong>历史记录</strong><small>查看最近编辑与导出</small></span><em>›</em></button>
+            <button className="profile-row"><Icon name="help" /> <span><strong>帮助中心</strong><small>常见问题与使用指南</small></span><em>›</em></button>
+            <button className="profile-row"><Icon name="settings" /> <span><strong>设置</strong><small>账号、安全与偏好</small></span><em>›</em></button>
+          </section>
           {showLoginModal ? (
             <div className="home-create-modal" role="dialog" aria-label="登录面板">
               <div className="home-create-panel">
@@ -2979,17 +3153,6 @@ function getImageCrop(imageData: ImageData) {
   return cropTransparentBounds(alpha, imageData.width, imageData.height);
 }
 
-function gridSizeFromImageBounds(width: number, height: number, longSide = MAX_AUTO_GRID_SIDE): { rows: number; cols: number } {
-  const safeWidth = Math.max(1, width);
-  const safeHeight = Math.max(1, height);
-  const safeLongSide = Math.max(1, Math.min(MAX_AUTO_GRID_SIDE, longSide));
-  const scale = safeLongSide / Math.max(safeWidth, safeHeight);
-  return {
-    cols: Math.max(1, Math.round(safeWidth * scale)),
-    rows: Math.max(1, Math.round(safeHeight * scale)),
-  };
-}
-
 function initialAlignCellSize(crop: { width: number; height: number }, cols: number, rows: number): number {
   const requestedSize = Math.max(crop.width / Math.max(1, cols), crop.height / Math.max(1, rows));
   return Math.max(1, Math.min(
@@ -3064,7 +3227,8 @@ function cellsFromImage(
   cols: number,
   crop = getImageCrop(imageData),
 ): Cell[] {
-  const samplesPerCell = 3;
+  // Use the authorized palette-vote grid so isolated noisy pixels do not decide a cell color.
+  const samplesPerCell = SPLIT_DOMINANT_SAMPLE_GRID_SIZE;
 
   return buildCellsFromSamples(rows, cols, (x, y) => {
     const pixels: number[] = [];
@@ -3091,7 +3255,8 @@ function cellsFromAlignedGrid(
   grid: AlignedGrid,
   crop = getImageCrop(imageData),
 ): Cell[] {
-  const samplesPerCell = 3;
+  // Keep aligned sampling consistent with quick split noise removal.
+  const samplesPerCell = SPLIT_DOMINANT_SAMPLE_GRID_SIZE;
 
   return buildCellsFromSamples(grid.rows, grid.cols, (x, y) => {
     const pixels: number[] = [];
@@ -3398,8 +3563,23 @@ function downloadBlob(filename: string, blob: Blob) {
 }
 
 const quickTools: Array<{ title: string; description: string; icon: IconName; mode: WorkMode }> = [
-  { title: '拼豆图纸', description: '上传图片生成色号清单', icon: 'spark', mode: 'bead' },
-  { title: '敲豆豆图纸', description: '同一图纸导出 STL 模型', icon: 'layers', mode: 'peg' },
+  { title: '拼豆图纸', description: '上传图片生成', icon: 'spark', mode: 'bead' },
+  { title: '截豆豆图纸', description: '导出 STL 模型', icon: 'layers', mode: 'peg' },
+];
+
+const homeRecentProjects = [
+  { title: '2天前', size: '24×24', tone: 'recent-dog' },
+  { title: '3天前', size: '32×32', tone: 'recent-bear' },
+  { title: '1周前', size: '48×48', tone: 'recent-flower' },
+  { title: '2周前', size: '64×64', tone: 'recent-house' },
+];
+
+const homeTemplateFilters = ['推荐', '宠物', '动漫', '风景', '游戏', '卡通'];
+
+const homeTemplates = [
+  { title: '柯基', tone: 'template-corgi' },
+  { title: '电气鼠', tone: 'template-spark' },
+  { title: '小种子', tone: 'template-leaf' },
 ];
 
 function normalizeGridSize(value: number): number {

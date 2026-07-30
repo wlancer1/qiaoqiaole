@@ -7,6 +7,8 @@ export type Bounds = {
   height: number;
 };
 
+export const SPLIT_DOMINANT_SAMPLE_GRID_SIZE = 5;
+
 export function normalizeHex(hex: string): string {
   const cleaned = hex.trim().toLowerCase();
   if (/^#[0-9a-f]{6}$/.test(cleaned)) {
@@ -87,6 +89,62 @@ export function sampleDominantColor(rgba: ArrayLike<number>, palette?: readonly 
   }
 
   return bestColor;
+}
+
+/**
+ * Replaces low-usage opaque cell colours with the nearest sufficiently-used
+ * colour. The threshold is a bead count: colours used no more than this many
+ * times are considered noise. Transparent cells are always preserved.
+ */
+export function mergeSimilarCells(cells: Cell[], threshold: number): Cell[] {
+  const maxUsage = Math.max(0, Number.isFinite(threshold) ? Math.floor(threshold) : 0);
+  if (maxUsage === 0) {
+    return cells.map((cell) => ({ ...cell, color: normalizeHex(cell.color) }));
+  }
+
+  const counts = new Map<string, { count: number; firstIndex: number }>();
+  for (const [index, cell] of cells.entries()) {
+    if (cell.transparent) continue;
+    const color = normalizeHex(cell.color);
+    const current = counts.get(color);
+    counts.set(color, {
+      count: (current?.count ?? 0) + 1,
+      firstIndex: current?.firstIndex ?? index,
+    });
+  }
+
+  const stableColors = [...counts.entries()].sort(
+    ([, left], [, right]) => right.count - left.count || left.firstIndex - right.firstIndex,
+  );
+  const candidates = stableColors.filter(([, details]) => details.count > maxUsage);
+  const mapping = new Map<string, string>();
+
+  for (const [color, details] of stableColors) {
+    if (details.count > maxUsage || candidates.length === 0) {
+      mapping.set(color, color);
+      continue;
+    }
+
+    const [red, green, blue] = hexToRgb(color);
+    const nearest = candidates.reduce((best, [candidateColor, candidateDetails]) => {
+      const [candidateRed, candidateGreen, candidateBlue] = hexToRgb(candidateColor);
+      const distance =
+        (red - candidateRed) ** 2 +
+        (green - candidateGreen) ** 2 +
+        (blue - candidateBlue) ** 2;
+      if (!best || distance < best.distance || (distance === best.distance && candidateDetails.count > best.count)) {
+        return { color: candidateColor, count: candidateDetails.count, distance };
+      }
+      return best;
+    }, null as { color: string; count: number; distance: number } | null);
+    mapping.set(color, nearest?.color ?? color);
+  }
+
+  return cells.map((cell) => {
+    if (cell.transparent) return { ...cell, color: normalizeHex(cell.color) };
+    const color = normalizeHex(cell.color);
+    return { ...cell, color: mapping.get(color) ?? color };
+  });
 }
 
 export function nearestPaletteColor(r: number, g: number, b: number, palette: readonly string[]): string {

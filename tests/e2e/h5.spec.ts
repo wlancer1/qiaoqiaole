@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
+import ts from 'typescript';
 
 test.use({ baseURL: 'http://127.0.0.1:5174' });
 
@@ -26,6 +27,29 @@ async function expectNoPageScrollbar(page: import('@playwright/test').Page) {
   expect(metrics, JSON.stringify(metrics)).toMatchObject({
     widthOverflow: false,
     heightOverflow: false,
+  });
+}
+
+async function readSettledPanelMetrics(
+  page: import('@playwright/test').Page,
+  panel: import('@playwright/test').Locator,
+) {
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+  });
+  return panel.evaluate(async (node) => {
+    const animations = node.getAnimations({ subtree: true });
+    await Promise.all(animations.map((animation) => animation.finished.catch(() => undefined)));
+    const rect = node.getBoundingClientRect();
+    return {
+      top: rect.top,
+      bottom: rect.bottom,
+      left: rect.left,
+      right: rect.right,
+      width: rect.width,
+      height: rect.height,
+      viewportBottom: window.innerHeight,
+    };
   });
 }
 
@@ -95,16 +119,6 @@ async function twoFingerPinchOnGridCell(page: import('@playwright/test').Page, c
   await client.send('Emulation.setTouchEmulationEnabled', { enabled: false });
 }
 
-function longSideFromSplitInfo(text: string) {
-  const numbers = text.match(/\d+/g)?.map(Number) ?? [];
-  return Math.max(...numbers);
-}
-
-function gridSizeFromText(text: string) {
-  const [cols = 0, rows = 0] = text.match(/\d+/g)?.map(Number) ?? [];
-  return { cols, rows };
-}
-
 async function countGridPixelsInCanvasBand(
   page: import('@playwright/test').Page,
   band: 'left' | 'right',
@@ -138,8 +152,132 @@ async function readCssScale(page: import('@playwright/test').Page, selector: str
   });
 }
 
-test('uploads from the H5 home page, configures split count, previews, then imports into canvas', async ({ page }) => {
+test('shows the reference-driven home hierarchy with only real tools', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+
+  const uploadHero = page.getByRole('button', { name: '上传图片制作拼豆图纸', exact: true });
+  const tools = page.locator('.home-creation-tools');
+  const createPatternTool = tools.getByRole('button', { name: '创建拼豆图纸', exact: true });
+  const createPegboardTool = tools.getByRole('button', { name: '创建敲豆图纸', exact: true });
+  const createBlankCanvasTool = tools.getByRole('button', { name: '新建空白画布', exact: true });
+  await expect(page.locator('.home-brand-hero')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '超级拼', exact: true })).toBeVisible();
+  await expect(uploadHero).toBeVisible();
+  await expect(uploadHero).toHaveClass(/(?:^|\s)home-upload-hero(?:\s|$)/);
+  await expect(tools.locator('button.quick-action-card')).toHaveCount(3);
+  await expect(createPatternTool).toBeVisible();
+  await expect(createPatternTool).toHaveClass(/(?:^|\s)quick-action-card(?:\s|$)/);
+  await expect(createPegboardTool).toBeVisible();
+  await expect(createPegboardTool).toHaveClass(/(?:^|\s)quick-action-card(?:\s|$)/);
+  await expect(createBlankCanvasTool).toBeVisible();
+  await expect(createBlankCanvasTool).toHaveClass(/(?:^|\s)quick-action-card(?:\s|$)/);
+  await expect(page.getByRole('button', { name: '消息中心' })).toBeVisible();
+  await expect(page.locator('.home-brand-planet')).toBeVisible();
+  await expect(page.locator('.home-upload-watermark')).toBeVisible();
+  await expect(page.getByText('最近项目', { exact: true })).toBeVisible();
+  await expect(page.locator('.home-recent-card')).toHaveCount(4);
+  await expect(page.locator('.bottom-tabs button')).toHaveCount(3);
+  const uploadFloatMetrics = await page.locator('.home-upload-hero').evaluate((node) => {
+    const card = node as HTMLElement;
+    const hero = card.closest('.home-brand-hero') as HTMLElement | null;
+    if (!hero) throw new Error('Missing home brand hero');
+    const cardRect = card.getBoundingClientRect();
+    const heroRect = hero.getBoundingClientRect();
+    const cardStyle = getComputedStyle(card);
+    const heroStyle = getComputedStyle(hero);
+    return {
+      cardBottom: cardRect.bottom,
+      heroBottom: heroRect.bottom,
+      heroHeight: heroRect.height,
+      shadow: cardStyle.boxShadow,
+      heroOverflow: heroStyle.overflow,
+    };
+  });
+  expect(uploadFloatMetrics.heroHeight).toBeLessThanOrEqual(200);
+  expect(uploadFloatMetrics.cardBottom).toBeGreaterThan(uploadFloatMetrics.heroBottom + 20);
+  expect(uploadFloatMetrics.shadow).not.toBe('none');
+  expect(uploadFloatMetrics.heroOverflow).toBe('visible');
+  const recentSpacingMetrics = await page.locator('.home-recent-projects').evaluate((node) => {
+    const recent = node as HTMLElement;
+    const card = document.querySelector('.home-upload-hero');
+    const heading = recent.querySelector('.home-section-heading');
+    if (!(card instanceof HTMLElement) || !(heading instanceof HTMLElement)) throw new Error('Missing upload card or recent heading');
+    return {
+      cardBottom: card.getBoundingClientRect().bottom,
+      headingTop: heading.getBoundingClientRect().top,
+    };
+  });
+  expect(recentSpacingMetrics.headingTop).toBeGreaterThanOrEqual(recentSpacingMetrics.cardBottom + 20);
+
+  const touchTargets = await page.locator(
+    'button.home-upload-hero, .home-creation-tools button.quick-action-card, .home-brand-notify, .bottom-tabs button',
+  ).evaluateAll((nodes) => nodes.map((node) => {
+    const rect = node.getBoundingClientRect();
+    return {
+      label: node.getAttribute('aria-label') ?? node.textContent?.trim() ?? node.className,
+      width: rect.width,
+      height: rect.height,
+    };
+  }));
+  for (const target of touchTargets) {
+    expect(target.width, `${target.label} width`).toBeGreaterThanOrEqual(44);
+    expect(target.height, `${target.label} height`).toBeGreaterThanOrEqual(44);
+  }
+  await expectNoPageScrollbar(page);
+
+  await uploadHero.click();
+  await expect(page.getByRole('dialog', { name: '上传图纸' })).toBeVisible();
+});
+
+test('keeps home and profile hero cards on the same height system', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+
+  const homeGeometry = await page.locator('.home-brand-hero').evaluate((hero) => {
+    const card = document.querySelector('.home-upload-hero');
+    if (!(card instanceof HTMLElement)) throw new Error('Missing home upload card');
+    const heroRect = hero.getBoundingClientRect();
+    const cardRect = card.getBoundingClientRect();
+    return {
+      heroHeight: heroRect.height,
+      cardHeight: cardRect.height,
+    };
+  });
+
+  await page.getByRole('button', { name: '我的' }).click();
+  const profileGeometry = await page.locator('.profile-hero').evaluate((hero) => {
+    const card = document.querySelector('.profile-account-card');
+    if (!(card instanceof HTMLElement)) throw new Error('Missing profile account card');
+    const heroRect = hero.getBoundingClientRect();
+    const cardRect = card.getBoundingClientRect();
+    return {
+      heroHeight: heroRect.height,
+      cardHeight: cardRect.height,
+    };
+  });
+
+  expect(profileGeometry.heroHeight).toBeCloseTo(homeGeometry.heroHeight, 0);
+  expect(profileGeometry.cardHeight).toBeCloseTo(homeGeometry.cardHeight, 0);
+});
+
+test('keeps invalid upload feedback visible on the redesigned home', async ({ page }) => {
+  await page.goto('/');
+
+  await expect(page.getByRole('status')).toHaveCount(0);
+  await page.locator('input[type="file"]').first().setInputFiles({
+    name: 'not-an-image.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('not an image'),
+  });
+
+  const status = page.getByRole('status');
+  await expect(status).toBeVisible();
+  await expect(status).toContainText('请上传 PNG、JPG 或 WebP 图片');
+});
+
+test('uploads from the H5 home page, configures split count, previews, then imports into canvas', async ({ page }) => {
+  await page.setViewportSize({ width: 414, height: 940 });
   await page.goto('/');
   await expectNoPageScrollbar(page);
 
@@ -149,32 +287,159 @@ test('uploads from the H5 home page, configures split count, previews, then impo
   await expect(page.getByRole('button', { name: '我的' })).toBeVisible();
   await expect(page.getByText('上传图片生成图纸')).toHaveCount(0);
 
+  const creationIconStyles = await page.locator('.home-creation-tools .qa-icon').evaluateAll((nodes) => (
+    nodes.map((node) => ({
+      color: getComputedStyle(node).color,
+      backgroundColor: getComputedStyle(node).backgroundColor,
+    }))
+  ));
+  expect(creationIconStyles.length).toBeGreaterThan(0);
+  expect(creationIconStyles.every(({ color }) => color === 'rgb(20, 108, 255)')).toBe(true);
+  expect(creationIconStyles.every(({ backgroundColor }) => backgroundColor === 'rgb(234, 242, 255)')).toBe(true);
+
   await page.locator('input[type="file"]').setInputFiles(uploadFixture);
 
-  await expect(page.getByRole('heading', { name: '分割' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '分割设置', exact: true })).toBeVisible();
   await expectNoPageScrollbar(page);
-  await expect(page.locator('.split-info-value')).toContainText('18');
+  const splitModeTabs = page.getByRole('tablist', { name: '分割模式' });
+  const quickSplitTab = splitModeTabs.getByRole('tab', { name: '快速分割', exact: true });
+  const alignGridTab = splitModeTabs.getByRole('tab', { name: '对格子', exact: true });
+  await expect(splitModeTabs).toBeVisible();
+  await expect(splitModeTabs.getByRole('tab')).toHaveCount(2);
+  await expect(quickSplitTab).toHaveAttribute('aria-selected', 'true');
+  await expect(alignGridTab).toHaveAttribute('aria-selected', 'false');
+  await expect(quickSplitTab).toHaveAttribute('id', 'split-mode-quick-tab');
+  await expect(quickSplitTab).toHaveAttribute('aria-controls', 'split-mode-quick-panel');
+  await expect(alignGridTab).toHaveAttribute('id', 'split-mode-align-tab');
+  await expect(alignGridTab).toHaveAttribute('aria-controls', 'split-mode-align-panel');
+  const quickSplitPanel = page.getByRole('tabpanel', { name: '快速分割' });
+  await expect(quickSplitPanel).toHaveAttribute('id', 'split-mode-quick-panel');
+  await expect(quickSplitPanel).toHaveAttribute('aria-labelledby', 'split-mode-quick-tab');
+  await expect(quickSplitPanel.getByLabel('分割预览图')).toBeVisible();
+  await expect(quickSplitPanel.locator('.split-pattern-summary')).toHaveCount(0);
+  const quickControls = quickSplitPanel.locator('.split-quick-controls');
+  await expect(quickControls).toBeVisible();
+  await expect(quickControls.locator('.split-quick-output')).toHaveText(/\d+\s*×\s*\d+/);
+  await expect(page.getByRole('slider', { name: '长边格数' })).toHaveAttribute('min', '8');
+  await expect(page.getByRole('slider', { name: '长边格数' })).toHaveAttribute('max', '144');
+  await expect(page.getByRole('slider', { name: '长边格数' })).toHaveValue('144');
+  await expect(page.getByRole('button', { name: '减少格数' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '增加格数' })).toHaveCount(0);
+  await expect(page.getByText('默认众数投票生成主色')).toHaveCount(0);
+  await expect(page.getByRole('slider', { name: '长边格数' })).toHaveAttribute('aria-describedby', 'split-quick-output');
+  await expect(page.getByRole('tabpanel')).toHaveCount(1);
+
+  await quickSplitTab.press('ArrowRight');
+  await expect(alignGridTab).toBeFocused();
+  await expect(alignGridTab).toHaveAttribute('aria-selected', 'true');
+  const keyboardAlignPanel = page.getByRole('tabpanel', { name: '对格子' });
+  await expect(keyboardAlignPanel).toHaveAttribute('id', 'split-mode-align-panel');
+  await expect(keyboardAlignPanel).toHaveAttribute('aria-labelledby', 'split-mode-align-tab');
+  await expect(keyboardAlignPanel.locator('.split-align-panel')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '对格子', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '下一步', exact: true })).toBeVisible();
+  await expect(keyboardAlignPanel.locator('.split-align-readout')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '重置对格' })).toHaveCount(0);
+  await expect(keyboardAlignPanel.locator('.split-nudge-readout')).toBeVisible();
+  await expect(keyboardAlignPanel.locator('.split-grid-size-output')).toBeVisible();
+  await expect(keyboardAlignPanel.locator('.split-nudge-pad button')).toHaveCount(4);
+  await expect(page.getByRole('status', { name: '网格偏移' })).not.toHaveAttribute('tabindex');
+  await expect(page.getByRole('status', { name: '格距' })).toBeVisible();
+  await expect(page.getByRole('tabpanel')).toHaveCount(1);
+  await alignGridTab.press('ArrowLeft');
+  await expect(quickSplitTab).toBeFocused();
+  await expect(quickSplitTab).toHaveAttribute('aria-selected', 'true');
+  const splitModeTabTargets = await splitModeTabs.getByRole('tab').evaluateAll((nodes) => nodes.map((node) => {
+    const rect = node.getBoundingClientRect();
+    return {
+      label: node.textContent?.trim() ?? node.getAttribute('aria-label') ?? 'split mode tab',
+      width: rect.width,
+      height: rect.height,
+    };
+  }));
+  for (const target of splitModeTabTargets) {
+    expect(target.width, `${target.label} width`).toBeGreaterThanOrEqual(44);
+    expect(target.height, `${target.label} height`).toBeGreaterThanOrEqual(44);
+  }
+  await expect(page.getByRole('heading', { name: '分割设置', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '下一步', exact: true })).toBeVisible();
+  await expect(page.locator('.split-quick-output')).toHaveText(/\d+\s*×\s*\d+/);
   await expect(page.getByLabel('分割预览图')).toBeVisible();
   await expect(page.locator('.split-preview-canvas')).toBeVisible();
   await expect(page.locator('.split-image-zoom-wrapper')).toHaveCSS('touch-action', 'none');
   await expect(page.locator('.split-image-zoom-content')).toHaveCSS('touch-action', 'none');
   await expect(page.locator('.split-preview-canvas')).toHaveCSS('touch-action', 'none');
   await expect(page.locator('.split-zoom-controls')).toHaveCount(0);
-  const splitTouchTargets = await page.locator('.split-topbar button, .split-mode-switch button, .split-step-btn, .split-range').evaluateAll((nodes) =>
+  const splitControlsCard = page.locator('.split-controls-card');
+  const segmented = page.locator('.flow-segmented');
+  const preview = page.locator('.split-image-container');
+  const quickPanelMetrics = await readSettledPanelMetrics(page, splitControlsCard);
+  const quickSegmentedMetrics = await readSettledPanelMetrics(page, segmented);
+  const previewMetrics = await readSettledPanelMetrics(page, preview);
+  expect(quickPanelMetrics.top - quickSegmentedMetrics.bottom).toBeGreaterThanOrEqual(4);
+  expect(quickPanelMetrics.top - quickSegmentedMetrics.bottom).toBeLessThanOrEqual(8);
+  expect(quickPanelMetrics.viewportBottom - quickPanelMetrics.bottom).toBeCloseTo(0, 0);
+  expect(previewMetrics.height).toBeGreaterThanOrEqual(300);
+
+  await expect(page.getByRole('button', { name: '下一步', exact: true })).toHaveCSS('background-color', 'rgb(10, 132, 255)');
+
+  const splitTouchTargets = await page.locator('.split-topbar button, .split-range').evaluateAll((nodes) =>
     nodes.map((node) => {
       const rect = node.getBoundingClientRect();
       return {
         label: node.getAttribute('aria-label') ?? node.textContent?.trim() ?? node.className,
+        isTopbarButton: node.closest('.split-topbar') !== null,
         width: rect.width,
         height: rect.height,
       };
     }),
   );
+  expect(splitTouchTargets.length).toBeGreaterThan(0);
   for (const target of splitTouchTargets) {
-    expect(target.width, `${target.label} width`).toBeGreaterThanOrEqual(44);
-    expect(target.height, `${target.label} height`).toBeGreaterThanOrEqual(44);
+    const minSize = target.isTopbarButton ? 38 : 44;
+    expect(target.width, `${target.label} width`).toBeGreaterThanOrEqual(minSize);
+    expect(target.height, `${target.label} height`).toBeGreaterThanOrEqual(minSize);
   }
-  await page.getByRole('button', { name: '对格子' }).click();
+  await alignGridTab.click();
+  await expect(quickSplitTab).toHaveAttribute('aria-selected', 'false');
+  await expect(alignGridTab).toHaveAttribute('aria-selected', 'true');
+  const alignPanelMetrics = await readSettledPanelMetrics(page, splitControlsCard);
+  expect(alignPanelMetrics.width).toBeCloseTo(quickPanelMetrics.width, 0);
+  expect(alignPanelMetrics.height).toBeCloseTo(quickPanelMetrics.height, 0);
+  expect(alignPanelMetrics.bottom).toBeCloseTo(quickPanelMetrics.bottom, 0);
+  const nudgeGeometry = await page.locator('.split-nudge-pad').evaluate((pad) => {
+    const boxes = [...pad.querySelectorAll<HTMLElement>('button, output')].map((node) => {
+      const rect = node.getBoundingClientRect();
+      return {
+        name: node.getAttribute('aria-label'),
+        width: rect.width,
+        height: rect.height,
+        centerX: rect.left + rect.width / 2,
+        centerY: rect.top + rect.height / 2,
+      };
+    });
+    return boxes;
+  });
+  expect(nudgeGeometry).toHaveLength(5);
+  for (const item of nudgeGeometry) {
+    expect(item.width, `${item.name} width`).toBeCloseTo(52, 0);
+    expect(item.height, `${item.name} height`).toBeCloseTo(52, 0);
+  }
+  const up = nudgeGeometry.find((item) => item.name === '上移网格')!;
+  const down = nudgeGeometry.find((item) => item.name === '下移网格')!;
+  const left = nudgeGeometry.find((item) => item.name === '左移网格')!;
+  const right = nudgeGeometry.find((item) => item.name === '右移网格')!;
+  const center = nudgeGeometry.find((item) => item.name === '网格偏移')!;
+  expect(up.centerX).toBeCloseTo(center.centerX, 0);
+  expect(down.centerX).toBeCloseTo(center.centerX, 0);
+  expect(left.centerY).toBeCloseTo(center.centerY, 0);
+  expect(right.centerY).toBeCloseTo(center.centerY, 0);
+  const gridSizeButtons = page.getByRole('button', { name: /减小格距|增大格距/ });
+  await expect(gridSizeButtons).toHaveCount(2);
+  for (const box of await gridSizeButtons.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect()))) {
+    expect(box.width).toBeCloseTo(48, 0);
+    expect(box.height).toBeCloseTo(48, 0);
+  }
   const alignmentHandles = await page.locator('.split-grid-handle').evaluateAll((nodes) =>
     nodes.map((node) => {
       const rect = node.getBoundingClientRect();
@@ -206,11 +471,14 @@ test('uploads from the H5 home page, configures split count, previews, then impo
       };
     }),
   );
+  expect(alignTouchTargets.length).toBeGreaterThan(0);
   for (const target of alignTouchTargets) {
     expect(target.width, `${target.label} width`).toBeGreaterThanOrEqual(44);
     expect(target.height, `${target.label} height`).toBeGreaterThanOrEqual(44);
   }
-  await page.getByRole('button', { name: '快速分割' }).click();
+  await quickSplitTab.click();
+  await expect(quickSplitTab).toHaveAttribute('aria-selected', 'true');
+  await expect(alignGridTab).toHaveAttribute('aria-selected', 'false');
   await expect.poll(async () => {
     return page.locator('.split-preview-canvas').evaluate((node) => {
       const canvas = node as HTMLCanvasElement;
@@ -233,21 +501,184 @@ test('uploads from the H5 home page, configures split count, previews, then impo
   await expect(page.locator('.split-red-line')).toHaveCount(0);
 
   const touchScaleBefore = await readCssScale(page, '.split-image-zoom-content');
-  const splitInfoBeforePinch = await page.locator('.split-info-value').innerText();
-  const longSideBeforePinch = longSideFromSplitInfo(splitInfoBeforePinch);
+  const quickOutput = page.locator('.split-quick-output');
+  const gridSizeBeforePinch = {
+    cols: Number(await quickOutput.getAttribute('data-grid-cols')),
+    rows: Number(await quickOutput.getAttribute('data-grid-rows')),
+  };
+  const imageScaleBeforePinch = Number(await page.locator('.split-image-container').getAttribute('data-image-scale'));
   await pinchOpenSplitPreview(page);
-  await expect.poll(async () => longSideFromSplitInfo(await page.locator('.split-info-value').innerText())).toBeGreaterThan(longSideBeforePinch);
+  await expect.poll(async () => ({
+    cols: Number(await quickOutput.getAttribute('data-grid-cols')),
+    rows: Number(await quickOutput.getAttribute('data-grid-rows')),
+  })).toEqual(gridSizeBeforePinch);
+  await expect.poll(async () => Number(await page.locator('.split-image-container').getAttribute('data-image-scale'))).toBeGreaterThan(imageScaleBeforePinch);
   await expect.poll(async () => readCssScale(page, '.split-image-zoom-content')).toBeCloseTo(touchScaleBefore, 1);
 
-  await page.getByRole('slider', { name: '长边格数' }).fill('24');
-  await expect(page.locator('.split-info-value')).toContainText('24');
+  await page.getByRole('slider', { name: '长边格数' }).fill('8');
+  const quickSplitInfo = page.locator('.split-quick-output');
+  await expect(quickSplitInfo).toBeVisible();
+  await expect.poll(async () => {
+    const cols = Number(await quickSplitInfo.getAttribute('data-grid-cols'));
+    const rows = Number(await quickSplitInfo.getAttribute('data-grid-rows'));
+    return Math.max(cols, rows);
+  }).toBe(8);
+  const quickPreviewSize = {
+    cols: Number(await quickSplitInfo.getAttribute('data-grid-cols')),
+    rows: Number(await quickSplitInfo.getAttribute('data-grid-rows')),
+  };
+  expect(quickPreviewSize.cols).toBeGreaterThan(0);
+  expect(quickPreviewSize.rows).toBeGreaterThan(0);
+  const nextActionButton = page.getByRole('button', { name: '下一步', exact: true });
+  const nextActionStyles = await nextActionButton.evaluate((node) => {
+    const style = getComputedStyle(node);
+    const rect = node.getBoundingClientRect();
+    return {
+      backgroundColor: style.backgroundColor,
+      borderRadius: style.borderRadius,
+      boxShadow: style.boxShadow,
+      color: style.color,
+      fontSize: style.fontSize,
+      fontWeight: style.fontWeight,
+      height: Math.round(rect.height),
+    };
+  });
   await page.getByRole('button', { name: '下一步' }).click();
 
-  await expect(page.getByRole('heading', { name: '浏览' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '浏览', exact: true })).toBeVisible();
+  await expect(page.locator('.split-preview-eyebrow')).toHaveCount(0);
+  const patternMeta = page.locator('.split-pattern-meta');
+  await expect(patternMeta).toContainText(`${quickPreviewSize.cols} × ${quickPreviewSize.rows}`);
+
+  await expect(page.getByRole('tablist', { name: '浏览设置页签', exact: true })).toHaveCount(0);
+  const beadListButton = page.getByRole('button', { name: /查看豆子清单/ });
+  await expect(beadListButton).toBeVisible();
+  const settingsPanel = page.getByRole('tabpanel');
+  await expect(settingsPanel).toHaveAttribute('id', 'split-preview-settings-panel');
+  await expect(settingsPanel).toHaveAttribute('aria-label', '参数设置');
+  await expect(page.getByText('众数投票', { exact: true })).toBeVisible();
+  await expect(page.getByText('均值匹配')).toHaveCount(0);
+  await expect(page.getByText('K-means')).toHaveCount(0);
+  await expect(page.getByText(/若没有常用颜色，则保留原色/)).toBeVisible();
+
+  const previewPage = page.locator('.split-preview-page');
+  const browserContainer = previewPage.locator('.split-browser-container');
+  await expect(browserContainer).toBeVisible();
+  const scrollOwnership = await previewPage.evaluate((node) => {
+    const browser = node.querySelector('.split-browser-container');
+    if (!(browser instanceof HTMLElement)) throw new Error('Missing split browser container');
+    return {
+      pageOverflow: getComputedStyle(node).overflow,
+      browserOverflowY: getComputedStyle(browser).overflowY,
+      documentScrollHeight: document.documentElement.scrollHeight,
+      viewportHeight: window.innerHeight,
+    };
+  });
+  expect(scrollOwnership.pageOverflow).toBe('hidden');
+  expect(scrollOwnership.browserOverflowY).toBe('auto');
+  expect(scrollOwnership.documentScrollHeight).toBeLessThanOrEqual(scrollOwnership.viewportHeight);
   await expectNoPageScrollbar(page);
+
   await expect(page.getByLabel('分割浏览预览')).toBeVisible();
+  const previewGrid = page.locator('.split-grid-preview');
+  await expect(previewGrid).toHaveCSS('aspect-ratio', `${quickPreviewSize.cols} / ${quickPreviewSize.rows}`);
+  const previewGridBox = await previewGrid.boundingBox();
+  expect(previewGridBox).not.toBeNull();
+  expect(previewGridBox!.width / previewGridBox!.height).toBeCloseTo(quickPreviewSize.cols / quickPreviewSize.rows, 1);
+  await expect(page.locator('.split-preview-cell')).toHaveCount(quickPreviewSize.cols * quickPreviewSize.rows);
   expect(await page.locator('.split-preview-cell').count()).toBeGreaterThan(20);
-  await page.getByRole('button', { name: '导入画布' }).click();
+
+  const importCanvasButton = page.getByRole('button', { name: '导入画布', exact: true });
+  await expect(importCanvasButton).toBeVisible();
+  await expect(importCanvasButton).toBeEnabled();
+  const importActionStyles = await importCanvasButton.evaluate((node) => {
+    const style = getComputedStyle(node);
+    const rect = node.getBoundingClientRect();
+    return {
+      backgroundColor: style.backgroundColor,
+      borderRadius: style.borderRadius,
+      boxShadow: style.boxShadow,
+      color: style.color,
+      fontSize: style.fontSize,
+      fontWeight: style.fontWeight,
+      height: Math.round(rect.height),
+    };
+  });
+  expect(importActionStyles).toEqual(nextActionStyles);
+  const mergeThreshold = page.getByRole('slider', { name: '颜色合并阈值' });
+  await expect(mergeThreshold).toBeVisible();
+  await expect(mergeThreshold).toHaveValue('0');
+  await mergeThreshold.fill('12');
+  await expect(mergeThreshold).toHaveValue('12');
+  await expect(page.locator('.split-merge-controls output')).toHaveText('≤ 12');
+  const thresholdBeforeSheet = await mergeThreshold.inputValue();
+  await beadListButton.click();
+  const beadSheet = page.getByRole('dialog', { name: '豆子清单' });
+  await expect(beadSheet).toBeVisible();
+  await expect(beadSheet).toHaveClass(/split-bead-sheet/);
+  const beadRows = page.locator('.split-bead-row');
+  await expect.poll(() => beadRows.count()).toBeGreaterThan(0);
+  const beadRowCount = await beadRows.count();
+  const beadRowData = await beadRows.evaluateAll((nodes) => nodes.map((node) => {
+    const codes = node.querySelectorAll('.split-bead-code');
+    const swatches = node.querySelectorAll('.split-bead-swatch');
+    const hexes = node.querySelectorAll('.split-bead-hex');
+    const counts = node.querySelectorAll('.split-bead-count');
+    return {
+      codeFieldCount: codes.length,
+      swatchFieldCount: swatches.length,
+      hexFieldCount: hexes.length,
+      countFieldCount: counts.length,
+      code: codes[0]?.textContent?.trim() ?? '',
+      swatchLabel: swatches[0]?.getAttribute('aria-label') ?? '',
+      hex: hexes[0]?.textContent?.trim() ?? '',
+      displayedCount: counts[0]?.textContent?.trim() ?? '',
+      dataCount: node.getAttribute('data-count') ?? '',
+    };
+  }));
+  expect(beadRowData).toHaveLength(beadRowCount);
+  for (const row of beadRowData) {
+    expect(row.codeFieldCount).toBe(1);
+    expect(row.swatchFieldCount).toBe(1);
+    expect(row.hexFieldCount).toBe(1);
+    expect(row.countFieldCount).toBe(1);
+    expect(row.code).toMatch(/^[A-Z]+\d+$/);
+    expect(row.swatchLabel).toMatch(/^颜色 #[0-9A-F]{6}$/);
+    expect(row.hex).toMatch(/^#[0-9A-F]{6}$/);
+    expect(row.displayedCount).toMatch(/^× \d+$/);
+    expect(row.dataCount).toMatch(/^\d+$/);
+    expect(Number(row.dataCount)).toBeGreaterThan(0);
+    expect(Number(row.displayedCount.replace(/^×\s*/, ''))).toBe(Number(row.dataCount));
+  }
+  const beadCounts = beadRowData.map((row) => Number(row.dataCount));
+  expect(beadCounts.length).toBeGreaterThan(0);
+  expect(beadCounts).toEqual([...beadCounts].sort((left, right) => right - left));
+
+  const sheetScrollMetrics = await beadSheet.locator('.split-bead-list').evaluate((node) => ({
+    scrollHeight: node.scrollHeight,
+    clientHeight: node.clientHeight,
+  }));
+  expect(sheetScrollMetrics.clientHeight).toBeGreaterThan(0);
+  expect(sheetScrollMetrics.scrollHeight).toBeGreaterThanOrEqual(sheetScrollMetrics.clientHeight);
+  const documentScrollBefore = await page.evaluate(() => ({
+    documentElement: document.documentElement.scrollTop,
+    body: document.body.scrollTop,
+  }));
+  expect(documentScrollBefore).toEqual({ documentElement: 0, body: 0 });
+  await beadSheet.locator('.split-bead-list').evaluate((node) => {
+    node.scrollTop = node.scrollHeight;
+  });
+  await expect.poll(() => beadSheet.locator('.split-bead-list').evaluate((node) => node.scrollTop)).toBeGreaterThanOrEqual(0);
+  await expect(beadRows.last()).toBeInViewport();
+  expect(await page.evaluate(() => ({
+    documentElement: document.documentElement.scrollTop,
+    body: document.body.scrollTop,
+  }))).toEqual(documentScrollBefore);
+
+  await beadSheet.getByRole('button', { name: '关闭豆子清单' }).click();
+  await expect(beadSheet).toHaveCount(0);
+  await expect(page.getByLabel('颜色合并阈值')).toHaveValue(thresholdBeforeSheet);
+  await importCanvasButton.click();
 
   await expect(page.getByLabel('H5 画布编辑器')).toBeVisible();
   await expectNoPageScrollbar(page);
@@ -370,6 +801,675 @@ test('uploads from the H5 home page, configures split count, previews, then impo
 
   const hasPageOverflow = await page.locator('body').evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   expect(hasPageOverflow).toBe(false);
+});
+
+test('links split mode tabs to the single active panel and preserves arrow-key switching', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.locator('input[type="file"]').setInputFiles(uploadFixture);
+
+  const tablist = page.getByRole('tablist', { name: '分割模式' });
+  const quickTab = tablist.getByRole('tab', { name: '快速分割', exact: true });
+  const alignTab = tablist.getByRole('tab', { name: '对格子', exact: true });
+  await expect(quickTab).toHaveAttribute('id', 'split-mode-quick-tab');
+  await expect(quickTab).toHaveAttribute('aria-controls', 'split-mode-quick-panel');
+  await expect(alignTab).toHaveAttribute('id', 'split-mode-align-tab');
+  await expect(alignTab).toHaveAttribute('aria-controls', 'split-mode-align-panel');
+
+  const quickPanel = page.getByRole('tabpanel', { name: '快速分割' });
+  await expect(tablist.locator('[role="tabpanel"]')).toHaveCount(0);
+  expect(await tablist.evaluate((list, panel) => Boolean(
+    list.compareDocumentPosition(panel as Node) & Node.DOCUMENT_POSITION_FOLLOWING
+  ), await quickPanel.elementHandle())).toBe(true);
+  await expect(quickPanel).toHaveAttribute('id', 'split-mode-quick-panel');
+  await expect(quickPanel).toHaveAttribute('aria-labelledby', 'split-mode-quick-tab');
+  await expect(quickPanel.getByLabel('分割预览图')).toBeVisible();
+  await expect(quickPanel.locator('.split-pattern-summary')).toHaveCount(0);
+  await expect(quickPanel.locator('.split-quick-controls')).toBeVisible();
+  await expect(page.getByRole('tabpanel')).toHaveCount(1);
+
+  await quickTab.press('ArrowRight');
+  await expect(alignTab).toBeFocused();
+  await expect(alignTab).toHaveAttribute('aria-selected', 'true');
+  const alignPanel = page.getByRole('tabpanel', { name: '对格子' });
+  await expect(alignPanel).toHaveAttribute('id', 'split-mode-align-panel');
+  await expect(alignPanel).toHaveAttribute('aria-labelledby', 'split-mode-align-tab');
+  await expect(alignPanel.getByLabel('分割预览图')).toBeVisible();
+  await expect(alignPanel.locator('.split-align-panel')).toBeVisible();
+  await expect(page.getByRole('tabpanel')).toHaveCount(1);
+
+  await alignTab.press('ArrowLeft');
+  await expect(quickTab).toBeFocused();
+  await expect(quickTab).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tabpanel', { name: '快速分割' })).toBeVisible();
+  await expect(page.getByRole('tabpanel')).toHaveCount(1);
+});
+
+test('uses a single slider for quick split sizing', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.locator('input[type="file"]').setInputFiles(uploadFixture);
+
+  const quickPanel = page.getByRole('tabpanel', { name: '快速分割' });
+  await expect(quickPanel.locator('.split-quick-controls')).toBeVisible();
+  await expect(page.getByRole('slider', { name: '长边格数' })).toHaveValue('144');
+  await expect(quickPanel.locator('.split-quick-output')).toHaveText(/\d+\s*×\s*\d+/);
+  await expect(page.getByRole('slider', { name: '长边格数' })).toHaveAttribute('aria-describedby', 'split-quick-output');
+  await expect(page.getByRole('button', { name: '减少格数' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '增加格数' })).toHaveCount(0);
+  await expect(page.locator('.split-step-row')).toHaveCount(0);
+});
+
+test('renders the redesigned creation flow cleanly at phone and desktop sizes', async ({ page }) => {
+  const artifactDir = path.resolve('test-results/h5-ui-review');
+  const artifactNames = [
+    'phone-home.png',
+    'phone-split-quick.png',
+    'phone-split-align.png',
+    'phone-browse-settings.png',
+    'phone-browse-beads.png',
+    'desktop-home.png',
+    'desktop-split-quick.png',
+    'desktop-split-align.png',
+    'desktop-browse-settings.png',
+    'desktop-browse-beads.png',
+  ];
+  fs.mkdirSync(artifactDir, { recursive: true });
+  for (const artifactName of artifactNames) {
+    fs.rmSync(path.join(artifactDir, artifactName), { force: true });
+  }
+  const consoleProblems: string[] = [];
+  const pageErrors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error' || message.type() === 'warning') {
+      const location = message.location();
+      const source = location.url ? ` (${location.url}:${location.lineNumber}:${location.columnNumber})` : '';
+      consoleProblems.push(`${message.type()}: ${message.text()}${source}`);
+    }
+  });
+  page.on('pageerror', (error) => {
+    pageErrors.push(error.stack ?? error.message);
+  });
+
+  const takeAcceptanceScreenshot = async (filename: string, fullPage = false) => {
+    await page.screenshot({
+      path: path.join(artifactDir, filename),
+      fullPage,
+      animations: 'disabled',
+    });
+  };
+
+  const scrollBrowseContainerWithWheel = async (
+    container: import('@playwright/test').Locator,
+    target: import('@playwright/test').Locator,
+    alignment: 'fully-visible' | 'top-visible',
+  ) => {
+    await expect(container).toBeVisible();
+    await container.hover();
+    const viewportSize = page.viewportSize();
+    expect(viewportSize).not.toBeNull();
+
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const [containerBox, targetBox] = await Promise.all([
+        container.boundingBox(),
+        target.boundingBox(),
+      ]);
+      expect(containerBox).not.toBeNull();
+      expect(targetBox).not.toBeNull();
+      const visibleTop = Math.max(0, containerBox!.y) + 8;
+      const visibleBottom = Math.min(viewportSize!.height, containerBox!.y + containerBox!.height) - 8;
+      const targetTop = targetBox!.y;
+      const targetBottom = targetBox!.y + targetBox!.height;
+      const isVisible = alignment === 'fully-visible'
+        ? targetTop >= visibleTop && targetBottom <= visibleBottom
+        : targetTop >= visibleTop && targetTop <= visibleTop + 24;
+      if (isVisible) return;
+
+      const distance = alignment === 'fully-visible'
+        ? targetTop < visibleTop ? targetTop - visibleTop : targetBottom - visibleBottom
+        : targetTop - visibleTop;
+      const wheelDistance = Math.sign(distance) * Math.min(180, Math.max(1, Math.abs(distance)));
+      const scrollTopBefore = await container.evaluate((node) => node.scrollTop);
+      await page.mouse.wheel(0, wheelDistance);
+      const readScrollTop = () => container.evaluate((node) => node.scrollTop);
+      if (wheelDistance > 0) {
+        await expect.poll(readScrollTop, { timeout: 750, intervals: [10, 25, 50, 100] })
+          .toBeGreaterThan(scrollTopBefore);
+      } else {
+        await expect.poll(readScrollTop, { timeout: 750, intervals: [10, 25, 50, 100] })
+          .toBeLessThan(scrollTopBefore);
+      }
+    }
+
+    const [containerBox, targetBox] = await Promise.all([
+      container.boundingBox(),
+      target.boundingBox(),
+    ]);
+    expect(containerBox).not.toBeNull();
+    expect(targetBox).not.toBeNull();
+    const visibleTop = Math.max(0, containerBox!.y) + 8;
+    const visibleBottom = Math.min(viewportSize!.height, containerBox!.y + containerBox!.height) - 8;
+    if (alignment === 'fully-visible') {
+      expect(targetBox!.y).toBeGreaterThanOrEqual(visibleTop);
+      expect(targetBox!.y + targetBox!.height).toBeLessThanOrEqual(visibleBottom);
+    } else {
+      expect(targetBox!.y).toBeGreaterThanOrEqual(visibleTop);
+      expect(targetBox!.y).toBeLessThanOrEqual(visibleTop + 24);
+    }
+  };
+
+  for (const viewport of [
+    { name: 'phone', width: 390, height: 844 },
+    { name: 'desktop', width: 1280, height: 800 },
+  ]) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.goto('/');
+    await takeAcceptanceScreenshot(`${viewport.name}-home.png`, true);
+
+    await page.locator('input[type="file"]').first().setInputFiles(uploadFixture);
+    await expect(page.getByRole('heading', { name: '分割设置', exact: true })).toBeVisible();
+    await expect(page.locator('.split-preview-canvas')).toBeVisible();
+    await page.waitForFunction(() => {
+      const canvas = document.querySelector<HTMLCanvasElement>('.split-preview-canvas');
+      return Boolean(canvas && canvas.width > 0 && canvas.height > 0);
+    });
+    const canvasHasPaintedAlpha = await page.locator('.split-preview-canvas').evaluate((node) => {
+      const canvas = node as HTMLCanvasElement;
+      const context = canvas.getContext('2d');
+      if (!context) return false;
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      for (let index = 3; index < pixels.length; index += 4) {
+        if (pixels[index] !== 0) return true;
+      }
+      return false;
+    });
+    expect(canvasHasPaintedAlpha).toBe(true);
+    await takeAcceptanceScreenshot(`${viewport.name}-split-quick.png`);
+
+    const alignGridTab = page.getByRole('tablist', { name: '分割模式' })
+      .getByRole('tab', { name: '对格子', exact: true });
+    await alignGridTab.click();
+    await expect(alignGridTab).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('heading', { name: '对格子', exact: true })).toBeVisible();
+    await takeAcceptanceScreenshot(`${viewport.name}-split-align.png`);
+
+    await page.getByRole('button', { name: '完成', exact: true }).click();
+    await expect(page.getByRole('heading', { name: '浏览', exact: true })).toBeVisible();
+    await expect(page.locator('.split-grid-preview')).toBeVisible();
+    const browseContainer = page.locator('.split-browser-container');
+    const settingsPanel = page.getByRole('tabpanel', { name: '参数设置' });
+    const thresholdControl = settingsPanel.locator('.split-threshold-control');
+    await scrollBrowseContainerWithWheel(browseContainer, thresholdControl, 'fully-visible');
+    await expect(settingsPanel).toBeVisible();
+    await expect(thresholdControl).toBeVisible();
+    await expect(thresholdControl).toBeInViewport();
+    await takeAcceptanceScreenshot(`${viewport.name}-browse-settings.png`, true);
+
+    const beadListTab = page.getByRole('tablist', { name: '浏览设置页签', exact: true })
+      .getByRole('tab', { name: /豆子清单/ });
+    await expect(beadListTab).toBeInViewport();
+    await beadListTab.click();
+    await expect(beadListTab).toHaveAttribute('aria-selected', 'true');
+    const beadListPanel = page.getByRole('tabpanel', { name: /豆子清单/ });
+    const beadList = beadListPanel.locator('.split-bead-list-panel');
+    await scrollBrowseContainerWithWheel(browseContainer, beadList, 'top-visible');
+    await expect(beadListPanel).toBeVisible();
+    await expect(beadList).toBeVisible();
+    await expect(beadList).toBeInViewport();
+    await expect(beadList.locator('.split-bead-row').first()).toBeInViewport();
+    await takeAcceptanceScreenshot(`${viewport.name}-browse-beads.png`, true);
+
+    await expectNoPageScrollbar(page);
+  }
+
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  const transitionDurations = await page.locator('.home-upload-hero').evaluate((node) => (
+    getComputedStyle(node).transitionDuration.split(',').map((duration) => {
+      const value = Number.parseFloat(duration);
+      return duration.trim().endsWith('ms') ? value / 1000 : value;
+    })
+  ));
+  expect(Math.max(...transitionDurations)).toBeLessThanOrEqual(0.01);
+  expect(consoleProblems).toEqual([]);
+  expect(pageErrors).toEqual([]);
+});
+
+test('binds browse import availability to the real preview cells', async ({ page }) => {
+  const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+  const sourceFile = ts.createSourceFile('H5App.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let h5AppFunction: ts.FunctionDeclaration | undefined;
+  const findH5App = (node: ts.Node) => {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === 'H5App') {
+      h5AppFunction = node;
+      return;
+    }
+    ts.forEachChild(node, findH5App);
+  };
+  findH5App(sourceFile);
+  expect(h5AppFunction, 'missing H5App function declaration').toBeDefined();
+
+  let matchingActionBindings = 0;
+  const inspectH5App = (node: ts.Node) => {
+    if ((ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) && node.tagName.getText(sourceFile) === 'FlowTopbar') {
+      const titleAttribute = node.attributes.properties.find((property): property is ts.JsxAttribute => (
+        ts.isJsxAttribute(property) && property.name.getText(sourceFile) === 'title'
+      ));
+      const actionAttribute = node.attributes.properties.find((property): property is ts.JsxAttribute => (
+        ts.isJsxAttribute(property) && property.name.getText(sourceFile) === 'action'
+      ));
+      const hasBrowseTitle = titleAttribute?.initializer !== undefined
+        && ts.isStringLiteral(titleAttribute.initializer)
+        && titleAttribute.initializer.text === '浏览';
+      const expression = actionAttribute?.initializer && ts.isJsxExpression(actionAttribute.initializer)
+        ? actionAttribute.initializer.expression
+        : undefined;
+      if (
+        hasBrowseTitle
+        && expression
+        && ts.isCallExpression(expression)
+        && ts.isIdentifier(expression.expression)
+        && expression.expression.text === 'getImportAction'
+        && expression.arguments.length === 2
+      ) {
+        const [cellCountArgument, importArgument] = expression.arguments;
+        const hasCellCountArgument = ts.isPropertyAccessExpression(cellCountArgument)
+          && ts.isIdentifier(cellCountArgument.expression)
+          && cellCountArgument.expression.text === 'splitPreviewCells'
+          && cellCountArgument.name.text === 'length';
+        const hasImportArgument = ts.isIdentifier(importArgument) && importArgument.text === 'importSplitToCanvas';
+        if (hasCellCountArgument && hasImportArgument) matchingActionBindings += 1;
+      }
+    }
+    ts.forEachChild(node, inspectH5App);
+  };
+  inspectH5App(h5AppFunction!);
+  expect.soft(matchingActionBindings).toBeGreaterThan(0);
+
+  await page.goto('/');
+  const disabledStyles = await page.evaluate(() => {
+    const button = document.createElement('button');
+    button.className = 'split-action-btn';
+    button.disabled = true;
+    button.textContent = '导入画布';
+    document.body.append(button);
+    const style = getComputedStyle(button);
+    const result = {
+      opacity: Number.parseFloat(style.opacity),
+      boxShadow: style.boxShadow,
+      cursor: style.cursor,
+    };
+    button.remove();
+    return result;
+  });
+  expect.soft(disabledStyles.opacity).toBeLessThan(1);
+  expect.soft(disabledStyles.boxShadow).toBe('none');
+  expect.soft(disabledStyles.cursor).toBe('not-allowed');
+});
+
+test('ellipsizes a long pattern name in browse without page overflow', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  const longFilename = `${'very-long-pattern-name-'.repeat(6)}.png`;
+  await page.locator('input[type="file"]').first().setInputFiles({
+    name: longFilename,
+    mimeType: 'image/png',
+    buffer: fs.readFileSync(uploadFixture),
+  });
+
+  await expect(page.getByRole('heading', { name: '分割设置', exact: true })).toBeVisible();
+  const nextButton = page.getByRole('button', { name: '下一步', exact: true });
+  await expect(nextButton).toBeVisible();
+  await expect(nextButton).toBeEnabled();
+  await nextButton.click();
+  await expect(page.getByRole('heading', { name: '浏览', exact: true })).toBeVisible();
+
+  const patternName = page.locator('.split-pattern-name');
+  await expect(patternName).toBeVisible();
+  await expect(patternName).toHaveText(longFilename);
+  const nameMetrics = await patternName.evaluate((node) => {
+    const style = getComputedStyle(node);
+    return {
+      overflow: style.overflow,
+      textOverflow: style.textOverflow,
+      scrollWidth: node.scrollWidth,
+      clientWidth: node.clientWidth,
+    };
+  });
+  expect(nameMetrics.overflow).toBe('hidden');
+  expect(nameMetrics.textOverflow).toBe('ellipsis');
+  expect(nameMetrics.clientWidth).toBeGreaterThan(0);
+  expect(nameMetrics.scrollWidth).toBeGreaterThan(nameMetrics.clientWidth);
+  await expectNoPageScrollbar(page);
+});
+
+test('keeps the 320px browse bead list inside its own scroll container', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 700 });
+  await page.goto('/');
+  await page.locator('input[type="file"]').first().setInputFiles(uploadFixture);
+  await expect(page.getByRole('heading', { name: '分割设置', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '下一步', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '浏览', exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: /豆子清单/ }).click();
+
+  const browserContainer = page.locator('.split-browser-container');
+  const beadRows = page.locator('.split-bead-row');
+  await expect.poll(() => beadRows.count()).toBeGreaterThan(0);
+  await expectNoPageScrollbar(page);
+
+  const horizontalMetrics = await browserContainer.evaluate((node) => {
+    const containerRect = node.getBoundingClientRect();
+    const rows = [...node.querySelectorAll('.split-bead-row')];
+    return {
+      scrollWidth: node.scrollWidth,
+      clientWidth: node.clientWidth,
+      rowsInside: rows.every((row) => {
+        const rect = row.getBoundingClientRect();
+        return rect.left >= containerRect.left - 1 && rect.right <= containerRect.right + 1;
+      }),
+    };
+  });
+  expect(horizontalMetrics.scrollWidth).toBeLessThanOrEqual(horizontalMetrics.clientWidth);
+  expect(horizontalMetrics.rowsInside).toBe(true);
+
+  const documentScrollBefore = await page.evaluate(() => ({
+    documentElement: document.documentElement.scrollTop,
+    body: document.body.scrollTop,
+  }));
+  await browserContainer.evaluate((node) => {
+    node.scrollTop = node.scrollHeight;
+  });
+  const bottomMetrics = await browserContainer.evaluate((node) => {
+    const lastRow = node.querySelector('.split-bead-row:last-child');
+    if (!(lastRow instanceof HTMLElement)) throw new Error('Missing final bead row');
+    const containerRect = node.getBoundingClientRect();
+    const rowRect = lastRow.getBoundingClientRect();
+    return {
+      scrollTop: node.scrollTop,
+      lastRowVisible: rowRect.top >= containerRect.top - 1 && rowRect.bottom <= containerRect.bottom + 1,
+    };
+  });
+  expect(bottomMetrics.scrollTop).toBeGreaterThan(0);
+  expect(bottomMetrics.lastRowVisible).toBe(true);
+  await expectNoPageScrollbar(page);
+  expect(await page.evaluate(() => ({
+    documentElement: document.documentElement.scrollTop,
+    body: document.body.scrollTop,
+  }))).toEqual(documentScrollBefore);
+});
+
+test('keeps the split preview usable at desktop width', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/');
+  await page.locator('input[type="file"]').setInputFiles(uploadFixture);
+
+  await expect(page.getByRole('heading', { name: '分割设置', exact: true })).toBeVisible();
+  await expect(page.locator('.split-preview-canvas')).toBeVisible();
+  const geometry = await page.locator('.split-flow-inner').evaluate((wrapper) => {
+    const preview = wrapper.querySelector('.split-image-container');
+    if (!(preview instanceof HTMLElement)) throw new Error('Missing split image container');
+    const wrapperRect = wrapper.getBoundingClientRect();
+    const previewRect = preview.getBoundingClientRect();
+    return {
+      wrapperWidth: wrapperRect.width,
+      wrapperLeft: wrapperRect.left,
+      wrapperRight: wrapperRect.right,
+      previewTop: previewRect.top,
+      previewBottom: previewRect.bottom,
+      previewHeight: previewRect.height,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+    };
+  });
+  expect(geometry.wrapperWidth).toBeGreaterThanOrEqual(360);
+  expect(geometry.wrapperWidth).toBeLessThanOrEqual(720);
+  expect(geometry.wrapperLeft).toBeGreaterThanOrEqual(0);
+  expect(geometry.wrapperRight).toBeLessThanOrEqual(geometry.viewportWidth);
+  const leftWhitespace = geometry.wrapperLeft;
+  const rightWhitespace = geometry.viewportWidth - geometry.wrapperRight;
+  expect(Math.abs(leftWhitespace - rightWhitespace)).toBeLessThanOrEqual(2);
+  expect(geometry.previewTop).toBeGreaterThanOrEqual(0);
+  expect(geometry.previewBottom).toBeLessThanOrEqual(geometry.viewportHeight);
+  expect(geometry.previewHeight).toBeGreaterThanOrEqual(360);
+  await expectNoPageScrollbar(page);
+});
+
+test('keeps split bottom safe area in the fixed controls only', async () => {
+  const styles = fs.readFileSync(path.resolve('apps/h5/src/styles.css'), 'utf8');
+  const splitMainRule = styles.match(/\.split-main\s*\{([^}]*)\}/)?.[1];
+  const splitControlsRule = styles.match(/\.split-controls-card\s*\{([^}]*)\}/)?.[1];
+
+  expect(splitMainRule, 'missing .split-main CSS rule').toBeDefined();
+  expect(splitControlsRule, 'missing .split-controls-card CSS rule').toBeDefined();
+  expect(splitMainRule).toMatch(/padding-bottom:\s*var\(--split-controls-space\)\s*;/);
+  expect(splitMainRule).not.toContain('env(safe-area-inset-bottom)');
+  expect(splitControlsRule).toContain('env(safe-area-inset-bottom)');
+});
+
+test('keeps split settings header and controls compact', async ({ page }) => {
+  await page.setViewportSize({ width: 414, height: 940 });
+  await page.goto('/');
+  await page.locator('input[type="file"]').setInputFiles(uploadFixture);
+
+  const geometry = await page.locator('.split-page').evaluate((root) => {
+    const rect = (selector: string) => {
+      const node = root.querySelector<HTMLElement>(selector);
+      if (!node) throw new Error(`Missing ${selector}`);
+      const box = node.getBoundingClientRect();
+      return { top: box.top, bottom: box.bottom, height: box.height };
+    };
+    return {
+      preview: { ...rect('.split-image-container'), width: root.querySelector<HTMLElement>('.split-image-container')!.getBoundingClientRect().width },
+      segmented: rect('.flow-segmented'),
+      controls: rect('.split-controls-card'),
+    };
+  });
+
+  expect(geometry.preview.top).toBeLessThanOrEqual(62);
+  expect(geometry.preview.width).toBeCloseTo(414, 0);
+  expect(geometry.segmented.top - geometry.preview.bottom).toBeCloseTo(8, 0);
+  expect(geometry.segmented.height).toBeLessThanOrEqual(46);
+  expect(geometry.controls.top - geometry.segmented.bottom).toBeLessThanOrEqual(6);
+  expect(geometry.controls.height).toBeLessThanOrEqual(224);
+  expect(geometry.controls.bottom).toBeCloseTo(940, 0);
+});
+
+test('keeps split modes on one canvas size and uses the Figma segmented control width', async ({ page }) => {
+  await page.setViewportSize({ width: 414, height: 940 });
+  await page.goto('/');
+  await page.locator('input[type="file"]').setInputFiles(uploadFixture);
+
+  const quickGeometry = await page.locator('.split-page').evaluate((root) => {
+    const preview = root.querySelector<HTMLElement>('.split-image-container')?.getBoundingClientRect();
+    const segmented = root.querySelector<HTMLElement>('.flow-segmented')?.getBoundingClientRect();
+    if (!preview || !segmented) throw new Error('Missing split controls');
+    return { previewHeight: preview.height, segmentedLeft: segmented.left, segmentedWidth: segmented.width };
+  });
+  await page.getByRole('tab', { name: '对格子', exact: true }).click();
+  const alignGeometry = await page.locator('.split-page').evaluate((root) => {
+    const preview = root.querySelector<HTMLElement>('.split-image-container')?.getBoundingClientRect();
+    if (!preview) throw new Error('Missing alignment preview');
+    return { previewHeight: preview.height };
+  });
+
+  expect(quickGeometry.previewHeight).toBeGreaterThan(300);
+  expect(alignGeometry.previewHeight).toBeCloseTo(quickGeometry.previewHeight, 0);
+  expect(quickGeometry.segmentedLeft).toBeCloseTo(24, 0);
+  expect(quickGeometry.segmentedWidth).toBeCloseTo(366, 0);
+});
+
+test('opens the Figma bead list as a responsive bottom drawer', async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 852 });
+  await page.goto('/');
+  await page.locator('input[type="file"]').setInputFiles(uploadFixture);
+  await page.getByRole('button', { name: '下一步', exact: true }).click();
+
+  await page.getByRole('button', { name: '查看豆子清单', exact: true }).click();
+  const drawer = page.getByRole('dialog', { name: '豆子清单' });
+  await expect(drawer).toBeVisible();
+  await expect(drawer.locator('.split-bead-stats > div')).toHaveCount(2);
+  await expect(drawer.locator('.split-bead-list-summary')).toBeVisible();
+  await page.getByRole('button', { name: '关闭豆子清单' }).click();
+  await expect(drawer).toHaveCount(0);
+});
+
+test('keeps alignment controls usable at 320px width', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.goto('/');
+  await page.locator('input[type="file"]').setInputFiles(uploadFixture);
+
+  await expect(page.getByRole('heading', { name: '分割设置', exact: true })).toBeVisible();
+  const alignTab = page.getByRole('tablist', { name: '分割模式' }).getByRole('tab', { name: '对格子', exact: true });
+  await alignTab.click();
+  await expect(alignTab).toHaveAttribute('aria-selected', 'true');
+  await readSettledPanelMetrics(page, page.locator('.split-controls-card'));
+
+  const geometry = await page.locator('.split-controls-card').evaluate((panel) => {
+    const panelStyle = getComputedStyle(panel);
+    const panelRect = panel.getBoundingClientRect();
+    const contentLeft = panelRect.left + parseFloat(panelStyle.borderLeftWidth) + parseFloat(panelStyle.paddingLeft);
+    const contentRight = panelRect.right - parseFloat(panelStyle.borderRightWidth) - parseFloat(panelStyle.paddingRight);
+    const controls = panel.querySelector('.split-align-controls');
+    const readout = panel.querySelector('.split-nudge-readout');
+    if (!(controls instanceof HTMLElement) || !(readout instanceof HTMLElement)) {
+      throw new Error('Missing alignment controls');
+    }
+    const nodes = [controls, ...controls.querySelectorAll('button')];
+    return {
+      documentHasHorizontalScroll: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      panelScrollWidth: panel.scrollWidth,
+      panelClientWidth: panel.clientWidth,
+      nudgeSizes: [...panel.querySelectorAll<HTMLElement>('.split-nudge-pad button, .split-nudge-readout')].map((node) => {
+        const rect = node.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+      }),
+      targets: nodes.map((node) => {
+        const rect = node.getBoundingClientRect();
+        return {
+          label: node.getAttribute('aria-label') ?? node.textContent?.trim() ?? node.className,
+          left: rect.left,
+          right: rect.right,
+          width: rect.width,
+          height: rect.height,
+          inside: rect.left >= contentLeft - 1 && rect.right <= contentRight + 1,
+        };
+      }),
+    };
+  });
+
+  expect(geometry.documentHasHorizontalScroll).toBe(false);
+  expect(geometry.panelScrollWidth).toBeLessThanOrEqual(geometry.panelClientWidth);
+  expect(geometry.nudgeSizes).toHaveLength(5);
+  for (const size of geometry.nudgeSizes) {
+    expect(size.width).toBeCloseTo(44, 0);
+    expect(size.height).toBeCloseTo(44, 0);
+  }
+  for (const target of geometry.targets) {
+    expect(target.inside, `${target.label} stays inside panel content`).toBe(true);
+    if (target.label !== 'split-align-controls') {
+      expect(target.width, `${target.label} width`).toBeGreaterThanOrEqual(44);
+      expect(target.height, `${target.label} height`).toBeGreaterThanOrEqual(44);
+    }
+  }
+});
+
+test('centers the alignment grid size controls in their section', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.locator('input[type="file"]').setInputFiles(uploadFixture);
+
+  const alignTab = page.getByRole('tablist', { name: '分割模式' }).getByRole('tab', { name: '对格子', exact: true });
+  await alignTab.click();
+  await expect(alignTab).toHaveAttribute('aria-selected', 'true');
+
+  const geometry = await page.locator('.split-grid-size-section').evaluate((section) => {
+    const sectionRect = section.getBoundingClientRect();
+    const centerOf = (selector: string) => {
+      const node = section.querySelector<HTMLElement>(selector);
+      if (!node) throw new Error(`Missing ${selector}`);
+      const rect = node.getBoundingClientRect();
+      return rect.left + rect.width / 2;
+    };
+    const sectionCenter = sectionRect.left + sectionRect.width / 2;
+    return {
+      titleCenter: centerOf('h3'),
+      actionsCenter: centerOf('.split-cell-actions'),
+      outputCenter: centerOf('.split-grid-size-output'),
+      sectionCenter,
+    };
+  });
+
+  expect(Math.abs(geometry.titleCenter - geometry.sectionCenter)).toBeLessThanOrEqual(1);
+  expect(Math.abs(geometry.actionsCenter - geometry.sectionCenter)).toBeLessThanOrEqual(1);
+  expect(Math.abs(geometry.outputCenter - geometry.sectionCenter)).toBeLessThanOrEqual(1);
+});
+
+test('keeps the alignment canvas usable at 844 by 390 landscape', async ({ page }) => {
+  await page.setViewportSize({ width: 844, height: 390 });
+  await page.goto('/');
+  await page.locator('input[type="file"]').setInputFiles(uploadFixture);
+
+  await expect(page.getByRole('heading', { name: '分割设置', exact: true })).toBeVisible();
+  const alignTab = page.getByRole('tablist', { name: '分割模式' }).getByRole('tab', { name: '对格子', exact: true });
+  await alignTab.click();
+  await expect(alignTab).toHaveAttribute('aria-selected', 'true');
+  const panelMetrics = await readSettledPanelMetrics(page, page.locator('.split-controls-card'));
+  const preview = page.locator('.split-image-container');
+  await expect(preview).toBeVisible();
+  const previewBox = await preview.boundingBox();
+  expect(previewBox).not.toBeNull();
+
+  expect(previewBox!.height).toBeGreaterThanOrEqual(96);
+  expect(Math.abs(panelMetrics.bottom - panelMetrics.viewportBottom)).toBeLessThanOrEqual(1);
+  expect(panelMetrics.height).toBeLessThanOrEqual(260);
+  const scrollability = await page.evaluate(() => ({
+    scrollHeight: document.documentElement.scrollHeight,
+    viewportHeight: window.innerHeight,
+    overflowY: getComputedStyle(document.documentElement).overflowY,
+  }));
+  expect(scrollability.scrollHeight).toBeGreaterThanOrEqual(scrollability.viewportHeight);
+  expect(scrollability.overflowY).not.toBe('hidden');
+});
+
+test('keeps the split workspace responsive across common phone widths', async ({ page }) => {
+  for (const viewport of [
+    { width: 320, height: 568 },
+    { width: 360, height: 800 },
+    { width: 393, height: 852 },
+    { width: 414, height: 896 },
+    { width: 430, height: 932 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto('/');
+    await page.locator('input[type="file"]').setInputFiles(uploadFixture);
+    await expect(page.locator('.split-preview-canvas')).toBeVisible();
+
+    const metrics = await page.locator('.split-page').evaluate((root) => {
+      const preview = root.querySelector<HTMLElement>('.split-image-container');
+      const controls = root.querySelector<HTMLElement>('.split-controls-card');
+      if (!preview || !controls) throw new Error('Missing split workspace controls');
+      const previewRect = preview.getBoundingClientRect();
+      const controlsRect = controls.getBoundingClientRect();
+      return {
+        pageWidth: root.getBoundingClientRect().width,
+        viewportWidth: window.innerWidth,
+        documentHasHorizontalScroll: document.documentElement.scrollWidth > window.innerWidth,
+        previewRight: previewRect.right,
+        controlsLeft: controlsRect.left,
+        controlsRight: controlsRect.right,
+        controlsBottom: controlsRect.bottom,
+        viewportHeight: window.innerHeight,
+      };
+    });
+
+    expect(metrics.pageWidth).toBeCloseTo(metrics.viewportWidth, 0);
+    expect(metrics.documentHasHorizontalScroll).toBe(false);
+    expect(metrics.previewRight).toBeLessThanOrEqual(metrics.viewportWidth + 1);
+    expect(metrics.controlsLeft).toBeGreaterThanOrEqual(-1);
+    expect(metrics.controlsRight).toBeLessThanOrEqual(metrics.viewportWidth + 1);
+    expect(metrics.controlsBottom).toBeLessThanOrEqual(metrics.viewportHeight + 1);
+  }
 });
 
 test('opens a reference image only after uploading one from the canvas', async ({ page }) => {
@@ -756,21 +1856,32 @@ test('aligns the split grid to an existing pixel drawing before import', async (
   await page.goto('/');
   await page.locator('input[type="file"]').setInputFiles(uploadFixture);
 
-  await expect(page.getByRole('heading', { name: '分割' })).toBeVisible();
-  await page.getByRole('button', { name: '对格子' }).click();
-  await expect(page.locator('.split-align-readout')).toContainText('格距');
-  const initialReadout = await page.locator('.split-align-readout').innerText();
-  const [, cellSizeText, offsetXText, offsetYText] = initialReadout.match(/格距 ([\d.]+)px.*偏移 X ([\d.]+) Y ([\d.]+)/) ?? [];
+  await expect(page.getByRole('heading', { name: '分割设置', exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: '对格子', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '对格子', exact: true })).toBeVisible();
+  const offsetOutput = page.getByRole('status', { name: '网格偏移' });
+  const cellSizeOutput = page.getByRole('status', { name: '格距' });
+  await expect(offsetOutput).toBeVisible();
+  await expect(cellSizeOutput).toBeVisible();
+  const initialOffsetAttributes = {
+    x: await offsetOutput.getAttribute('data-offset-x'),
+    y: await offsetOutput.getAttribute('data-offset-y'),
+  };
+  const initialOffset = {
+    x: Number(initialOffsetAttributes.x),
+    y: Number(initialOffsetAttributes.y),
+  };
+  const cellSize = Number(await cellSizeOutput.getAttribute('data-cell-size'));
   const cropWidthText = await page.locator('.split-image-frame').getAttribute('data-crop-width');
   const cropHeightText = await page.locator('.split-image-frame').getAttribute('data-crop-height');
-  const initialGridSize = gridSizeFromText(await page.locator('.split-info-value').innerText());
-  const cellSize = Number(cellSizeText);
-  const offsetX = Number(offsetXText);
-  const offsetY = Number(offsetYText);
+  const initialGridSize = {
+    cols: Number(await cellSizeOutput.getAttribute('data-grid-cols')),
+    rows: Number(await cellSizeOutput.getAttribute('data-grid-rows')),
+  };
   const cropWidth = Number(cropWidthText);
   const cropHeight = Number(cropHeightText);
-  expect(offsetX).toBeCloseTo((cropWidth - initialGridSize.cols * cellSize) / 2, 0);
-  expect(offsetY).toBeCloseTo((cropHeight - initialGridSize.rows * cellSize) / 2, 0);
+  expect(initialOffset.x).toBeCloseTo((cropWidth - initialGridSize.cols * cellSize) / 2, 0);
+  expect(initialOffset.y).toBeCloseTo((cropHeight - initialGridSize.rows * cellSize) / 2, 0);
   await expect(page.getByLabel('按住移动网格')).toBeVisible();
   await expect(page.getByLabel('按住缩放网格')).toBeVisible();
   const alignmentHitTargetSizes = await page.locator('.split-grid-handle').evaluateAll((nodes) => nodes.map((node) => {
@@ -805,7 +1916,7 @@ test('aligns the split grid to an existing pixel drawing before import', async (
   expect(initialScaleHandleBox!.x).toBeGreaterThan(initialMoveHandleBox!.x);
   expect(initialScaleHandleBox!.y).toBeGreaterThan(initialMoveHandleBox!.y);
 
-  const beforeSize = gridSizeFromText(await page.locator('.split-info-value').innerText());
+  const beforeSize = initialGridSize;
   const moveBox = await page.getByLabel('按住移动网格').boundingBox();
   const scaleBoxBeforeMove = await page.getByLabel('按住缩放网格').boundingBox();
   expect(moveBox).not.toBeNull();
@@ -827,35 +1938,38 @@ test('aligns the split grid to an existing pixel drawing before import', async (
   const scaleBoxAfterMove = await page.getByLabel('按住缩放网格').boundingBox();
   expect(scaleBoxAfterMove).not.toBeNull();
   expect(scaleBoxAfterMove!.x).not.toBe(scaleBoxBeforeMove!.x);
-  await expect.poll(async () => page.locator('.split-align-readout').innerText()).not.toBe(initialReadout);
+  await expect.poll(async () => ({
+    x: await offsetOutput.getAttribute('data-offset-x'),
+    y: await offsetOutput.getAttribute('data-offset-y'),
+  })).not.toEqual(initialOffsetAttributes);
 
   for (let index = 0; index < Math.ceil(cellSize * 2); index += 1) {
     await page.getByRole('button', { name: '右移网格' }).click();
-    const readout = await page.locator('.split-align-readout').innerText();
-    const [, , currentOffsetXText] = readout.match(/格距 ([\d.]+)px.*偏移 X ([\d.]+) Y ([\d.]+)/) ?? [];
-    if (Number(currentOffsetXText) >= cellSize - 2) break;
+    const currentOffsetX = Number(await offsetOutput.getAttribute('data-offset-x'));
+    if (currentOffsetX >= cellSize - 2) break;
   }
   await expect.poll(async () => countGridPixelsInCanvasBand(page, 'left')).toBeGreaterThan(250);
   await expect.poll(async () => countGridPixelsInCanvasBand(page, 'right')).toBeGreaterThan(250);
 
-  await page.getByRole('button', { name: '重置对格' }).click();
-  const movedReadout = await page.locator('.split-align-readout').innerText();
+  const movedCellSize = Number(await cellSizeOutput.getAttribute('data-cell-size'));
   const scaleBox = await page.getByLabel('按住缩放网格').boundingBox();
   expect(scaleBox).not.toBeNull();
   await page.mouse.move(scaleBox!.x + scaleBox!.width / 2, scaleBox!.y + scaleBox!.height / 2);
   await page.mouse.down();
   await page.mouse.move(scaleBox!.x + scaleBox!.width / 2 + 60, scaleBox!.y + scaleBox!.height / 2 + 60, { steps: 5 });
   await page.mouse.up();
-  await expect.poll(async () => page.locator('.split-align-readout').innerText()).not.toBe(movedReadout);
-  const scaledReadout = await page.locator('.split-align-readout').innerText();
-  const [, scaledCellSizeText] = scaledReadout.match(/格距 ([\d.]+)px/) ?? [];
-  const scaledCellSize = Number(scaledCellSizeText);
-  const afterSize = gridSizeFromText(await page.locator('.split-info-value').innerText());
+  await expect.poll(async () => Number(await cellSizeOutput.getAttribute('data-cell-size'))).not.toBe(movedCellSize);
+  const scaledCellSize = Number(await cellSizeOutput.getAttribute('data-cell-size'));
+  expect(scaledCellSize).not.toBe(movedCellSize);
+  const afterSize = {
+    cols: Number(await cellSizeOutput.getAttribute('data-grid-cols')),
+    rows: Number(await cellSizeOutput.getAttribute('data-grid-rows')),
+  };
   expect(afterSize.cols * afterSize.rows).toBeLessThan(beforeSize.cols * beforeSize.rows);
 
-  await page.getByRole('button', { name: '下一步' }).click();
+  await page.getByRole('button', { name: '完成' }).click();
   await expect(page.getByRole('heading', { name: '浏览' })).toBeVisible();
-  await expect(page.locator('.split-meta-chip')).toContainText(`${afterSize.cols} × ${afterSize.rows}`);
+  await expect(page.locator('.split-pattern-meta')).toContainText(`${afterSize.cols} × ${afterSize.rows}`);
   await page.getByRole('button', { name: '导入画布' }).click();
 
   const importedSize = await page.locator('.h5-image-canvas').evaluate((node) => {
@@ -869,7 +1983,7 @@ test('zooms the image outside the alignment controls without changing the grid',
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   await page.locator('input[type="file"]').setInputFiles(uploadFixture);
-  await page.getByRole('button', { name: '对格子' }).click();
+  await page.getByRole('tab', { name: '对格子', exact: true }).click();
 
   const stage = page.locator('.split-image-container');
   const stageBox = await stage.boundingBox();
@@ -891,7 +2005,13 @@ test('zooms the image outside the alignment controls without changing the grid',
       || outsidePoint.y < moveBox!.y || outsidePoint.y > moveBox!.y + moveBox!.height,
   ).toBeTruthy();
 
-  const initialReadout = await page.locator('.split-align-readout').innerText();
+  const offsetOutput = page.getByRole('status', { name: '网格偏移' });
+  const cellSizeOutput = page.getByRole('status', { name: '格距' });
+  const initialReadout = {
+    x: await offsetOutput.getAttribute('data-offset-x'),
+    y: await offsetOutput.getAttribute('data-offset-y'),
+    cellSize: await cellSizeOutput.getAttribute('data-cell-size'),
+  };
   await expect(stage).toHaveAttribute('data-image-scale', '1');
   await page.mouse.move(outsidePoint.x, outsidePoint.y);
   await page.mouse.wheel(0, -240);
@@ -900,14 +2020,18 @@ test('zooms the image outside the alignment controls without changing the grid',
   expect(zoomedCanvasBox).not.toBeNull();
   expect(zoomedCanvasBox!.width).toBeCloseTo(initialCanvasBox!.width, 0);
   expect(zoomedCanvasBox!.height).toBeCloseTo(initialCanvasBox!.height, 0);
-  await expect(page.locator('.split-align-readout')).toHaveText(initialReadout);
+  expect({
+    x: await offsetOutput.getAttribute('data-offset-x'),
+    y: await offsetOutput.getAttribute('data-offset-y'),
+    cellSize: await cellSizeOutput.getAttribute('data-cell-size'),
+  }).toEqual(initialReadout);
 });
 
 test('clicks outside the alignment controls to zoom the image', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   await page.locator('input[type="file"]').setInputFiles(uploadFixture);
-  await page.getByRole('button', { name: '对格子' }).click();
+  await page.getByRole('tab', { name: '对格子', exact: true }).click();
 
   const stage = page.locator('.split-image-container');
   const stageBox = await stage.boundingBox();
@@ -920,7 +2044,7 @@ test('pans the image and attached grid outside the alignment controls', async ({
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   await page.locator('input[type="file"]').setInputFiles(uploadFixture);
-  await page.getByRole('button', { name: '对格子' }).click();
+  await page.getByRole('tab', { name: '对格子', exact: true }).click();
 
   const stage = page.locator('.split-image-container');
   const box = await stage.boundingBox();
@@ -967,9 +2091,9 @@ test('opens upload drawing modal and extracts an image from a Xiaohongshu link',
   await dialog.getByRole('textbox', { name: '小红书链接' }).fill('https://www.xiaohongshu.com/explore/test-note');
   await dialog.getByRole('button', { name: '提取图片', exact: true }).click();
 
-  await expect(page.getByRole('heading', { name: '分割' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '分割设置', exact: true })).toBeVisible();
   await expect(page.getByLabel('分割预览图')).toBeVisible();
-  await expect(page.locator('.split-info-value')).toContainText('18');
+  await expect(page.locator('.split-quick-output')).toHaveText(/\d+\s*×\s*\d+/);
 });
 
 test('opens the upload modal from the profile tab', async ({ page }) => {
@@ -1029,7 +2153,7 @@ test('ignores late Xiaohongshu extraction responses after closing the upload mod
   releaseExtraction();
 
   await expect(page.getByRole('dialog', { name: '上传图纸' })).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: '分割' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '分割设置', exact: true })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: '超级拼' })).toBeVisible();
 });
 
@@ -1078,7 +2202,7 @@ test('lets users choose one image when Xiaohongshu extraction returns multiple n
   await expect(dialog.locator('.xhs-image-grid img').first()).not.toHaveAttribute('src', /^https:\/\/ci\.xiaohongshu\.com/);
   expect(imageDownloadCount).toBe(0);
   await dialog.getByRole('button', { name: '选择第 2 张小红书图片' }).click();
-  await expect(page.getByRole('heading', { name: '分割' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '分割设置', exact: true })).toBeVisible();
   expect(imageDownloadCount).toBe(1);
 });
 
@@ -1086,7 +2210,7 @@ test('shows STL export only in the peg board workflow', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
 
-  await page.getByRole('button', { name: /敲豆豆图纸/ }).click();
+  await page.getByRole('button', { name: '创建敲豆图纸', exact: true }).click();
   await page.locator('input[type="file"]').setInputFiles(uploadFixture);
   await page.getByRole('button', { name: '下一步' }).click();
   await page.getByRole('button', { name: '导入画布' }).click();
