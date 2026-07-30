@@ -59,7 +59,7 @@ describe('canvasRenderMetrics', () => {
 
     expect(metrics.backingWidth).toBeLessThanOrEqual(MAX_CANVAS_BACKING_DIMENSION);
     expect(metrics.backingHeight).toBeLessThanOrEqual(MAX_CANVAS_BACKING_DIMENSION);
-    expect(metrics.backingWidth * metrics.backingHeight).toBeLessThanOrEqual(MAX_CANVAS_BACKING_AREA);
+    expect(3 * metrics.backingWidth * metrics.backingHeight).toBeLessThanOrEqual(MAX_CANVAS_BACKING_AREA);
     expect(metrics.renderScale).toBeLessThan(24);
   });
 
@@ -103,6 +103,7 @@ describe('drawColorLayer', () => {
       height: 10,
       rows: 1,
       cols: 2,
+      renderScale: 1,
       cells: [
         { x: 0, y: 0, color: '#ff0000', transparent: false },
         { x: 1, y: 0, color: '#00ff00', transparent: true },
@@ -127,6 +128,7 @@ describe('drawCodeLayer', () => {
       height: 10,
       rows: 1,
       cols: 2,
+      renderScale: 1,
       cells: [{ x: 0, y: 0, color: '#000000', transparent: false }],
       visible: false,
       getCode: () => 'A1',
@@ -144,6 +146,7 @@ describe('drawCodeLayer', () => {
       height: 10,
       rows: 1,
       cols: 2,
+      renderScale: 1,
       cells: [
         { x: 0, y: 0, color: '#000000', transparent: false },
         { x: 1, y: 0, color: '#ffffff', transparent: false },
@@ -200,5 +203,35 @@ describe('drawGridLayer', () => {
       args: [0.125, 0.125, 19.75, 9.75],
       lineWidth: 0.25,
     });
+  });
+});
+
+describe('shared snapped cell geometry', () => {
+  it('aligns color edges, code centers, and grid boundaries for fractional cells', () => {
+    const colorRecording = recordingContext();
+    const codeRecording = recordingContext();
+    const gridRecording = recordingContext();
+    const geometry = { width: 20, height: 10, rows: 1, cols: 3, renderScale: 2 };
+    const cells = [{ x: 0, y: 0, color: '#ff0000', transparent: false }];
+
+    drawColorLayer(colorRecording.context, { ...geometry, cells });
+    drawCodeLayer(codeRecording.context, {
+      ...geometry,
+      cells,
+      visible: true,
+      getCode: () => 'A1',
+      getTextColor: () => '#ffffff',
+    });
+    drawGridLayer(gridRecording.context, { ...geometry, zoom: 3 });
+
+    const opaqueFill = colorRecording.operations.filter((operation) => operation.name === 'fillRect').at(-1);
+    const label = codeRecording.operations.find((operation) => operation.name === 'fillText');
+    const firstGridBoundary = gridRecording.operations.find(
+      (operation) => operation.name === 'moveTo' && operation.args[0] !== 0,
+    );
+
+    expect(opaqueFill).toEqual({ name: 'fillRect', args: [0, 0, 6.5, 10], fillStyle: '#ff0000' });
+    expect(label).toEqual({ name: 'fillText', args: ['A1', 3.25, 5], fillStyle: '#ffffff' });
+    expect(firstGridBoundary).toEqual({ name: 'moveTo', args: [6.5, 0] });
   });
 });
