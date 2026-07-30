@@ -166,12 +166,35 @@ describe('drawGridLayer', () => {
   it('draws cell boundaries and an inset border at a non-scaling logical width', () => {
     const { context, operations } = recordingContext();
 
-    drawGridLayer(context, { width: 20, height: 10, rows: 1, cols: 2, zoom: 3 });
+    drawGridLayer(context, { width: 20, height: 10, rows: 1, cols: 2, zoom: 3, renderScale: 1 });
 
     expect(operations[0]).toEqual({ name: 'clearRect', args: [0, 0, 20, 10] });
     expect(operations).toContainEqual({ name: 'moveTo', args: [10, 0] });
     expect(operations).toContainEqual({ name: 'lineTo', args: [10, 10] });
     expect(operations).toContainEqual({ name: 'stroke', args: [], lineWidth: 0.25 });
+    expect(operations).toContainEqual({
+      name: 'strokeRect',
+      args: [0.125, 0.125, 19.75, 9.75],
+      lineWidth: 0.25,
+    });
+  });
+
+  it('aligns vertical and horizontal interior boundaries to backing pixels', () => {
+    const { context, operations } = recordingContext();
+
+    drawGridLayer(context, {
+      width: 20,
+      height: 10,
+      rows: 3,
+      cols: 3,
+      zoom: 3,
+      renderScale: 2,
+    });
+
+    expect(operations).toContainEqual({ name: 'moveTo', args: [6.5, 0] });
+    expect(operations).toContainEqual({ name: 'lineTo', args: [6.5, 10] });
+    expect(operations).toContainEqual({ name: 'moveTo', args: [0, 3.5] });
+    expect(operations).toContainEqual({ name: 'lineTo', args: [20, 3.5] });
     expect(operations).toContainEqual({
       name: 'strokeRect',
       args: [0.125, 0.125, 19.75, 9.75],

@@ -40,6 +40,7 @@ export type DrawCodeLayerOptions = CellLayerOptions & {
 
 export type DrawGridLayerOptions = LayerGeometry & {
   zoom: number;
+  renderScale: number;
   strokeStyle?: string;
 };
 
@@ -158,6 +159,9 @@ export function drawGridLayer(
   if (!validGrid(width, height, rows, cols)) return;
 
   const safeZoom = Number.isFinite(options.zoom) && options.zoom > 0 ? options.zoom : 1;
+  const renderScale = Number.isFinite(options.renderScale) && options.renderScale > 0
+    ? options.renderScale
+    : 1;
   const lineWidth = 0.75 / safeZoom;
   const cellWidth = width / cols;
   const cellHeight = height / rows;
@@ -166,12 +170,12 @@ export function drawGridLayer(
   context.lineWidth = lineWidth;
   context.beginPath();
   for (let col = 1; col < cols; col += 1) {
-    const x = col * cellWidth;
+    const x = alignToBackingPixel(col * cellWidth, renderScale);
     context.moveTo(x, 0);
     context.lineTo(x, height);
   }
   for (let row = 1; row < rows; row += 1) {
-    const y = row * cellHeight;
+    const y = alignToBackingPixel(row * cellHeight, renderScale);
     context.moveTo(0, y);
     context.lineTo(width, y);
   }
@@ -179,6 +183,10 @@ export function drawGridLayer(
 
   const inset = lineWidth / 2;
   context.strokeRect(inset, inset, width - lineWidth, height - lineWidth);
+}
+
+function alignToBackingPixel(coordinate: number, renderScale: number): number {
+  return Math.round(coordinate * renderScale) / renderScale;
 }
 
 function validGrid(width: number, height: number, rows: number, cols: number): boolean {
