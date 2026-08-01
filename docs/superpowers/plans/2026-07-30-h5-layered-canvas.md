@@ -20,7 +20,7 @@
 
 - [ ] **Step 1: Write failing raster-budget tests**
 
-Test a public `canvasRenderMetrics(width, height, dpr, zoom)` API. Assert normal DPR sizing, minimum scale 1 at zoom 0.2, a maximum of 4096 pixels per dimension, and at most 16,777,216 pixels across all three layers at DPR 2 / zoom 12.
+Test a public `canvasRenderMetrics(width, height, dpr, zoom)` API. Assert normal DPR sizing, minimum scale 1 at zoom 0.2 when the budget permits, a maximum of 4096 pixels per dimension, at most 16,777,216 pixels across all three layers at DPR 2 / zoom 12, and safe sub-1 density for highly skewed logical artboards in both orientations.
 
 - [ ] **Step 2: Run the focused test and verify RED**
 

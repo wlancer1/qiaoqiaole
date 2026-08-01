@@ -39,18 +39,15 @@ The renderer uses untransformed artboard CSS pixels as its logical coordinate sp
 The requested render scale is `devicePixelRatio * zoom`. It is capped before allocating the three backing stores so that no layer exceeds a 4096-pixel dimension and the three layers together do not exceed 16,777,216 backing pixels (about 64 MiB of raw RGBA storage). The effective render scale is:
 
 ```text
-max(
-  1,
-  min(
-    devicePixelRatio * zoom,
-    4096 / logicalWidth,
-    4096 / logicalHeight,
-    sqrt(16,777,216 / (3 * logicalWidth * logicalHeight))
-  )
+min(
+  max(1, devicePixelRatio * zoom),
+  4096 / logicalWidth,
+  4096 / logicalHeight,
+  sqrt(16,777,216 / (3 * logicalWidth * logicalHeight))
 )
 ```
 
-The scale never drops below `1` for the supported artboard sizes. Past the cap, the existing parent CSS transform continues to zoom the capped bitmap instead of reallocating an unsafe Canvas. All three layers use the same effective render scale so they remain aligned. Tests separately verify DPR-sharp sizing below the cap and safe, aligned allocation at DPR 2 and the editor's maximum 12× zoom.
+For ordinary artboards, zooming out does not reduce render density below `1`. If an unusually tall or wide logical artboard itself exceeds the raster budget, the safety caps take precedence and may reduce the effective scale below `1`; each non-empty backing dimension remains at least one pixel. Past the cap, the existing parent CSS transform continues to zoom the capped bitmap instead of reallocating an unsafe Canvas. All three layers use the same effective render scale so they remain aligned. Tests separately verify DPR-sharp sizing below the cap, safe aligned allocation at DPR 2 and 12× zoom, and both orientations of highly skewed supported artboards.
 
 The color layer clears its backing store, draws the checkerboard background across the artboard, and then fills all non-transparent cells. Keeping transparency rendering inside Canvas prevents the artboard's CSS background from diverging from cell geometry.
 
