@@ -34,28 +34,68 @@ describe('H5 flow presentation components', () => {
     expect(markup).not.toContain('spinner');
   });
 
-  it('keeps canvas pixel art sizing on fixed px units for crisp zooming', () => {
+  it('presents visual canvases in viewport space below the transformed interaction surface', () => {
     const styles = fs.readFileSync(path.resolve('apps/h5/src/styles.css'), 'utf8');
+    const app = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+    const layers = fs.readFileSync(path.resolve('apps/h5/src/H5CanvasLayers.tsx'), 'utf8');
+    const artboardStyles = styles.match(/\.h5-artboard\s*\{([^}]*)\}/s)?.[1] ?? '';
+    const canvasStyles = styles.match(/\.h5-canvas-layers canvas\s*\{([^}]*)\}/s)?.[1] ?? '';
+    const stackStyles = styles.match(/\.h5-canvas-layers\s*\{([^}]*)\}/s)?.[1] ?? '';
+    const transformStyles = styles.match(/\.react-transform-wrapper\s*\{([^}]*)\}/s)?.[1] ?? '';
+    const rulerStyles = styles.match(/\.h5-canvas-rulers\s*\{([^}]*)\}/s)?.[1] ?? '';
+    const controlStyles = styles.match(/\.canvas-zoom-controls\s*\{([^}]*)\}/s)?.[1] ?? '';
+    const editorStart = app.indexOf('<main className="h5-canvas-page cell-codes-visible"');
+    const editorEnd = app.indexOf('<main className="warehouse-page"', editorStart);
+    const editorSource = app.slice(editorStart, editorEnd);
+    const stackIndex = editorSource.indexOf('<H5CanvasLayers');
+    const transformIndex = editorSource.indexOf('<TransformComponent');
+    const zIndex = (rule: string) => Number(rule.match(/z-index:\s*(-?\d+(?:\.\d+)?)\s*;/)?.[1] ?? Number.NaN);
+    const stackZ = zIndex(stackStyles);
+    const transformZ = zIndex(transformStyles);
+    const rulerZ = zIndex(rulerStyles);
+    const controlZ = zIndex(controlStyles);
 
     expect(styles).toContain('--canvas-cell-size: 14px;');
     expect(styles).toContain('--canvas-ruler-gutter: 22px;');
     expect(styles).toMatch(/\.h5-column-ruler,\s*\.h5-row-ruler\s*\{[^}]*font-size:\s*7px;/s);
-    expect(styles).toContain('.h5-canvas-layers');
-    expect(styles).toContain('.h5-color-canvas');
-    expect(styles).toContain('.h5-code-canvas');
-    expect(styles).toContain('.h5-grid-canvas');
-    expect(styles).toMatch(/\.h5-canvas-layers canvas\s*\{[^}]*image-rendering:\s*pixelated;/s);
+    expect(stackIndex).toBeGreaterThan(-1);
+    expect(transformIndex).toBeGreaterThan(-1);
+    expect(stackIndex).toBeLessThan(transformIndex);
+    expect([stackZ, transformZ, rulerZ, controlZ].every(Number.isFinite)).toBe(true);
+    expect(stackZ).toBeLessThan(transformZ);
+    expect(transformZ).toBeLessThan(rulerZ);
+    expect(rulerZ).toBeLessThan(controlZ);
+    expect(canvasStyles).toMatch(/pointer-events:\s*none\s*;/);
+    expect(artboardStyles).not.toContain('background-image');
+    expect(`${stackStyles}\n${canvasStyles}`).not.toContain('image-rendering: pixelated');
+    expect(layers.match(/aria-hidden="true"/g)).toHaveLength(3);
   });
 
-  it('renders two- and three-character color labels through the dedicated Canvas layer', () => {
+  it('keeps artwork semantics and input handlers on a div inside the transformed artboard', () => {
     const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
     const layers = fs.readFileSync(path.resolve('apps/h5/src/H5CanvasLayers.tsx'), 'utf8');
+    const artboardSubtree = source.slice(
+      source.indexOf('className="h5-artboard"'),
+      source.indexOf('</TransformComponent>'),
+    );
+    const interactionTag = artboardSubtree.match(/<div[\s\S]*?className="h5-canvas-interaction canvas-artwork"[\s\S]*?>/)?.[0] ?? '';
 
     expect(source).toContain('<H5CanvasLayers');
     expect(source).toContain('<main className="h5-canvas-page cell-codes-visible"');
     expect(layers).toContain('className="h5-color-canvas"');
     expect(layers).toContain('className="h5-code-canvas"');
-    expect(layers).toContain('className="h5-grid-canvas canvas-artwork"');
+    expect(layers).toContain('className="h5-grid-canvas"');
+    expect(interactionTag).toContain('role="img"');
+    expect(interactionTag).toContain('aria-label="拼豆编辑画布"');
+    expect(interactionTag).toContain('onPointerDown={handleCanvasPointerDown}');
+    expect(interactionTag).toContain('onPointerMove={handleCanvasPointerMove}');
+    expect(interactionTag).toContain('onPointerUp={handleCanvasPaintPointerEnd}');
+    expect(interactionTag).toContain('onPointerCancel={handleCanvasPaintPointerEnd}');
+    expect(interactionTag).toContain('onLostPointerCapture={handleCanvasPaintPointerEnd}');
+    expect(interactionTag).toContain('onClick={handleCanvasClick}');
+    expect(layers).not.toContain('gridCanvasProps');
+    expect(layers).not.toContain('role="img"');
+    expect(layers).not.toContain('aria-label="拼豆编辑画布"');
     expect(source).not.toContain('className="h5-cell-code"');
     expect(source).not.toContain('h5-' + 'code-overlay');
   });

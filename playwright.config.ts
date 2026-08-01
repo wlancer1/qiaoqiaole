@@ -38,5 +38,15 @@ export default defineConfig({
         baseURL: 'http://127.0.0.1:5174',
       },
     },
+    {
+      name: 'h5-dpr3',
+      testMatch: /h5-viewport-canvas\.spec\.ts/,
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: 'http://127.0.0.1:5174',
+        viewport: { width: 390, height: 844 },
+        deviceScaleFactor: 3,
+      },
+    },
   ],
 });
