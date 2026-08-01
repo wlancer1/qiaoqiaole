@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -14,7 +16,8 @@ function snapshot(overrides: Partial<CanvasLayerSnapshot> = {}): CanvasLayerSnap
     cells,
     rows: 32,
     cols: 32,
-    canvasScale: 1,
+    liveCanvasScale: 1,
+    rasterScale: 1,
     codesVisible: false,
     getCode,
     getTextColor,
@@ -68,7 +71,7 @@ describe('canvasLayerInvalidation', () => {
     ['logical width', { logicalWidth: 300 }],
     ['logical height', { logicalHeight: 300 }],
     ['DPR', { dpr: 3 }],
-    ['zoom', { canvasScale: 2 }],
+    ['settled raster zoom', { rasterScale: 2 }],
   ] as const)('reconfigures and redraws every layer for %s changes', (_name, change) => {
     expect(canvasLayerInvalidation(snapshot(), snapshot(change))).toEqual({
       configure: true,
@@ -76,5 +79,23 @@ describe('canvasLayerInvalidation', () => {
       code: true,
       grid: true,
     });
+  });
+
+  it('does not reconfigure backing stores for an unsettled live zoom tick', () => {
+    expect(canvasLayerInvalidation(snapshot(), snapshot({ liveCanvasScale: 1.35 }))).toEqual({
+      configure: false,
+      color: false,
+      code: false,
+      grid: false,
+    });
+  });
+
+  it('uses a separate debounced raster-scale commit path', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/H5CanvasLayers.tsx'), 'utf8');
+
+    expect(source).toContain('CANVAS_RASTER_SETTLE_MS = 120');
+    expect(source).toContain('rasterScaleRef');
+    expect(source).toContain('window.setTimeout');
+    expect(source).toContain('window.clearTimeout');
   });
 });

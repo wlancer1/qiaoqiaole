@@ -157,8 +157,8 @@ describe('drawCodeLayer', () => {
     });
 
     expect(operations.filter((operation) => operation.name === 'fillText')).toEqual([
-      { name: 'fillText', args: ['A1', 5, 5], fillStyle: '#ffffff' },
-      { name: 'fillText', args: ['B12', 15, 5], fillStyle: '#000000' },
+      { name: 'fillText', args: ['A1', 5, 5, 9], fillStyle: '#ffffff' },
+      { name: 'fillText', args: ['B12', 15, 5, 9], fillStyle: '#000000' },
     ]);
     expect(context.textAlign).toBe('center');
     expect(context.textBaseline).toBe('middle');
@@ -231,7 +231,7 @@ describe('shared snapped cell geometry', () => {
     );
 
     expect(opaqueFill).toEqual({ name: 'fillRect', args: [0, 0, 6.5, 10], fillStyle: '#ff0000' });
-    expect(label).toEqual({ name: 'fillText', args: ['A1', 3.25, 5], fillStyle: '#ffffff' });
+    expect(label).toEqual({ name: 'fillText', args: ['A1', 3.25, 5, 5.8500000000000005], fillStyle: '#ffffff' });
     expect(firstGridBoundary).toEqual({ name: 'moveTo', args: [6.5, 0] });
   });
 });

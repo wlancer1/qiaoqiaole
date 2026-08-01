@@ -148,6 +148,7 @@ export function drawCodeLayer(
       code,
       (bounds.left + bounds.right) / 2,
       (bounds.top + bounds.bottom) / 2,
+      (bounds.right - bounds.left) * 0.9,
     );
   }
 }

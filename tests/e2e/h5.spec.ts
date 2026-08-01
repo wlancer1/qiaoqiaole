@@ -133,6 +133,28 @@ async function codeLayerAlphaCount(page: import('@playwright/test').Page) {
   });
 }
 
+async function codeLayerCellAlphaCount(
+  page: import('@playwright/test').Page,
+  x: number,
+  y: number,
+) {
+  await waitForCanvasRaster(page);
+  const metadata = await canvasGridMetadata(page);
+  return page.locator('.h5-code-canvas').evaluate((node, cell) => {
+    const canvas = node as HTMLCanvasElement;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Missing code canvas context');
+    const left = Math.floor((cell.x / cell.cols) * canvas.width);
+    const right = Math.ceil(((cell.x + 1) / cell.cols) * canvas.width);
+    const top = Math.floor((cell.y / cell.rows) * canvas.height);
+    const bottom = Math.ceil(((cell.y + 1) / cell.rows) * canvas.height);
+    const pixels = context.getImageData(left, top, right - left, bottom - top).data;
+    let count = 0;
+    for (let index = 3; index < pixels.length; index += 4) if ((pixels[index] ?? 0) > 0) count += 1;
+    return count;
+  }, { x, y, ...metadata });
+}
+
 async function pinchOpenSplitPreview(page: import('@playwright/test').Page) {
   const target = page.locator('.split-image-container');
   const box = await target.boundingBox();
@@ -1573,7 +1595,9 @@ test('renders every painted two- and three-character color code inside its grid 
   }
 
   await expect.poll(async () => (await canvasGridMetadata(page)).codesVisible).toBe(true);
-  await expect.poll(() => codeLayerAlphaCount(page)).toBeGreaterThan(0);
+  for (const x of [0, 1, 2]) {
+    await expect.poll(() => codeLayerCellAlphaCount(page, x, 0)).toBeGreaterThan(0);
+  }
 });
 
 test('shows imported canvas color codes only after zooming in', async ({ page }) => {

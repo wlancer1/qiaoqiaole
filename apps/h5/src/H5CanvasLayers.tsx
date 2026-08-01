@@ -27,11 +27,14 @@ type H5CanvasLayersProps = {
 
 type LogicalSize = { width: number; height: number };
 
+export const CANVAS_RASTER_SETTLE_MS = 120;
+
 export type CanvasLayerSnapshot = {
   cells: readonly Cell[];
   rows: number;
   cols: number;
-  canvasScale: number;
+  liveCanvasScale: number;
+  rasterScale: number;
   codesVisible: boolean;
   getCode: (color: string) => string;
   getTextColor: (color: string) => string;
@@ -64,7 +67,7 @@ export function canvasLayerInvalidation(
   const configure = previous.logicalWidth !== next.logicalWidth
     || previous.logicalHeight !== next.logicalHeight
     || previous.dpr !== next.dpr
-    || previous.canvasScale !== next.canvasScale;
+    || previous.rasterScale !== next.rasterScale;
   if (configure) return { ...ALL_LAYERS_DIRTY };
 
   const dimensionsChanged = previous.rows !== next.rows || previous.cols !== next.cols;
@@ -112,6 +115,8 @@ export function H5CanvasLayers({
   const gridRef = useRef<HTMLCanvasElement>(null);
   const sizeRef = useRef<LogicalSize>({ width: 0, height: 0 });
   const fontRevisionRef = useRef(0);
+  const rasterScaleRef = useRef(canvasScale);
+  const rasterScaleTimerRef = useRef<number | null>(null);
   const frameRef = useRef<number | null>(null);
   const metricsRef = useRef<CanvasRenderMetrics | null>(null);
   const colorContextRef = useRef<CanvasRenderingContext2D | null>(null);
@@ -123,7 +128,14 @@ export function H5CanvasLayers({
   latestRef.current = { cells, rows, cols, canvasScale, codesVisible, getCode, getTextColor };
 
   const currentSnapshot = (): CanvasLayerSnapshot => ({
-    ...latestRef.current,
+    cells: latestRef.current.cells,
+    rows: latestRef.current.rows,
+    cols: latestRef.current.cols,
+    liveCanvasScale: latestRef.current.canvasScale,
+    rasterScale: rasterScaleRef.current,
+    codesVisible: latestRef.current.codesVisible,
+    getCode: latestRef.current.getCode,
+    getTextColor: latestRef.current.getTextColor,
     logicalWidth: sizeRef.current.width,
     logicalHeight: sizeRef.current.height,
     dpr: window.devicePixelRatio || 1,
@@ -153,7 +165,7 @@ export function H5CanvasLayers({
 
       if (dirty.configure || !metricsRef.current) {
         const { width, height } = sizeRef.current;
-        const metrics = canvasRenderMetrics(width, height, window.devicePixelRatio || 1, current.canvasScale);
+        const metrics = canvasRenderMetrics(width, height, window.devicePixelRatio || 1, rasterScaleRef.current);
         metricsRef.current = metrics;
         colorContextRef.current = configureCanvas(colorCanvas, metrics);
         codeContextRef.current = configureCanvas(codeCanvas, metrics);
@@ -189,13 +201,30 @@ export function H5CanvasLayers({
           getTextColor: current.getTextColor,
         });
       }
-      if (dirty.grid) drawGridLayer(gridContext, { ...geometry, zoom: current.canvasScale });
+      if (dirty.grid) drawGridLayer(gridContext, { ...geometry, zoom: rasterScaleRef.current });
     });
   };
 
   useLayoutEffect(() => {
     invalidate();
   }, [cells, rows, cols, canvasScale, codesVisible, getCode, getTextColor]);
+
+  useEffect(() => {
+    if (rasterScaleTimerRef.current !== null) {
+      window.clearTimeout(rasterScaleTimerRef.current);
+    }
+    rasterScaleTimerRef.current = window.setTimeout(() => {
+      rasterScaleTimerRef.current = null;
+      rasterScaleRef.current = latestRef.current.canvasScale;
+      invalidate();
+    }, CANVAS_RASTER_SETTLE_MS);
+    return () => {
+      if (rasterScaleTimerRef.current !== null) {
+        window.clearTimeout(rasterScaleTimerRef.current);
+        rasterScaleTimerRef.current = null;
+      }
+    };
+  }, [canvasScale]);
 
   useLayoutEffect(() => {
     const stack = stackRef.current;
@@ -229,6 +258,10 @@ export function H5CanvasLayers({
   }, []);
 
   useEffect(() => () => {
+    if (rasterScaleTimerRef.current !== null) {
+      window.clearTimeout(rasterScaleTimerRef.current);
+      rasterScaleTimerRef.current = null;
+    }
     if (frameRef.current !== null) {
       window.cancelAnimationFrame(frameRef.current);
       frameRef.current = null;
