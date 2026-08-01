@@ -15,6 +15,7 @@
 
 ### Changed
 
+- Changed H5 canvas rendering to redraw visible cells in fixed viewport-sized layers, keeping 108×108 grids sharp through high-DPI zoom and avoiding a one-frame camera redraw lag.
 - Changed H5 quick split sizing to a single slider, tightened split settings layout, removed bottom whitespace from the split controls, and aligned the home/profile hero card height system.
 - Changed the H5 split page preview from DOM image/grid overlays to a high-DPI canvas preview with separate button zoom and pinch-to-adjust split count behavior.
 - Changed login/register behavior to use configured admin login only, with registration disabled at the API.

@@ -367,6 +367,8 @@ function H5App() {
     const run = async () => {
       if (deferredSplitMergeThreshold === 0) {
         setSplitPreviewCells(splitPreviewRawCells.map((cell) => ({ ...cell, color: cell.color.toLowerCase() })));
+        setSplitLoadingProgress(100);
+        setSplitPreviewLoading(false);
         return;
       }
       setSplitPreviewLoading(true);
