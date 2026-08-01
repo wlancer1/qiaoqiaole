@@ -74,9 +74,10 @@ describe('H5 flow presentation components', () => {
   it('keeps artwork semantics and input handlers on a div inside the transformed artboard', () => {
     const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
     const layers = fs.readFileSync(path.resolve('apps/h5/src/H5CanvasLayers.tsx'), 'utf8');
+    const artboardStart = source.indexOf('className="h5-artboard"');
     const artboardSubtree = source.slice(
-      source.indexOf('className="h5-artboard"'),
-      source.indexOf('</TransformComponent>'),
+      artboardStart,
+      source.indexOf('</TransformComponent>', artboardStart),
     );
     const interactionTag = artboardSubtree.match(/<div[\s\S]*?className="h5-canvas-interaction canvas-artwork"[\s\S]*?>/)?.[0] ?? '';
 
