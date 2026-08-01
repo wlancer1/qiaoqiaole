@@ -17,6 +17,68 @@ export type CanvasCell = {
   transparent?: boolean;
 };
 
+export type ViewportArtboard = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
+export type VisibleGridRange = {
+  rowStart: number;
+  rowEnd: number;
+  colStart: number;
+  colEnd: number;
+};
+
+const EMPTY_VISIBLE_GRID_RANGE: VisibleGridRange = {
+  rowStart: 0,
+  rowEnd: 0,
+  colStart: 0,
+  colEnd: 0,
+};
+
+export function visibleGridRange(
+  artboard: ViewportArtboard,
+  viewportWidth: number,
+  viewportHeight: number,
+  rows: number,
+  cols: number,
+): VisibleGridRange {
+  if (!validGrid(artboard.width, artboard.height, rows, cols)
+    || !Number.isFinite(artboard.left)
+    || !Number.isFinite(artboard.top)
+    || !Number.isFinite(viewportWidth)
+    || !Number.isFinite(viewportHeight)
+    || viewportWidth <= 0
+    || viewportHeight <= 0) {
+    return EMPTY_VISIBLE_GRID_RANGE;
+  }
+
+  const columns = visibleAxisRange(artboard.left, artboard.width, viewportWidth, cols);
+  const rowRange = visibleAxisRange(artboard.top, artboard.height, viewportHeight, rows);
+  if (columns.start === columns.end || rowRange.start === rowRange.end) {
+    return EMPTY_VISIBLE_GRID_RANGE;
+  }
+
+  return {
+    rowStart: rowRange.start,
+    rowEnd: rowRange.end,
+    colStart: columns.start,
+    colEnd: columns.end,
+  };
+}
+
+export function viewportGridBoundary(
+  index: number,
+  origin: number,
+  size: number,
+  count: number,
+  renderScale: number,
+): number {
+  return alignToBackingPixel(origin + (index * size) / count, safeRenderScale(renderScale));
+}
+
 type LayerGeometry = {
   width: number;
   height: number;
@@ -27,6 +89,34 @@ type LayerGeometry = {
 
 type CellLayerOptions = LayerGeometry & {
   cells: readonly CanvasCell[];
+};
+
+type ViewportLayerGeometry = {
+  viewportWidth: number;
+  viewportHeight: number;
+  artboard: ViewportArtboard;
+  rows: number;
+  cols: number;
+  renderScale: number;
+};
+
+type ViewportCellLayerOptions = ViewportLayerGeometry & {
+  cells: readonly CanvasCell[];
+};
+
+export type DrawViewportColorLayerOptions = ViewportCellLayerOptions & {
+  checkerLight?: string;
+  checkerDark?: string;
+};
+
+export type DrawViewportCodeLayerOptions = ViewportCellLayerOptions & {
+  visible: boolean;
+  getCode: (color: string, cell: CanvasCell) => string;
+  getTextColor: (color: string, cell: CanvasCell) => string;
+};
+
+export type DrawViewportGridLayerOptions = ViewportLayerGeometry & {
+  strokeStyle?: string;
 };
 
 export type DrawColorLayerOptions = CellLayerOptions & {
@@ -95,6 +185,94 @@ export function configureCanvas(
   const context = canvas.getContext('2d');
   context?.setTransform(metrics.renderScale, 0, 0, metrics.renderScale, 0, 0);
   return context;
+}
+
+export function drawViewportColorLayer(
+  context: CanvasRenderingContext2D,
+  options: DrawViewportColorLayerOptions,
+): void {
+  const { viewportWidth, viewportHeight, rows, cols, cells } = options;
+  context.clearRect(0, 0, viewportWidth, viewportHeight);
+  const range = visibleGridRange(options.artboard, viewportWidth, viewportHeight, rows, cols);
+  if (!hasVisibleCells(range)) return;
+
+  const checkerLight = options.checkerLight ?? '#ffffff';
+  const checkerDark = options.checkerDark ?? '#cfcfcf';
+  for (let row = range.rowStart; row < range.rowEnd; row += 1) {
+    for (let col = range.colStart; col < range.colEnd; col += 1) {
+      const bounds = viewportCellBounds(col, row, options);
+      context.fillStyle = (row + col) % 2 === 0 ? checkerLight : checkerDark;
+      context.fillRect(bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top);
+
+      const cell = cells[row * cols + col];
+      if (!cell || cell.transparent) continue;
+      context.fillStyle = cell.color;
+      context.fillRect(bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top);
+    }
+  }
+}
+
+export function drawViewportCodeLayer(
+  context: CanvasRenderingContext2D,
+  options: DrawViewportCodeLayerOptions,
+): void {
+  const { viewportWidth, viewportHeight, rows, cols, cells } = options;
+  context.clearRect(0, 0, viewportWidth, viewportHeight);
+  if (!options.visible) return;
+  const range = visibleGridRange(options.artboard, viewportWidth, viewportHeight, rows, cols);
+  if (!hasVisibleCells(range)) return;
+
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  for (let row = range.rowStart; row < range.rowEnd; row += 1) {
+    for (let col = range.colStart; col < range.colEnd; col += 1) {
+      const cell = cells[row * cols + col];
+      if (!cell || cell.transparent) continue;
+      const bounds = viewportCellBounds(col, row, options);
+      const code = options.getCode(cell.color, cell);
+      const baseFontSize = Math.min(bounds.right - bounds.left, bounds.bottom - bounds.top);
+      const fontSize = baseFontSize * (code.length >= 3 ? 0.5 : 0.52);
+      context.fillStyle = options.getTextColor(cell.color, cell);
+      context.font = `600 ${fontSize}px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`;
+      context.fillText(
+        code,
+        (bounds.left + bounds.right) / 2,
+        (bounds.top + bounds.bottom) / 2,
+        (bounds.right - bounds.left) * 0.9,
+      );
+    }
+  }
+}
+
+export function drawViewportGridLayer(
+  context: CanvasRenderingContext2D,
+  options: DrawViewportGridLayerOptions,
+): void {
+  const { viewportWidth, viewportHeight, rows, cols } = options;
+  context.clearRect(0, 0, viewportWidth, viewportHeight);
+  const range = visibleGridRange(options.artboard, viewportWidth, viewportHeight, rows, cols);
+  if (!hasVisibleCells(range)) return;
+
+  const { artboard, renderScale } = options;
+  const top = viewportGridBoundary(range.rowStart, artboard.top, artboard.height, rows, renderScale);
+  const bottom = viewportGridBoundary(range.rowEnd, artboard.top, artboard.height, rows, renderScale);
+  const left = viewportGridBoundary(range.colStart, artboard.left, artboard.width, cols, renderScale);
+  const right = viewportGridBoundary(range.colEnd, artboard.left, artboard.width, cols, renderScale);
+
+  context.strokeStyle = options.strokeStyle ?? 'rgba(18, 70, 69, 0.58)';
+  context.lineWidth = 0.75;
+  context.beginPath();
+  for (let col = range.colStart; col <= range.colEnd; col += 1) {
+    const x = viewportGridBoundary(col, artboard.left, artboard.width, cols, renderScale);
+    context.moveTo(x, top);
+    context.lineTo(x, bottom);
+  }
+  for (let row = range.rowStart; row <= range.rowEnd; row += 1) {
+    const y = viewportGridBoundary(row, artboard.top, artboard.height, rows, renderScale);
+    context.moveTo(left, y);
+    context.lineTo(right, y);
+  }
+  context.stroke();
 }
 
 export function drawColorLayer(
@@ -200,6 +378,35 @@ function cellBounds(
     top: cellBoundary(row, height, rows, renderScale),
     bottom: cellBoundary(row + 1, height, rows, renderScale),
   };
+}
+
+function viewportCellBounds(
+  col: number,
+  row: number,
+  options: ViewportLayerGeometry,
+) {
+  const { artboard, rows, cols, renderScale } = options;
+  return {
+    left: viewportGridBoundary(col, artboard.left, artboard.width, cols, renderScale),
+    right: viewportGridBoundary(col + 1, artboard.left, artboard.width, cols, renderScale),
+    top: viewportGridBoundary(row, artboard.top, artboard.height, rows, renderScale),
+    bottom: viewportGridBoundary(row + 1, artboard.top, artboard.height, rows, renderScale),
+  };
+}
+
+function hasVisibleCells(range: VisibleGridRange): boolean {
+  return range.rowStart < range.rowEnd && range.colStart < range.colEnd;
+}
+
+function visibleAxisRange(origin: number, size: number, viewportSize: number, count: number) {
+  const intersectionStart = Math.max(0, origin);
+  const intersectionEnd = Math.min(viewportSize, origin + size);
+  if (intersectionStart >= intersectionEnd) return { start: 0, end: 0 };
+
+  const cellSize = size / count;
+  const start = Math.max(0, Math.min(count, Math.floor((intersectionStart - origin) / cellSize)));
+  const end = Math.max(start, Math.min(count, Math.ceil((intersectionEnd - origin) / cellSize)));
+  return { start, end };
 }
 
 function cellBoundary(index: number, size: number, count: number, renderScale: number): number {
