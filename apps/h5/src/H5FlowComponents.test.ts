@@ -44,6 +44,7 @@ describe('H5 flow presentation components', () => {
     expect(styles).toContain('.h5-color-canvas');
     expect(styles).toContain('.h5-code-canvas');
     expect(styles).toContain('.h5-grid-canvas');
+    expect(styles).toMatch(/\.h5-canvas-layers canvas\s*\{[^}]*image-rendering:\s*pixelated;/s);
   });
 
   it('renders two- and three-character color labels through the dedicated Canvas layer', () => {

@@ -3014,6 +3014,7 @@ input:focus-visible {
   width: 100%;
   height: 100%;
   background: transparent;
+  image-rendering: pixelated;
   user-select: none;
   transform: translateZ(0);
   backface-visibility: hidden;
@@ -3021,7 +3022,6 @@ input:focus-visible {
 
 .h5-color-canvas {
   z-index: 1;
-  image-rendering: pixelated;
   pointer-events: none;
 }
 
