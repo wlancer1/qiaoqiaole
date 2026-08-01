@@ -63,6 +63,20 @@ describe('canvasRenderMetrics', () => {
     expect(metrics.renderScale).toBeLessThan(24);
   });
 
+  it.each([
+    [14, 57_344],
+    [57_344, 14],
+  ])('allows density below one for an extreme %d × %d logical aspect ratio', (width, height) => {
+    const metrics = canvasRenderMetrics(width, height, 2, 12);
+
+    expect(metrics.renderScale).toBeLessThan(1);
+    expect(metrics.backingWidth).toBeGreaterThanOrEqual(1);
+    expect(metrics.backingHeight).toBeGreaterThanOrEqual(1);
+    expect(metrics.backingWidth).toBeLessThanOrEqual(MAX_CANVAS_BACKING_DIMENSION);
+    expect(metrics.backingHeight).toBeLessThanOrEqual(MAX_CANVAS_BACKING_DIMENSION);
+    expect(3 * metrics.backingWidth * metrics.backingHeight).toBeLessThanOrEqual(MAX_CANVAS_BACKING_AREA);
+  });
+
   it('returns an empty backing store for invalid logical sizes', () => {
     expect(canvasRenderMetrics(0, 180, 2, 1)).toMatchObject({ backingWidth: 0, backingHeight: 0, renderScale: 1 });
     expect(canvasRenderMetrics(Number.NaN, 180, 2, 1)).toMatchObject({ backingWidth: 0, backingHeight: 0, renderScale: 1 });

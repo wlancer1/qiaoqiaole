@@ -66,8 +66,9 @@ export function canvasRenderMetrics(
 
   const safeDpr = Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
   const safeZoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
-  const renderScale = Math.max(1, Math.min(
-    safeDpr * safeZoom,
+  const requestedScale = Math.max(1, safeDpr * safeZoom);
+  const renderScale = Math.max(Number.MIN_VALUE, Math.min(
+    requestedScale,
     MAX_CANVAS_BACKING_DIMENSION / logicalWidth,
     MAX_CANVAS_BACKING_DIMENSION / logicalHeight,
     Math.sqrt(MAX_CANVAS_BACKING_AREA / (CANVAS_LAYER_COUNT * logicalWidth * logicalHeight)),
@@ -77,8 +78,8 @@ export function canvasRenderMetrics(
     logicalWidth,
     logicalHeight,
     renderScale,
-    backingWidth: Math.floor(logicalWidth * renderScale),
-    backingHeight: Math.floor(logicalHeight * renderScale),
+    backingWidth: Math.max(1, Math.floor(logicalWidth * renderScale)),
+    backingHeight: Math.max(1, Math.floor(logicalHeight * renderScale)),
   };
 }
 
