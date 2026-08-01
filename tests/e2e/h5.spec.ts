@@ -81,9 +81,9 @@ async function canvasCellPoint(
   x: number,
   y: number,
 ) {
-  const canvas = page.locator('.h5-grid-canvas');
+  const interaction = page.locator('.h5-canvas-interaction');
   const { cols, rows } = await canvasGridMetadata(page);
-  const box = await canvas.boundingBox();
+  const box = await interaction.boundingBox();
   expect(box).not.toBeNull();
   return {
     x: box!.x + ((x + 0.5) / cols) * box!.width,
@@ -114,8 +114,34 @@ async function sampleCanvasCell(page: import('@playwright/test').Page, x: number
     const canvas = node as HTMLCanvasElement;
     const context = canvas.getContext('2d');
     if (!context) throw new Error('Missing color canvas context');
-    const sampleX = Math.min(canvas.width - 1, Math.floor(((point.x + 0.5) / point.cols) * canvas.width));
-    const sampleY = Math.min(canvas.height - 1, Math.floor(((point.y + 0.5) / point.rows) * canvas.height));
+    const interaction = document.querySelector<HTMLElement>('.h5-canvas-interaction');
+    if (!interaction) throw new Error('Missing canvas interaction surface');
+    const canvasRect = canvas.getBoundingClientRect();
+    const artboardRect = interaction.getBoundingClientRect();
+    const cellLeft = artboardRect.left + (point.x / point.cols) * artboardRect.width;
+    const cellRight = artboardRect.left + ((point.x + 1) / point.cols) * artboardRect.width;
+    const cellTop = artboardRect.top + (point.y / point.rows) * artboardRect.height;
+    const cellBottom = artboardRect.top + ((point.y + 1) / point.rows) * artboardRect.height;
+    let clientX = (cellLeft + cellRight) / 2;
+    let clientY = (cellTop + cellBottom) / 2;
+    const centerIsVisible = clientX >= canvasRect.left && clientX < canvasRect.right
+      && clientY >= canvasRect.top && clientY < canvasRect.bottom;
+    if (!centerIsVisible) {
+      const visibleLeft = Math.max(cellLeft, canvasRect.left);
+      const visibleRight = Math.min(cellRight, canvasRect.right);
+      const visibleTop = Math.max(cellTop, canvasRect.top);
+      const visibleBottom = Math.min(cellBottom, canvasRect.bottom);
+      if (visibleLeft >= visibleRight || visibleTop >= visibleBottom) {
+        throw new Error(`Canvas cell ${point.x},${point.y} is outside the viewport`);
+      }
+      clientX = (visibleLeft + visibleRight) / 2;
+      clientY = (visibleTop + visibleBottom) / 2;
+    }
+    const sampleX = Math.floor(((clientX - canvasRect.left) / canvasRect.width) * canvas.width);
+    const sampleY = Math.floor(((clientY - canvasRect.top) / canvasRect.height) * canvas.height);
+    if (sampleX < 0 || sampleX >= canvas.width || sampleY < 0 || sampleY >= canvas.height) {
+      throw new Error(`Canvas cell ${point.x},${point.y} has no backing-store sample`);
+    }
     return Array.from(context.getImageData(sampleX, sampleY, 1, 1).data);
   }, { x, y, ...metadata });
 }
@@ -144,10 +170,25 @@ async function codeLayerCellAlphaCount(
     const canvas = node as HTMLCanvasElement;
     const context = canvas.getContext('2d');
     if (!context) throw new Error('Missing code canvas context');
-    const left = Math.floor((cell.x / cell.cols) * canvas.width);
-    const right = Math.ceil(((cell.x + 1) / cell.cols) * canvas.width);
-    const top = Math.floor((cell.y / cell.rows) * canvas.height);
-    const bottom = Math.ceil(((cell.y + 1) / cell.rows) * canvas.height);
+    const interaction = document.querySelector<HTMLElement>('.h5-canvas-interaction');
+    if (!interaction) throw new Error('Missing canvas interaction surface');
+    const canvasRect = canvas.getBoundingClientRect();
+    const artboardRect = interaction.getBoundingClientRect();
+    const pixelX = (clientX: number) => ((clientX - canvasRect.left) / canvasRect.width) * canvas.width;
+    const pixelY = (clientY: number) => ((clientY - canvasRect.top) / canvasRect.height) * canvas.height;
+    const left = Math.max(0, Math.floor(pixelX(
+      artboardRect.left + (cell.x / cell.cols) * artboardRect.width,
+    )));
+    const right = Math.min(canvas.width, Math.ceil(pixelX(
+      artboardRect.left + ((cell.x + 1) / cell.cols) * artboardRect.width,
+    )));
+    const top = Math.max(0, Math.floor(pixelY(
+      artboardRect.top + (cell.y / cell.rows) * artboardRect.height,
+    )));
+    const bottom = Math.min(canvas.height, Math.ceil(pixelY(
+      artboardRect.top + ((cell.y + 1) / cell.rows) * artboardRect.height,
+    )));
+    if (right <= left || bottom <= top) return 0;
     const pixels = context.getImageData(left, top, right - left, bottom - top).data;
     let count = 0;
     for (let index = 3; index < pixels.length; index += 4) if ((pixels[index] ?? 0) > 0) count += 1;
@@ -786,13 +827,29 @@ test('uploads from the H5 home page, configures split count, previews, then impo
     const canvas = node as HTMLCanvasElement;
     const context = canvas.getContext('2d');
     if (!context) throw new Error('Missing canvas context');
-    const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    const interaction = document.querySelector<HTMLElement>('.h5-canvas-interaction');
+    if (!interaction) throw new Error('Missing canvas interaction surface');
+    const canvasRect = canvas.getBoundingClientRect();
+    const artboardRect = interaction.getBoundingClientRect();
+    const left = Math.max(0, Math.ceil(
+      ((artboardRect.left - canvasRect.left) / canvasRect.width) * canvas.width,
+    ));
+    const right = Math.min(canvas.width, Math.floor(
+      ((artboardRect.right - canvasRect.left) / canvasRect.width) * canvas.width,
+    ));
+    const top = Math.max(0, Math.ceil(
+      ((artboardRect.top - canvasRect.top) / canvasRect.height) * canvas.height,
+    ));
+    const bottom = Math.min(canvas.height, Math.floor(
+      ((artboardRect.bottom - canvasRect.top) / canvasRect.height) * canvas.height,
+    ));
+    const data = context.getImageData(left, top, right - left, bottom - top).data;
     let paintedPixels = 0;
     for (let index = 3; index < data.length; index += 4) {
       if (data[index] > 0) paintedPixels += 1;
     }
     return {
-      totalPixels: canvas.width * canvas.height,
+      totalPixels: (right - left) * (bottom - top),
       paintedPixels,
     };
   });
@@ -810,11 +867,11 @@ test('uploads from the H5 home page, configures split count, previews, then impo
   await expect(page.locator('.canvas-status')).toContainText(`已选择色号 ${paintCode}`);
 
   const edgeExitStart = await canvasCellPoint(page, 2, 0);
-  const gridBox = await page.locator('.h5-grid-canvas').boundingBox();
-  expect(gridBox).not.toBeNull();
+  const interactionBox = await page.locator('.h5-canvas-interaction').boundingBox();
+  expect(interactionBox).not.toBeNull();
   await page.mouse.move(edgeExitStart.x, edgeExitStart.y);
   await page.mouse.down();
-  await page.mouse.move(gridBox!.x - 30, edgeExitStart.y, { steps: 1 });
+  await page.mouse.move(interactionBox!.x - 30, edgeExitStart.y, { steps: 1 });
   await page.mouse.up();
   await expect.poll(() => sampleCanvasCell(page, 0, 0)).toEqual(originPixel);
 
@@ -1556,22 +1613,29 @@ test('keeps imported canvas cell size stable when moving from phone to iPad view
   await page.getByRole('button', { name: '导入画布' }).click();
   await expect(page.getByLabel('H5 画布编辑器')).toBeVisible();
 
-  const phoneCellSize = await page.locator('.h5-canvas-layers').evaluate((node) => {
-    const rect = node.getBoundingClientRect();
-    const cols = Number((node as HTMLElement).dataset.gridCols);
-    return rect.width / cols;
-  });
+  const { cols: gridCols } = await canvasGridMetadata(page);
+  const renderedCellSize = async () => {
+    const box = await page.locator('.h5-canvas-interaction').boundingBox();
+    if (!box) return 0;
+    return box.width / gridCols;
+  };
+  await expect.poll(renderedCellSize).toBeGreaterThan(0);
+  const phoneCellSize = await renderedCellSize();
 
   await page.setViewportSize({ width: 820, height: 1180 });
+  await expect.poll(renderedCellSize).toBeGreaterThan(phoneCellSize);
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  }));
+  const ipadCellSize = await renderedCellSize();
 
-  const ipadCellSize = await page.locator('.h5-canvas-layers').evaluate((node) => {
-    const rect = node.getBoundingClientRect();
-    const cols = Number((node as HTMLElement).dataset.gridCols);
-    return rect.width / cols;
+  const viewportCanvasWidth = await page.locator('.h5-canvas-layers').evaluate((node) => {
+    return node.getBoundingClientRect().width;
   });
 
   expect(phoneCellSize).toBeGreaterThan(0);
   expect(ipadCellSize).toBeGreaterThan(phoneCellSize);
+  expect(ipadCellSize * gridCols).toBeLessThan(viewportCanvasWidth);
 });
 
 test('renders every painted two- and three-character color code inside its grid cell', async ({ page }) => {
@@ -1580,12 +1644,15 @@ test('renders every painted two- and three-character color code inside its grid 
   await createBlankCanvasFromHome(page, 32, 32);
   await page.getByRole('button', { name: '画笔工具' }).click();
 
-  await page.getByRole('button', { name: '选择色号 H2', exact: true }).click();
-  await clickCanvasCell(page, 0, 0);
-  await page.getByRole('button', { name: '选择色号 A10', exact: true }).click();
-  await clickCanvasCell(page, 1, 0);
-  await page.getByRole('button', { name: '选择色号 C17', exact: true }).click();
-  await clickCanvasCell(page, 2, 0);
+  const paintedCells = [
+    { x: 15, y: 16, code: 'H2' },
+    { x: 16, y: 16, code: 'A10' },
+    { x: 17, y: 16, code: 'C17' },
+  ];
+  for (const cell of paintedCells) {
+    await page.getByRole('button', { name: `选择色号 ${cell.code}`, exact: true }).click();
+    await clickCanvasCell(page, cell.x, cell.y);
+  }
 
   expect((await canvasGridMetadata(page)).codesVisible).toBe(false);
   expect(await codeLayerAlphaCount(page)).toBe(0);
@@ -1595,8 +1662,8 @@ test('renders every painted two- and three-character color code inside its grid 
   }
 
   await expect.poll(async () => (await canvasGridMetadata(page)).codesVisible).toBe(true);
-  for (const x of [0, 1, 2]) {
-    await expect.poll(() => codeLayerCellAlphaCount(page, x, 0)).toBeGreaterThan(0);
+  for (const cell of paintedCells) {
+    await expect.poll(() => codeLayerCellAlphaCount(page, cell.x, cell.y)).toBeGreaterThan(0);
   }
 });
 
@@ -1615,6 +1682,24 @@ test('shows imported canvas color codes only after zooming in', async ({ page })
 
   await expect.poll(async () => (await canvasGridMetadata(page)).codesVisible).toBe(true);
   await expect.poll(() => codeLayerAlphaCount(page)).toBeGreaterThan(0);
+});
+
+test('does not sample a different cell when the target cell is outside the viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await createBlankCanvasFromHome(page, 32, 32);
+
+  for (let index = 0; index < 5; index += 1) {
+    await page.getByRole('button', { name: '放大画布' }).click();
+  }
+
+  await expect.poll(async () => {
+    const interactionBox = await page.locator('.h5-canvas-interaction').boundingBox();
+    const canvasBox = await page.locator('.h5-color-canvas').boundingBox();
+    if (!interactionBox || !canvasBox) return false;
+    return interactionBox.x + interactionBox.width / 32 <= canvasBox.x;
+  }).toBe(true);
+  await expect(sampleCanvasCell(page, 0, 0)).rejects.toThrow(/outside the viewport/);
 });
 
 test('shows canvas row and column rulers for counting grid cells', async ({ page }) => {
@@ -1704,15 +1789,15 @@ test('keeps editable grid cells inside compact artboards', async ({ page }) => {
 
   const metrics = await page.locator('.h5-artboard').evaluate((node) => {
     const artboard = node.getBoundingClientRect();
-    const canvas = node.querySelector('.h5-grid-canvas')?.getBoundingClientRect();
-    if (!canvas) throw new Error('Missing editable grid canvas');
+    const interaction = node.querySelector('.h5-canvas-interaction')?.getBoundingClientRect();
+    if (!interaction) throw new Error('Missing editable canvas interaction surface');
     return {
       artboardLeft: artboard.left,
       artboardRight: artboard.right,
       artboardBottom: artboard.bottom,
-      firstLeft: canvas.left,
-      lastRight: canvas.right,
-      lastBottom: canvas.bottom,
+      firstLeft: interaction.left,
+      lastRight: interaction.right,
+      lastBottom: interaction.bottom,
     };
   });
   expect(metrics.firstLeft).toBeGreaterThanOrEqual(metrics.artboardLeft);
@@ -1821,7 +1906,7 @@ test('keeps mobile canvas labels compact and clear of the toolbar', async ({ pag
   expect(rulerMetrics.height).toBeLessThanOrEqual(14);
 
   await page.getByRole('button', { name: '画笔工具' }).click();
-  await clickCanvasCell(page, 0, 0);
+  await clickCanvasCell(page, 9, 9);
   for (let index = 0; index < 5; index += 1) {
     await page.getByRole('button', { name: '放大画布' }).click();
     await page.waitForTimeout(120);
@@ -2356,8 +2441,8 @@ test('edits a preset H5 grid canvas with brush, eraser, fill, and bottom palette
   const transformMatrix = async () =>
     page.locator('.react-transform-component').evaluate((node) => getComputedStyle(node).transform);
   const dragStage = async (dx: number, dy: number) => {
-    const box = await page.locator('.h5-grid-canvas').boundingBox();
-    expect(box, 'grid box for pan drag').not.toBeNull();
+    const box = await page.locator('.h5-canvas-interaction').boundingBox();
+    expect(box, 'canvas interaction box for pan drag').not.toBeNull();
     const x = box!.x + box!.width / 2;
     const y = box!.y + box!.height / 2;
     await page.mouse.move(x, y);
