@@ -20,7 +20,7 @@
 
 - [ ] **Step 1: Write failing raster-budget tests**
 
-Test a public `canvasRenderMetrics(width, height, dpr, zoom)` API. Assert normal DPR sizing, minimum scale 1 at zoom 0.2, and a maximum of 4096 pixels per dimension and 16,777,216 pixels in area at DPR 2 / zoom 12.
+Test a public `canvasRenderMetrics(width, height, dpr, zoom)` API. Assert normal DPR sizing, minimum scale 1 at zoom 0.2, a maximum of 4096 pixels per dimension, and at most 16,777,216 pixels across all three layers at DPR 2 / zoom 12.
 
 - [ ] **Step 2: Run the focused test and verify RED**
 
@@ -93,7 +93,7 @@ Run: `npm test -- apps/h5/src/H5FlowComponents.test.ts`
 Run:
 
 ```bash
-npm run test:e2e -- --project h5-chromium tests/e2e/h5.spec.ts -g "uploads from the H5 home page|keeps imported canvas cell size|renders every painted|shows imported canvas color codes|shows canvas row and column rulers|fits a default grid canvas|keeps editable grid cells|keeps mobile canvas labels|aligns the split grid|edits a preset H5 grid canvas|does not paint when a two-finger pinch|does not connect brush strokes|prioritizes drawing colors|prioritizes colors used|exports a coded bead pattern"
+npm run test:e2e -- tests/e2e/h5.spec.ts --project=h5-chromium -g "uploads from the H5 home page|keeps imported canvas cell size|renders every painted|shows imported canvas color codes|shows canvas row and column rulers|fits a default grid canvas|keeps editable grid cells|keeps mobile canvas labels|aligns the split grid|edits a preset H5 grid canvas|does not paint when a two-finger pinch|does not connect brush strokes|prioritizes drawing colors|prioritizes colors used|exports a coded bead pattern"
 ```
 
 Expected RED: the presentation test cannot find `H5CanvasLayers`, and browser tests cannot find `.h5-color-canvas`, `.h5-code-canvas`, or `.h5-grid-canvas`. Do not proceed on syntax or environment failures.
@@ -150,7 +150,7 @@ Run:
 ```bash
 npm test
 npm run build:h5
-npm run test:e2e -- --project h5-chromium tests/e2e/h5.spec.ts
+npm run test:e2e -- tests/e2e/h5.spec.ts --project=h5-chromium
 ```
 
 Record pre-existing failures separately from regressions introduced by this work.

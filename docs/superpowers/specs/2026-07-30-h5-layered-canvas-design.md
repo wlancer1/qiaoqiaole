@@ -36,7 +36,7 @@ All canvases fill the existing `.h5-artboard`. The first two layers ignore point
 
 The renderer uses untransformed artboard CSS pixels as its logical coordinate space. Each cell occupies `width / cols` by `height / rows` logical pixels. Cell geometry and font sizes are always expressed in these logical pixels. Zoom changes backing-store density and the parent CSS transform, but it is never multiplied into logical geometry.
 
-The requested render scale is `devicePixelRatio * zoom`. It is capped before allocating a backing store so that no layer exceeds a 4096-pixel dimension or 16,777,216 backing pixels. The effective render scale is:
+The requested render scale is `devicePixelRatio * zoom`. It is capped before allocating the three backing stores so that no layer exceeds a 4096-pixel dimension and the three layers together do not exceed 16,777,216 backing pixels (about 64 MiB of raw RGBA storage). The effective render scale is:
 
 ```text
 max(
@@ -45,7 +45,7 @@ max(
     devicePixelRatio * zoom,
     4096 / logicalWidth,
     4096 / logicalHeight,
-    sqrt(16,777,216 / (logicalWidth * logicalHeight))
+    sqrt(16,777,216 / (3 * logicalWidth * logicalHeight))
   )
 )
 ```
@@ -79,7 +79,7 @@ Existing tests for gestures, tools, rulers, canvas fitting, imports, export, und
 ## Risks and Mitigations
 
 - **Blurry zoomed output:** increase backing density with zoom and redraw as scale changes, subject to a strict allocation budget.
-- **Unsafe Canvas allocation at high zoom:** cap each backing dimension at 4096 pixels and each layer at 16,777,216 pixels, then let CSS scale the capped bitmap.
+- **Unsafe Canvas allocation at high zoom:** cap each backing dimension at 4096 pixels and the three-layer stack at 16,777,216 pixels in aggregate, then let CSS scale the capped bitmaps.
 - **Double-applied zoom:** measure untransformed layout size from `ResizeObserver`/`clientWidth`; use transformed bounds only for pointer normalization.
 - **Font fallback on first draw:** redraw the code layer after `document.fonts.ready` resolves.
 - **Excessive redraws during zoom:** coalesce drawing through `requestAnimationFrame` and avoid changing React cell state during rendering.
