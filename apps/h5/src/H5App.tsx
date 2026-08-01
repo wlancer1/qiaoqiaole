@@ -202,6 +202,7 @@ function H5App() {
   const [canvasScale, setCanvasScale] = useState(1.0);
   const [panX, setPanX] = useState(0);
   const [panY, setPanY] = useState(0);
+  const keyboardCellRef = useRef({ x: 0, y: 0 });
   const [showSettings, setShowSettings] = useState(false);
   const [showCreateCanvasModal, setShowCreateCanvasModal] = useState(false);
 
@@ -1350,6 +1351,23 @@ function H5App() {
     handleCellTap(cell);
   };
 
+  const handleCanvasKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    const current = keyboardCellRef.current;
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      event.preventDefault();
+      const next = {
+        x: Math.max(0, Math.min(cols - 1, current.x + (event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0))),
+        y: Math.max(0, Math.min(rows - 1, current.y + (event.key === 'ArrowUp' ? -1 : event.key === 'ArrowDown' ? 1 : 0))),
+      };
+      keyboardCellRef.current = next;
+      return;
+    }
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    const cell = cells.find((item) => item.x === current.x && item.y === current.y);
+    if (cell) handleCellTap(cell);
+  };
+
   const cellFromCanvasPointer = (clientX: number, clientY: number, artwork: HTMLElement) => {
     const rect = artwork.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return null;
@@ -1706,7 +1724,10 @@ function H5App() {
           title="浏览"
           backLabel="返回分割"
           onBack={() => setScreen('split')}
-          action={getImportAction(splitPreviewLoading ? 0 : splitPreviewCells.length, importSplitToCanvas)}
+          action={getImportAction(
+            splitPreviewLoading || splitMergeThreshold !== deferredSplitMergeThreshold ? 0 : splitPreviewCells.length,
+            importSplitToCanvas,
+          )}
         />
 
         <section className="split-browser-container" aria-label="分割浏览预览" aria-busy={splitPreviewLoading}>
@@ -1907,6 +1928,8 @@ function H5App() {
                           className="h5-canvas-interaction canvas-artwork"
                           role="img"
                           aria-label="拼豆编辑画布"
+                          tabIndex={0}
+                          onKeyDown={handleCanvasKeyDown}
                           onPointerDown={handleCanvasPointerDown}
                           onPointerMove={handleCanvasPointerMove}
                           onPointerUp={handleCanvasPaintPointerEnd}
