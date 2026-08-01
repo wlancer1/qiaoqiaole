@@ -333,6 +333,12 @@ describe('H5CanvasLayers scheduling contract', () => {
     expect(structure.hasInitialLayoutWork).toBe(true);
   });
 
+  it('draws camera frames directly from the transform callback instead of queueing a second RAF', () => {
+    const transformCallback = source.match(/const handleTransform = useCallback\(\(\) => \{[\s\S]*?\}, \[\]\);/)?.[0] ?? '';
+    expect(transformCallback).toContain('drawFrameRef.current()');
+    expect(transformCallback).not.toContain('scheduleDraw()');
+  });
+
   it('cleans up viewport observers and resubscribes after a DPR change', () => {
     expect(source).toContain('ResizeObserver');
     expect(structure.hasCall(['disconnect'])).toBe(true);

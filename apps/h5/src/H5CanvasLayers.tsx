@@ -206,8 +206,11 @@ export function H5CanvasLayers({
   };
 
   const handleTransform = useCallback(() => {
-    scheduleDraw();
-  }, [scheduleDraw]);
+    // react-zoom-pan-pinch has already applied the transform before invoking
+    // useTransformEffect. Draw immediately so the fixed viewport layers do
+    // not trail the transformed interaction layer by one animation frame.
+    drawFrameRef.current();
+  }, []);
   useTransformEffect(handleTransform);
 
   useLayoutEffect(() => {
