@@ -2928,19 +2928,31 @@ input:focus-visible {
   }
 }
 
+.react-transform-wrapper {
+  position: relative;
+  z-index: 2;
+}
+
+.react-transform-component {
+  position: relative;
+  z-index: 2;
+}
+
 .h5-artboard {
   position: relative;
   width: calc(32 * var(--canvas-cell-size));
-  background-color: transparent;
-  background-image:
-    linear-gradient(45deg, #cfcfcf 25%, transparent 25%),
-    linear-gradient(-45deg, #cfcfcf 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, #cfcfcf 75%),
-    linear-gradient(-45deg, transparent 75%, #cfcfcf 75%);
-  background-position: 0 0, 0 10px, 10px -10px, -10px 0;
-  background-size: 20px 20px;
+  z-index: 2;
+  background: transparent;
   box-shadow: 0 0.5714rem 1.5238rem rgba(25, 38, 48, 0.18);
   flex-shrink: 0;
+}
+
+.h5-canvas-interaction {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  touch-action: none;
+  user-select: none;
 }
 
 .h5-canvas-rulers {
@@ -3003,8 +3015,10 @@ input:focus-visible {
 .h5-canvas-layers {
   position: absolute;
   inset: 0;
+  z-index: 1;
   width: 100%;
   height: 100%;
+  pointer-events: none;
 }
 
 .h5-canvas-layers canvas {
@@ -3014,10 +3028,8 @@ input:focus-visible {
   width: 100%;
   height: 100%;
   background: transparent;
-  image-rendering: pixelated;
+  pointer-events: none;
   user-select: none;
-  transform: translateZ(0);
-  backface-visibility: hidden;
 }
 
 .h5-color-canvas {
@@ -3032,7 +3044,7 @@ input:focus-visible {
 
 .h5-grid-canvas {
   z-index: 3;
-  touch-action: none;
+  pointer-events: none;
 }
 
 .canvas-status {

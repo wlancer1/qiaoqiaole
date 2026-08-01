@@ -1,45 +1,42 @@
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
-  type CanvasHTMLAttributes,
+  type RefObject,
 } from 'react';
+import { useTransformEffect } from 'react-zoom-pan-pinch';
 import type { Cell } from '@qiaoqiaole/core';
 import {
   canvasRenderMetrics,
   configureCanvas,
-  drawCodeLayer,
-  drawColorLayer,
-  drawGridLayer,
+  drawViewportCodeLayer,
+  drawViewportColorLayer,
+  drawViewportGridLayer,
   type CanvasRenderMetrics,
+  type ViewportArtboard,
 } from './H5CanvasRenderer';
 
 type H5CanvasLayersProps = {
+  artboardRef: RefObject<HTMLElement | null>;
   cells: readonly Cell[];
   rows: number;
   cols: number;
-  canvasScale: number;
   codesVisible: boolean;
   getCode: (color: string) => string;
   getTextColor: (color: string) => string;
-  gridCanvasProps?: Omit<CanvasHTMLAttributes<HTMLCanvasElement>, 'className' | 'children'>;
 };
-
-type LogicalSize = { width: number; height: number };
-
-export const CANVAS_RASTER_SETTLE_MS = 120;
 
 export type CanvasLayerSnapshot = {
   cells: readonly Cell[];
   rows: number;
   cols: number;
-  liveCanvasScale: number;
-  rasterScale: number;
   codesVisible: boolean;
   getCode: (color: string) => string;
   getTextColor: (color: string) => string;
-  logicalWidth: number;
-  logicalHeight: number;
+  viewportWidth: number;
+  viewportHeight: number;
+  artboard: ViewportArtboard;
   dpr: number;
   fontRevision: number;
 };
@@ -64,14 +61,21 @@ export function canvasLayerInvalidation(
 ): CanvasLayerInvalidation {
   if (!previous) return { ...ALL_LAYERS_DIRTY };
 
-  const configure = previous.logicalWidth !== next.logicalWidth
-    || previous.logicalHeight !== next.logicalHeight
-    || previous.dpr !== next.dpr
-    || previous.rasterScale !== next.rasterScale;
+  const configure = previous.viewportWidth !== next.viewportWidth
+    || previous.viewportHeight !== next.viewportHeight
+    || previous.dpr !== next.dpr;
   if (configure) return { ...ALL_LAYERS_DIRTY };
 
   const dimensionsChanged = previous.rows !== next.rows || previous.cols !== next.cols;
   if (dimensionsChanged) {
+    return { configure: false, color: true, code: true, grid: true };
+  }
+
+  const cameraChanged = previous.artboard.left !== next.artboard.left
+    || previous.artboard.top !== next.artboard.top
+    || previous.artboard.width !== next.artboard.width
+    || previous.artboard.height !== next.artboard.height;
+  if (cameraChanged) {
     return { configure: false, color: true, code: true, grid: true };
   }
 
@@ -89,179 +93,182 @@ export function canvasLayerInvalidation(
   };
 }
 
-function mergeInvalidation(
-  target: CanvasLayerInvalidation,
-  next: CanvasLayerInvalidation,
-): void {
-  target.configure ||= next.configure;
-  target.color ||= next.color;
-  target.code ||= next.code;
-  target.grid ||= next.grid;
-}
-
 export function H5CanvasLayers({
+  artboardRef,
   cells,
   rows,
   cols,
-  canvasScale,
   codesVisible,
   getCode,
   getTextColor,
-  gridCanvasProps,
 }: H5CanvasLayersProps) {
   const stackRef = useRef<HTMLDivElement>(null);
   const colorRef = useRef<HTMLCanvasElement>(null);
   const codeRef = useRef<HTMLCanvasElement>(null);
   const gridRef = useRef<HTMLCanvasElement>(null);
-  const sizeRef = useRef<LogicalSize>({ width: 0, height: 0 });
-  const fontRevisionRef = useRef(0);
-  const rasterScaleRef = useRef(canvasScale);
-  const rasterScaleTimerRef = useRef<number | null>(null);
   const frameRef = useRef<number | null>(null);
   const metricsRef = useRef<CanvasRenderMetrics | null>(null);
   const colorContextRef = useRef<CanvasRenderingContext2D | null>(null);
   const codeContextRef = useRef<CanvasRenderingContext2D | null>(null);
   const gridContextRef = useRef<CanvasRenderingContext2D | null>(null);
   const snapshotRef = useRef<CanvasLayerSnapshot | null>(null);
-  const dirtyRef = useRef<CanvasLayerInvalidation>({ ...ALL_LAYERS_DIRTY });
-  const latestRef = useRef({ cells, rows, cols, canvasScale, codesVisible, getCode, getTextColor });
-  latestRef.current = { cells, rows, cols, canvasScale, codesVisible, getCode, getTextColor };
+  const fontRevisionRef = useRef(0);
+  const latestRef = useRef({ cells, rows, cols, codesVisible, getCode, getTextColor });
+  const drawFrameRef = useRef<() => void>(() => undefined);
+  latestRef.current = { cells, rows, cols, codesVisible, getCode, getTextColor };
 
-  const currentSnapshot = (): CanvasLayerSnapshot => ({
-    cells: latestRef.current.cells,
-    rows: latestRef.current.rows,
-    cols: latestRef.current.cols,
-    liveCanvasScale: latestRef.current.canvasScale,
-    rasterScale: rasterScaleRef.current,
-    codesVisible: latestRef.current.codesVisible,
-    getCode: latestRef.current.getCode,
-    getTextColor: latestRef.current.getTextColor,
-    logicalWidth: sizeRef.current.width,
-    logicalHeight: sizeRef.current.height,
-    dpr: window.devicePixelRatio || 1,
-    fontRevision: fontRevisionRef.current,
-  });
-
-  const invalidate = () => {
-    const next = currentSnapshot();
-    mergeInvalidation(dirtyRef.current, canvasLayerInvalidation(snapshotRef.current, next));
-    snapshotRef.current = next;
-    scheduleDrawRef.current();
-  };
-
-  const scheduleDrawRef = useRef<() => void>(() => undefined);
-  scheduleDrawRef.current = () => {
+  const scheduleDraw = useCallback(() => {
     if (frameRef.current !== null) return;
     frameRef.current = window.requestAnimationFrame(() => {
       frameRef.current = null;
-      const colorCanvas = colorRef.current;
-      const codeCanvas = codeRef.current;
-      const gridCanvas = gridRef.current;
-      if (!colorCanvas || !codeCanvas || !gridCanvas) return;
-
-      const current = latestRef.current;
-      const dirty = { ...dirtyRef.current };
-      dirtyRef.current = { configure: false, color: false, code: false, grid: false };
-
-      if (dirty.configure || !metricsRef.current) {
-        const { width, height } = sizeRef.current;
-        const metrics = canvasRenderMetrics(width, height, window.devicePixelRatio || 1, rasterScaleRef.current);
-        metricsRef.current = metrics;
-        colorContextRef.current = configureCanvas(colorCanvas, metrics);
-        codeContextRef.current = configureCanvas(codeCanvas, metrics);
-        gridContextRef.current = configureCanvas(gridCanvas, metrics);
-        const stack = stackRef.current;
-        if (stack) {
-          stack.dataset.rasterWidth = String(metrics.backingWidth);
-          stack.dataset.rasterHeight = String(metrics.backingHeight);
-          stack.dataset.renderScale = String(metrics.renderScale);
-        }
-      }
-
-      const metrics = metricsRef.current;
-      const colorContext = colorContextRef.current;
-      const codeContext = codeContextRef.current;
-      const gridContext = gridContextRef.current;
-      if (!colorContext || !codeContext || !gridContext) return;
-
-      const geometry = {
-        width: metrics.logicalWidth,
-        height: metrics.logicalHeight,
-        rows: current.rows,
-        cols: current.cols,
-        renderScale: metrics.renderScale,
-      };
-      if (dirty.color) drawColorLayer(colorContext, { ...geometry, cells: current.cells });
-      if (dirty.code) {
-        drawCodeLayer(codeContext, {
-          ...geometry,
-          cells: current.cells,
-          visible: current.codesVisible,
-          getCode: current.getCode,
-          getTextColor: current.getTextColor,
-        });
-      }
-      if (dirty.grid) drawGridLayer(gridContext, { ...geometry, zoom: rasterScaleRef.current });
+      drawFrameRef.current();
     });
+  }, []);
+
+  drawFrameRef.current = () => {
+    const stack = stackRef.current;
+    const artboardElement = artboardRef.current;
+    const colorCanvas = colorRef.current;
+    const codeCanvas = codeRef.current;
+    const gridCanvas = gridRef.current;
+    if (!stack || !artboardElement || !colorCanvas || !codeCanvas || !gridCanvas) return;
+
+    const viewportRect = stack.getBoundingClientRect();
+    const artboardRect = artboardElement.getBoundingClientRect();
+    const viewportWidth = viewportRect.width;
+    const viewportHeight = viewportRect.height;
+    const dpr = window.devicePixelRatio || 1;
+    const artboard = {
+      left: artboardRect.left - viewportRect.left,
+      top: artboardRect.top - viewportRect.top,
+      width: artboardRect.width,
+      height: artboardRect.height,
+    };
+    const current = latestRef.current;
+    const nextSnapshot: CanvasLayerSnapshot = {
+      ...current,
+      viewportWidth,
+      viewportHeight,
+      artboard,
+      dpr,
+      fontRevision: fontRevisionRef.current,
+    };
+    const dirty = canvasLayerInvalidation(snapshotRef.current, nextSnapshot);
+    snapshotRef.current = nextSnapshot;
+
+    if (dirty.configure || !metricsRef.current) {
+      const baseMetrics = canvasRenderMetrics(viewportWidth, viewportHeight, dpr, 1);
+      const metrics = {
+        ...baseMetrics,
+        backingWidth: baseMetrics.logicalWidth > 0
+          ? Math.max(1, Math.round(baseMetrics.logicalWidth * baseMetrics.renderScale))
+          : 0,
+        backingHeight: baseMetrics.logicalHeight > 0
+          ? Math.max(1, Math.round(baseMetrics.logicalHeight * baseMetrics.renderScale))
+          : 0,
+      };
+      metricsRef.current = metrics;
+      colorContextRef.current = configureCanvas(colorCanvas, metrics);
+      codeContextRef.current = configureCanvas(codeCanvas, metrics);
+      gridContextRef.current = configureCanvas(gridCanvas, metrics);
+      stack.dataset.rasterWidth = String(metrics.backingWidth);
+      stack.dataset.rasterHeight = String(metrics.backingHeight);
+      stack.dataset.renderScale = String(metrics.renderScale);
+    }
+
+    const metrics = metricsRef.current;
+    const colorContext = colorContextRef.current;
+    const codeContext = codeContextRef.current;
+    const gridContext = gridContextRef.current;
+    if (!metrics || !colorContext || !codeContext || !gridContext) return;
+
+    const geometry = {
+      viewportWidth: metrics.logicalWidth,
+      viewportHeight: metrics.logicalHeight,
+      artboard,
+      rows: current.rows,
+      cols: current.cols,
+      renderScale: metrics.renderScale,
+    };
+    if (dirty.color) {
+      drawViewportColorLayer(colorContext, { ...geometry, cells: current.cells });
+    }
+    if (dirty.code) {
+      drawViewportCodeLayer(codeContext, {
+        ...geometry,
+        cells: current.cells,
+        visible: current.codesVisible,
+        getCode: current.getCode,
+        getTextColor: current.getTextColor,
+      });
+    }
+    if (dirty.grid) drawViewportGridLayer(gridContext, geometry);
   };
 
-  useLayoutEffect(() => {
-    invalidate();
-  }, [cells, rows, cols, canvasScale, codesVisible, getCode, getTextColor]);
+  const handleTransform = useCallback(() => {
+    scheduleDraw();
+  }, [scheduleDraw]);
+  useTransformEffect(handleTransform);
 
-  useEffect(() => {
-    if (rasterScaleTimerRef.current !== null) {
-      window.clearTimeout(rasterScaleTimerRef.current);
-    }
-    rasterScaleTimerRef.current = window.setTimeout(() => {
-      rasterScaleTimerRef.current = null;
-      rasterScaleRef.current = latestRef.current.canvasScale;
-      invalidate();
-    }, CANVAS_RASTER_SETTLE_MS);
-    return () => {
-      if (rasterScaleTimerRef.current !== null) {
-        window.clearTimeout(rasterScaleTimerRef.current);
-        rasterScaleTimerRef.current = null;
-      }
-    };
-  }, [canvasScale]);
+  useLayoutEffect(() => {
+    scheduleDraw();
+  }, [cells, rows, cols, codesVisible, getCode, getTextColor, scheduleDraw]);
 
   useLayoutEffect(() => {
     const stack = stackRef.current;
     if (!stack) return;
-    const measure = (entry?: ResizeObserverEntry) => {
-      const width = entry?.contentRect.width ?? stack.clientWidth;
-      const height = entry?.contentRect.height ?? stack.clientHeight;
-      sizeRef.current = { width, height };
-      invalidate();
-    };
-    measure();
-    const observer = new ResizeObserver((entries) => measure(entries[0]));
-    const handleWindowResize = () => measure();
+    const observer = new ResizeObserver(() => scheduleDraw());
+    const handleWindowResize = () => scheduleDraw();
     observer.observe(stack);
     window.addEventListener('resize', handleWindowResize);
+    scheduleDraw();
     return () => {
       observer.disconnect();
       window.removeEventListener('resize', handleWindowResize);
     };
-  }, []);
+  }, [scheduleDraw]);
+
+  useEffect(() => {
+    let dprQuery: MediaQueryList | null = null;
+    function removeDprListener() {
+      if (!dprQuery) return;
+      if (typeof dprQuery.removeEventListener === 'function') {
+        dprQuery.removeEventListener('change', handleDprChange);
+      } else {
+        (dprQuery as MediaQueryList & { removeListener?: (listener: () => void) => void })
+          .removeListener?.(handleDprChange);
+      }
+    }
+    function refreshDprQuery() {
+      removeDprListener();
+      const dpr = window.devicePixelRatio || 1;
+      dprQuery = window.matchMedia(`(resolution: ${dpr}dppx)`);
+      if (typeof dprQuery.addEventListener === 'function') {
+        dprQuery.addEventListener('change', handleDprChange);
+      } else {
+        (dprQuery as MediaQueryList & { addListener?: (listener: () => void) => void })
+          .addListener?.(handleDprChange);
+      }
+      scheduleDraw();
+    }
+    function handleDprChange() {
+      refreshDprQuery();
+    }
+    refreshDprQuery();
+    return removeDprListener;
+  }, [scheduleDraw]);
 
   useEffect(() => {
     let active = true;
     void document.fonts?.ready.then(() => {
-      if (active) {
-        fontRevisionRef.current += 1;
-        invalidate();
-      }
+      if (!active) return;
+      fontRevisionRef.current += 1;
+      scheduleDraw();
     });
     return () => { active = false; };
-  }, []);
+  }, [scheduleDraw]);
 
   useEffect(() => () => {
-    if (rasterScaleTimerRef.current !== null) {
-      window.clearTimeout(rasterScaleTimerRef.current);
-      rasterScaleTimerRef.current = null;
-    }
     if (frameRef.current !== null) {
       window.cancelAnimationFrame(frameRef.current);
       frameRef.current = null;
@@ -281,13 +288,7 @@ export function H5CanvasLayers({
     >
       <canvas ref={colorRef} className="h5-color-canvas" aria-hidden="true" />
       <canvas ref={codeRef} className="h5-code-canvas" aria-hidden="true" />
-      <canvas
-        {...gridCanvasProps}
-        ref={gridRef}
-        className="h5-grid-canvas canvas-artwork"
-        role="img"
-        aria-label="拼豆编辑画布"
-      />
+      <canvas ref={gridRef} className="h5-grid-canvas" aria-hidden="true" />
     </div>
   );
 }

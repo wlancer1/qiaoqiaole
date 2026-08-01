@@ -183,6 +183,7 @@ function H5App() {
   const activeWarehouseIdRef = useRef('');
   const inventoryRequestSeqRef = useRef(0);
   const cellsRef = useRef(cells);
+  const canvasArtboardRef = useRef<HTMLDivElement | null>(null);
   const suppressCanvasClickRef = useRef(false);
   const paintStrokeRef = useRef<PaintStroke>({
     active: false,
@@ -1222,7 +1223,7 @@ function H5App() {
     suppressCanvasClickRef.current = false;
   };
 
-  const beginPaintStroke = (x: number, y: number, pointerId: number, target: EventTarget & Element, deferInitialPaint = false) => {
+  const beginPaintStroke = (x: number, y: number, pointerId: number, target: EventTarget & HTMLElement, deferInitialPaint = false) => {
     if (tool !== 'brush' && tool !== 'eraser') return false;
     setStatus('');
     const baseCells = cellsRef.current;
@@ -1275,7 +1276,7 @@ function H5App() {
     stroke.lastCell = null;
   };
 
-  const endPaintStroke = (pointerId: number, target?: EventTarget & Element) => {
+  const endPaintStroke = (pointerId: number, target?: EventTarget & HTMLElement) => {
     const stroke = paintStrokeRef.current;
     if (!stroke.active || stroke.pointerId !== pointerId) return;
     paintInitialStrokeCell();
@@ -1309,7 +1310,7 @@ function H5App() {
     canvasTouchPointersRef.current.delete(event.pointerId);
   };
 
-  const handleCanvasPointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
+  const handleCanvasPointerDown = (event: React.PointerEvent<HTMLElement>) => {
     const isMultiTouch = event.pointerType === 'touch' && canvasTouchPointersRef.current.size > 1;
     if (isMultiTouch) return;
     const point = cellFromCanvasPointer(event.clientX, event.clientY, event.currentTarget);
@@ -1319,7 +1320,7 @@ function H5App() {
     }
   };
 
-  const handleCanvasPointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+  const handleCanvasPointerMove = (event: React.PointerEvent<HTMLElement>) => {
     const point = cellFromCanvasPointer(event.clientX, event.clientY, event.currentTarget);
     if (!point) {
       breakPaintStroke(event.pointerId);
@@ -1328,14 +1329,14 @@ function H5App() {
     continuePaintStroke(point.x, point.y, event.pointerId);
   };
 
-  const handleCanvasPaintPointerEnd = (event: React.PointerEvent<Element>) => {
+  const handleCanvasPaintPointerEnd = (event: React.PointerEvent<HTMLElement>) => {
     endPaintStroke(event.pointerId, event.currentTarget);
     if (event.pointerType === 'touch') {
       canvasTouchPointersRef.current.delete(event.pointerId);
     }
   };
 
-  const handleCanvasClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
+  const handleCanvasClick = (event: React.MouseEvent<HTMLElement>) => {
     if (suppressCanvasClickRef.current) {
       suppressCanvasClickRef.current = false;
       return;
@@ -1347,8 +1348,8 @@ function H5App() {
     handleCellTap(cell);
   };
 
-  const cellFromCanvasPointer = (clientX: number, clientY: number, canvas: HTMLCanvasElement) => {
-    const rect = canvas.getBoundingClientRect();
+  const cellFromCanvasPointer = (clientX: number, clientY: number, artwork: HTMLElement) => {
+    const rect = artwork.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return null;
     if (clientX < rect.left || clientX >= rect.right || clientY < rect.top || clientY >= rect.bottom) return null;
     const x = Math.min(cols - 1, Math.max(0, Math.floor(((clientX - rect.left) / rect.width) * cols)));
@@ -1878,11 +1879,21 @@ function H5App() {
               {({ zoomIn, zoomOut, resetTransform }) => (
                 <>
                   <CanvasScaleObserver onScaleChange={setCanvasScale} />
+                  <H5CanvasLayers
+                    artboardRef={canvasArtboardRef}
+                    cells={cells}
+                    cols={cols}
+                    rows={rows}
+                    codesVisible={canvasScale >= 1.5}
+                    getCode={colorCodeOf}
+                    getTextColor={colorCodeTextColor}
+                  />
                   <TransformComponent
                     wrapperStyle={{ width: '100%', height: '100%', overflow: 'hidden' }}
                     contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                   >
                     <div
+                      ref={canvasArtboardRef}
                       className="h5-artboard"
                       style={{
                         aspectRatio: `${cols} / ${rows}`,
@@ -1890,22 +1901,16 @@ function H5App() {
                       }}
                       >
                         <CanvasRulers rows={rows} cols={cols} />
-                        <H5CanvasLayers
-                          cells={cells}
-                          cols={cols}
-                          rows={rows}
-                          canvasScale={canvasScale}
-                          codesVisible={canvasScale >= 1.5}
-                          getCode={colorCodeOf}
-                          getTextColor={colorCodeTextColor}
-                          gridCanvasProps={{
-                            onPointerDown: handleCanvasPointerDown,
-                            onPointerMove: handleCanvasPointerMove,
-                            onPointerUp: handleCanvasPaintPointerEnd,
-                            onPointerCancel: handleCanvasPaintPointerEnd,
-                            onLostPointerCapture: handleCanvasPaintPointerEnd,
-                            onClick: handleCanvasClick,
-                          }}
+                        <div
+                          className="h5-canvas-interaction canvas-artwork"
+                          role="img"
+                          aria-label="拼豆编辑画布"
+                          onPointerDown={handleCanvasPointerDown}
+                          onPointerMove={handleCanvasPointerMove}
+                          onPointerUp={handleCanvasPaintPointerEnd}
+                          onPointerCancel={handleCanvasPaintPointerEnd}
+                          onLostPointerCapture={handleCanvasPaintPointerEnd}
+                          onClick={handleCanvasClick}
                         />
                     </div>
                   </TransformComponent>
