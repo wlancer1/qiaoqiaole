@@ -2,6 +2,19 @@
 
 ### Added
 
+- Added real-data community/template flows with project saving, one-time share-to-community behavior, community comments, likes, and hot sorting by like count.
+- Added a dedicated split crop step with single-canvas rendering, preset crop ratios, automatic content bounds, row/column labels, movable crop selection, and zoom behavior aligned with the split flow.
+
+### Changed
+
+- Reworked H5 split/crop/editor code into canvas, flow, page, pattern, shared, and utility modules for the expanded split-to-crop-to-preview workflow.
+
+### Fixed
+
+- Fixed crop output handoff, back navigation, grid preservation after alignment zoom, crop selection bounds, and crop canvas layout so the editor canvas fills its workspace.
+
+### Added
+
 - Added H5 split-preview bead color merging controls and bead list coverage backed by core `mergeSimilarCells` tests.
 - Added H5 E2E coverage for compact split controls, single-slider quick split sizing, centered alignment sizing controls, and matching home/profile hero card heights.
 - Added H5 canvas pan-first toolbar behavior, drag painting/erasing, reference image support, compact mobile rulers/cell labels, and plain color-code labels with black/white contrast.

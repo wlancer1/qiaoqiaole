@@ -308,7 +308,7 @@ test('shows the reference-driven home hierarchy with only real tools', async ({ 
   await expect(page.locator('.home-brand-planet')).toBeVisible();
   await expect(page.locator('.home-upload-watermark')).toBeVisible();
   await expect(page.getByText('最近项目', { exact: true })).toBeVisible();
-  await expect(page.locator('.home-recent-card')).toHaveCount(4);
+  await expect(page.locator('.home-recent-card')).toHaveCount(0);
   await expect(page.locator('.bottom-tabs button')).toHaveCount(3);
   const uploadFloatMetrics = await page.locator('.home-upload-hero').evaluate((node) => {
     const card = node as HTMLElement;
@@ -330,18 +330,6 @@ test('shows the reference-driven home hierarchy with only real tools', async ({ 
   expect(uploadFloatMetrics.cardBottom).toBeGreaterThan(uploadFloatMetrics.heroBottom + 20);
   expect(uploadFloatMetrics.shadow).not.toBe('none');
   expect(uploadFloatMetrics.heroOverflow).toBe('visible');
-  const recentSpacingMetrics = await page.locator('.home-recent-projects').evaluate((node) => {
-    const recent = node as HTMLElement;
-    const card = document.querySelector('.home-upload-hero');
-    const heading = recent.querySelector('.home-section-heading');
-    if (!(card instanceof HTMLElement) || !(heading instanceof HTMLElement)) throw new Error('Missing upload card or recent heading');
-    return {
-      cardBottom: card.getBoundingClientRect().bottom,
-      headingTop: heading.getBoundingClientRect().top,
-    };
-  });
-  expect(recentSpacingMetrics.headingTop).toBeGreaterThanOrEqual(recentSpacingMetrics.cardBottom + 20);
-
   const touchTargets = await page.locator(
     'button.home-upload-hero, .home-creation-tools button.quick-action-card, .home-brand-notify, .bottom-tabs button',
   ).evaluateAll((nodes) => nodes.map((node) => {
@@ -2301,6 +2289,7 @@ test('logs in from profile and manages bead warehouse stock by count and grams',
   await warehouseDialog.getByRole('textbox', { name: '仓库备注' }).fill('E2E');
   await warehouseDialog.getByRole('button', { name: '创建仓库' }).click();
   await expect(page.getByRole('button', { name: warehouseName })).toBeVisible();
+  await expect(page.locator('.wh-color-grid')).toHaveCSS('grid-template-columns', /^(?:[^ ]+ ){5}[^ ]+$/);
 
   await page.getByRole('button', { name: /^A1 库存 0 颗$/ }).click();
   await page.getByRole('button', { name: /^A2 库存 0 颗$/ }).click();
@@ -2392,6 +2381,31 @@ test('keeps existing admin sessions valid after another admin login', async ({ r
   expect(meResponse.ok()).toBe(true);
   const { user } = (await meResponse.json()) as { user: { username: string } };
   expect(user.username).toBe(testUsername);
+});
+
+test('binds recent projects to the authenticated user', async ({ request }) => {
+  const unauthenticated = await request.get('/api/projects');
+  expect(unauthenticated.status()).toBe(401);
+
+  const loginResponse = await request.post('/api/auth/login', {
+    data: { username: testUsername, password: testPassword },
+  });
+  expect(loginResponse.ok()).toBe(true);
+  const { token } = (await loginResponse.json()) as { token: string };
+  const headers = { authorization: `Bearer ${token}` };
+
+  const createResponse = await request.post('/api/projects', {
+    headers,
+    data: { name: '数据库项目校验', rows: 32, cols: 24, tone: 'recent-flower' },
+  });
+  expect(createResponse.status()).toBe(201);
+  const { project } = (await createResponse.json()) as { project: { name: string; rows: number; cols: number } };
+  expect(project).toMatchObject({ name: '数据库项目校验', rows: 32, cols: 24 });
+
+  const listResponse = await request.get('/api/projects', { headers });
+  expect(listResponse.ok()).toBe(true);
+  const { projects } = (await listResponse.json()) as { projects: Array<{ name: string }> };
+  expect(projects.some((item) => item.name === '数据库项目校验')).toBe(true);
 });
 
 test('rejects malformed API JSON bodies as client errors', async ({ request }) => {

@@ -1,4 +1,5 @@
 import { useId, type KeyboardEvent } from 'react';
+import { ArrowLeft, ArrowRight, Image } from 'lucide-react';
 
 export function HomeUploadHero({ onUpload }: { onUpload: () => void }) {
   return (
@@ -8,16 +9,10 @@ export function HomeUploadHero({ onUpload }: { onUpload: () => void }) {
         <small>支持 PNG / JPG / WebP</small>
       </span>
       <span className="home-upload-watermark" aria-hidden="true">
-        <svg viewBox="0 0 48 48" focusable="false" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="7" y="9" width="34" height="30" rx="7" />
-          <circle cx="18" cy="20" r="2.5" fill="currentColor" stroke="none" />
-          <path d="m12 33 8.5-8.5 6.5 6.5 3.5-3.5L38 35" />
-        </svg>
+        <Image aria-hidden="true" />
       </span>
       <span className="home-upload-arrow" aria-hidden="true">
-        <svg viewBox="0 0 24 24" focusable="false" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M5 12h14M13 6l6 6-6 6" />
-        </svg>
+        <ArrowRight aria-hidden="true" />
       </span>
     </button>
   );
@@ -43,7 +38,7 @@ export function FlowTopbar({ title, backLabel, onBack, action }: FlowTopbarProps
   return (
     <header className="split-topbar">
       <button className="split-icon-btn" type="button" aria-label={backLabel} onClick={onBack}>
-        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
+        <ArrowLeft aria-hidden="true" />
       </button>
       <h1 className="split-topbar-title">{title}</h1>
       {action ? (
@@ -57,6 +52,33 @@ export function FlowTopbar({ title, backLabel, onBack, action }: FlowTopbarProps
         </button>
       ) : <span className="split-topbar-spacer" aria-hidden="true" />}
     </header>
+  );
+}
+
+export type SplitCanvasLoadingProps = {
+  rows: number;
+  cols: number;
+  stage: string;
+  progress: number;
+};
+
+export function SplitCanvasLoading({ rows, cols, stage, progress }: SplitCanvasLoadingProps) {
+  const pixels = Array.from({ length: 25 }, (_, index) => index);
+  const safeProgress = Math.max(0, Math.min(100, Math.round(progress)));
+
+  return (
+    <div className="split-canvas-loading" role="status" aria-busy="true" aria-label="画布生成中">
+      <div className="split-canvas-loading-grid" aria-hidden="true">
+        {pixels.map((pixel) => <i className="split-canvas-loading-pixel" key={pixel} />)}
+      </div>
+      <strong>像素生成中</strong>
+      <p>{stage}</p>
+      <span className="split-canvas-loading-size">正在生成 {cols} × {rows} 格画布</span>
+      <div className="split-canvas-loading-progress" aria-label={`生成进度 ${safeProgress}%`}>
+        <span style={{ width: `${safeProgress}%` }} />
+      </div>
+      <output>{safeProgress}%</output>
+    </div>
   );
 }
 
@@ -187,5 +209,21 @@ export function SplitBeadList({ colors, totalBeads }: { colors: readonly BeadCol
       </div>
       <p className="split-bead-hint"><span aria-hidden="true">◉</span> 点击颜色可在预览中高亮显示</p>
     </section>
+  );
+}
+
+export function BeadListDrawer({ colors, totalBeads, onClose }: { colors: readonly BeadColorItem[]; totalBeads: number; onClose: () => void }) {
+  return (
+    <div className="split-bead-drawer-backdrop split-preview-page" role="presentation" onClick={onClose}>
+      <section className="split-bead-drawer split-bead-sheet" role="dialog" aria-modal="true" aria-label="豆子清单" onClick={(event) => event.stopPropagation()}>
+        <span className="split-bead-drawer-handle" aria-hidden="true" />
+        <header className="split-bead-drawer-header">
+          <h2>豆子清单</h2>
+          <button type="button" aria-label="关闭豆子清单" onClick={onClose}>×</button>
+        </header>
+        <p className="split-bead-drawer-copy">按当前画布实时统计颜色和数量</p>
+        <SplitBeadList colors={colors} totalBeads={totalBeads} />
+      </section>
+    </div>
   );
 }

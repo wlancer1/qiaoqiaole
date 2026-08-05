@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   FlowTopbar,
+  BeadListDrawer,
   HomeUploadHero,
   SegmentedControl,
   SplitCanvasLoading,
@@ -36,8 +37,8 @@ describe('H5 flow presentation components', () => {
 
   it('presents visual canvases in viewport space below the transformed interaction surface', () => {
     const styles = fs.readFileSync(path.resolve('apps/h5/src/styles.css'), 'utf8');
-    const app = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
-    const layers = fs.readFileSync(path.resolve('apps/h5/src/H5CanvasLayers.tsx'), 'utf8');
+    const app = fs.readFileSync(path.resolve('apps/h5/src/pages/editor/CanvasPage.tsx'), 'utf8');
+    const layers = fs.readFileSync(path.resolve('apps/h5/src/canvas/H5CanvasLayers.tsx'), 'utf8');
     const artboardStyles = styles.match(/\.h5-artboard\s*\{([^}]*)\}/s)?.[1] ?? '';
     const canvasStyles = styles.match(/\.h5-canvas-layers canvas\s*\{([^}]*)\}/s)?.[1] ?? '';
     const stackStyles = styles.match(/\.h5-canvas-layers\s*\{([^}]*)\}/s)?.[1] ?? '';
@@ -72,8 +73,8 @@ describe('H5 flow presentation components', () => {
   });
 
   it('keeps artwork semantics and input handlers on a div inside the transformed artboard', () => {
-    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
-    const layers = fs.readFileSync(path.resolve('apps/h5/src/H5CanvasLayers.tsx'), 'utf8');
+    const source = fs.readFileSync(path.resolve('apps/h5/src/pages/editor/CanvasPage.tsx'), 'utf8');
+    const layers = fs.readFileSync(path.resolve('apps/h5/src/canvas/H5CanvasLayers.tsx'), 'utf8');
     const artboardStart = source.indexOf('className="h5-artboard"');
     const artboardSubtree = source.slice(
       artboardStart,
@@ -102,7 +103,8 @@ describe('H5 flow presentation components', () => {
   });
 
   it('renders imported cells through the layered Canvas path', () => {
-    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+    const source = fs.readFileSync(path.resolve('apps/h5/src/pages/editor/CanvasPage.tsx'), 'utf8');
+    const app = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
 
     expect(source).not.toContain("setCanvasKind('image')");
     expect(source).not.toContain("canvasKind === 'image'");
@@ -303,7 +305,19 @@ describe('H5 flow presentation components', () => {
     expect(markup).toContain('class="split-bead-list"');
   });
 
-  it('renders complete stroke attributes for the upload and back icons', () => {
+  it('renders the reusable bead-list drawer shell', () => {
+    const markup = renderToStaticMarkup(createElement(BeadListDrawer, {
+      colors: [{ color: '#146cff', code: 'A1', count: 4 }],
+      totalBeads: 4,
+      onClose: vi.fn(),
+    }));
+
+    expect(markup).toContain('aria-label="豆子清单"');
+    expect(markup).toContain('豆子清单');
+    expect(markup).toContain('A1');
+  });
+
+  it('renders the shared icon-library components for upload and back actions', () => {
     const uploadMarkup = renderToStaticMarkup(createElement(HomeUploadHero, { onUpload: vi.fn() }));
     const topbarMarkup = renderToStaticMarkup(createElement(FlowTopbar, {
       title: '分割设置',
@@ -311,25 +325,8 @@ describe('H5 flow presentation components', () => {
       onBack: vi.fn(),
     }));
 
-    const uploadSvgs = uploadMarkup.match(/<svg\b[^>]*>/g) ?? [];
-    const watermarkSvg = uploadSvgs.find((tag) => tag.includes('viewBox="0 0 48 48"')) ?? '';
-    const uploadSvg = uploadSvgs.find((tag) => tag.includes('viewBox="0 0 24 24"')) ?? '';
-    const topbarSvg = topbarMarkup.match(/<svg\b[^>]*>/)?.[0] ?? '';
-
-    expect(watermarkSvg).toContain('fill="none"');
-    expect(watermarkSvg).toContain('stroke="currentColor"');
-    expect(watermarkSvg).toContain('stroke-width="4"');
-    expect(watermarkSvg).toContain('stroke-linecap="round"');
-    expect(watermarkSvg).toContain('stroke-linejoin="round"');
-    expect(uploadSvg).toContain('fill="none"');
-    expect(uploadSvg).toContain('stroke="currentColor"');
-    expect(uploadSvg).toContain('stroke-width="2.4"');
-    expect(uploadSvg).toContain('stroke-linecap="round"');
-    expect(uploadSvg).toContain('stroke-linejoin="round"');
-    expect(topbarSvg).toContain('fill="none"');
-    expect(topbarSvg).toContain('stroke="currentColor"');
-    expect(topbarSvg).toContain('stroke-width="2.5"');
-    expect(topbarSvg).toContain('stroke-linecap="round"');
-    expect(topbarSvg).toContain('stroke-linejoin="round"');
+    expect(uploadMarkup).toMatch(/class="[^"]*lucide-image/);
+    expect(uploadMarkup).toMatch(/class="[^"]*lucide-arrow-right/);
+    expect(topbarMarkup).toMatch(/class="[^"]*lucide-arrow-left/);
   });
 });

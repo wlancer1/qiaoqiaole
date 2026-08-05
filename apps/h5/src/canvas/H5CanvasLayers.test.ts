@@ -325,7 +325,7 @@ describe('scheduling source analyzer', () => {
 });
 
 describe('H5CanvasLayers scheduling contract', () => {
-  const source = fs.readFileSync(path.resolve('apps/h5/src/H5CanvasLayers.tsx'), 'utf8');
+  const source = fs.readFileSync(path.resolve('apps/h5/src/canvas/H5CanvasLayers.tsx'), 'utf8');
   const structure = schedulingStructure(source);
 
   it('passes a stable callback to the transform effect and schedules initial layout work', () => {

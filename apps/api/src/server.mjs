@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import initSqlJs from 'sql.js';
@@ -17,6 +17,7 @@ import {
   redactUrl,
 } from './xiaohongshu.mjs';
 import { loadEnvFile } from './env.mjs';
+import { loadTencentCosConfig, resolveCosAssetUrl, uploadToTencentCos } from './tencentCos.mjs';
 
 loadEnvFile();
 
@@ -26,6 +27,8 @@ const AUTH_USERNAME = requiredEnv('QIAOQIAOLE_USERNAME');
 const AUTH_PASSWORD = requiredEnv('QIAOQIAOLE_PASSWORD');
 const SESSION_DAYS = 30;
 const MAX_EXTRACT_IMAGE_BYTES = 20 * 1024 * 1024;
+const MAX_PROJECT_IMAGE_BYTES = 20 * 1024 * 1024;
+const PROJECT_ASSET_ACCESS_SECONDS = 15 * 60;
 const MARD_COLOR_RANGES = {
   A: 26,
   B: 32,
@@ -127,7 +130,59 @@ function initSchema() {
       FOREIGN KEY (warehouse_id) REFERENCES warehouses(id),
       FOREIGN KEY (user_id) REFERENCES users(id)
     );
+
+    CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      rows INTEGER NOT NULL,
+      cols INTEGER NOT NULL,
+      tone TEXT NOT NULL DEFAULT 'recent-flower',
+      source_image TEXT,
+      thumbnail_image TEXT,
+      canvas_data TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS project_likes (
+      project_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (project_id, user_id),
+      FOREIGN KEY (project_id) REFERENCES projects(id),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS project_comments (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (project_id) REFERENCES projects(id),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
   `);
+  for (const column of ['source_image', 'thumbnail_image', 'canvas_data']) {
+    try {
+      db.run(`ALTER TABLE projects ADD COLUMN ${column} TEXT`);
+    } catch {
+      // Existing databases already contain the column.
+    }
+  }
+  for (const statement of [
+    'ALTER TABLE projects ADD COLUMN shared_to_community INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE projects ADD COLUMN shared_at TEXT',
+    'ALTER TABLE projects ADD COLUMN likes_count INTEGER NOT NULL DEFAULT 0',
+  ]) {
+    try {
+      db.run(statement);
+    } catch {
+      // Existing databases already contain the column.
+    }
+  }
 }
 
 async function persist() {
@@ -165,6 +220,19 @@ async function route(request, response) {
   if (request.method === 'GET' && url.pathname === '/api/xiaohongshu/proxy') {
     return proxyXiaohongshuImage(url, response);
   }
+  if (request.method === 'GET' && url.pathname === '/api/project-assets') {
+    return redirectProjectAsset(request, url, response);
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/community/posts') {
+    const optionalUser = getOptionalUser(request);
+    return listCommunityPosts(response, optionalUser?.id || '', url.searchParams.get('sort') || 'hot', parsePagination(url.searchParams));
+  }
+  const publicCommunityCommentsMatch = url.pathname.match(/^\/api\/community\/posts\/([^/]+)\/comments$/);
+  if (publicCommunityCommentsMatch && request.method === 'GET') {
+    const optionalUser = getOptionalUser(request);
+    return listProjectComments(response, optionalUser?.id || '', publicCommunityCommentsMatch[1], parsePagination(url.searchParams));
+  }
 
   const user = requireUser(request, response);
   if (!user) return;
@@ -175,8 +243,38 @@ async function route(request, response) {
   if (request.method === 'GET' && url.pathname === '/api/warehouses') {
     return listWarehouses(response, user.id);
   }
+  if (request.method === 'GET' && url.pathname === '/api/projects') {
+    return listProjects(response, user.id);
+  }
+  if (request.method === 'POST' && url.pathname === '/api/uploads/projects') {
+    return uploadProjectImages(request, response, user.id);
+  }
+  if (request.method === 'POST' && url.pathname === '/api/projects') {
+    return createProject(request, response, user.id);
+  }
+  const communityCommentsMatch = url.pathname.match(/^\/api\/community\/posts\/([^/]+)\/comments$/);
+  if (communityCommentsMatch && request.method === 'POST') {
+    return createProjectComment(request, response, user.id, communityCommentsMatch[1]);
+  }
+  const communityLikeMatch = url.pathname.match(/^\/api\/community\/posts\/([^/]+)\/like$/);
+  if (communityLikeMatch && request.method === 'POST') {
+    return likeCommunityPost(response, user.id, communityLikeMatch[1]);
+  }
+  const projectShareMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/share$/);
+  if (projectShareMatch && request.method === 'POST') {
+    return shareProject(response, user.id, projectShareMatch[1]);
+  }
+  const projectMatch = url.pathname.match(/^\/api\/projects\/([^/]+)$/);
+  if (projectMatch && request.method === 'PUT') {
+    return updateProject(request, response, user.id, projectMatch[1]);
+  }
   if (request.method === 'POST' && url.pathname === '/api/warehouses') {
     return createWarehouse(request, response, user.id);
+  }
+
+  const warehouseMatch = url.pathname.match(/^\/api\/warehouses\/([^/]+)$/);
+  if (request.method === 'DELETE' && warehouseMatch) {
+    return deleteWarehouse(response, user.id, warehouseMatch[1]);
   }
 
   const inventoryMatch = url.pathname.match(/^\/api\/warehouses\/([^/]+)\/inventory$/);
@@ -553,6 +651,7 @@ function requireUser(request, response) {
 function getUserFromRequest(request) {
   const header = request.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+  if (!token) return null;
   return getOne(
     `SELECT users.id, users.username
      FROM sessions
@@ -562,12 +661,399 @@ function getUserFromRequest(request) {
   );
 }
 
+function getOptionalUser(request) {
+  const row = getUserFromRequest(request);
+  return row ? { id: row.id, username: row.username } : null;
+}
+
 function listWarehouses(response, userId) {
   const warehouses = getAll(
-    'SELECT id, name, remark, color_system AS colorSystem, created_at AS createdAt, updated_at AS updatedAt FROM warehouses WHERE user_id = ? ORDER BY created_at DESC',
+    `SELECT w.id, w.name, w.remark, w.color_system AS colorSystem,
+            w.created_at AS createdAt, w.updated_at AS updatedAt,
+            COUNT(CASE WHEN i.quantity > 0 THEN 1 END) AS stockedColorCount,
+            COALESCE(SUM(i.quantity), 0) AS totalWarehouseStock
+     FROM warehouses w
+     LEFT JOIN inventory i ON i.warehouse_id = w.id
+     WHERE w.user_id = ?
+     GROUP BY w.id
+     ORDER BY w.created_at DESC`,
     [userId],
   );
   sendJson(response, 200, { warehouses });
+}
+
+function resolveProjectImage(value, accessUserId = '') {
+  const image = String(value || '').trim();
+  if (!image || !image.startsWith('cos://')) return image;
+  const params = new URLSearchParams({ path: image });
+  if (accessUserId) {
+    const expiresAt = Math.floor(Date.now() / 1000) + PROJECT_ASSET_ACCESS_SECONDS;
+    params.set('expires', String(expiresAt));
+    params.set('access', signProjectAssetAccess(image, accessUserId, expiresAt));
+  }
+  return `/api/project-assets?${params.toString()}`;
+}
+
+function signProjectAssetAccess(assetPath, userId, expiresAt) {
+  return createHmac('sha256', AUTH_PASSWORD)
+    .update(`${userId}\0${assetPath}\0${expiresAt}`)
+    .digest('base64url');
+}
+
+function verifyProjectAssetAccess(assetPath, userId, signature, expiresAt) {
+  const parsedExpiresAt = Number(expiresAt);
+  if (!Number.isInteger(parsedExpiresAt) || parsedExpiresAt < Math.floor(Date.now() / 1000)) return false;
+  const expected = signProjectAssetAccess(assetPath, userId, parsedExpiresAt);
+  const actualBuffer = Buffer.from(String(signature || ''));
+  const expectedBuffer = Buffer.from(expected);
+  return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
+}
+
+function expectedProjectCosPrefix(userId) {
+  const bucket = String(process.env.TENCENT_COS_BUCKET || '').trim();
+  const keyPrefix = String(process.env.TENCENT_COS_KEY_PREFIX || 'uploads/images').trim().replace(/^\/+|\/+$/g, '');
+  if (!bucket || !keyPrefix) return '';
+  return `cos://${bucket}/${keyPrefix}/projects/${userId}/`;
+}
+
+function normalizeProjectImagePath(value, userId, kind) {
+  const image = String(value || '').trim();
+  if (!image) return '';
+  if (image.startsWith('data:')) {
+    if (kind !== 'thumbnail') {
+      throw new Error('原图必须先通过项目图片上传接口上传');
+    }
+    parseDataUrl(image, '缩略图');
+    return image;
+  }
+  if (!image.startsWith('cos://')) {
+    throw new Error('项目图片路径无效');
+  }
+  const ownedPrefix = expectedProjectCosPrefix(userId);
+  const filenameMarker = `-${kind}-`;
+  if (!ownedPrefix || !image.startsWith(ownedPrefix) || !path.basename(image).includes(filenameMarker)) {
+    throw new Error('项目图片路径无效');
+  }
+  return image;
+}
+
+function redirectProjectAsset(request, url, response) {
+  const assetPath = String(url.searchParams.get('path') || '').trim();
+  if (!assetPath.startsWith('cos://')) {
+    return sendJson(response, 400, { error: 'INVALID_INPUT', message: '项目图片路径无效' });
+  }
+  const project = getOne(
+    `SELECT user_id AS userId, shared_to_community AS sharedToCommunity
+     FROM projects
+     WHERE source_image = ? OR thumbnail_image = ?
+     LIMIT 1`,
+    [assetPath, assetPath],
+  );
+  if (!project) return sendJson(response, 404, { error: 'NOT_FOUND', message: '项目图片不存在' });
+  if (!project.sharedToCommunity) {
+    const access = String(url.searchParams.get('access') || '');
+    const expires = String(url.searchParams.get('expires') || '');
+    if (verifyProjectAssetAccess(assetPath, project.userId, access, expires)) {
+      return redirectToCosAsset(response, assetPath);
+    }
+    const user = getUserFromRequest(request);
+    if (!user) return sendJson(response, 401, { error: 'UNAUTHORIZED', message: '请先登录' });
+    if (user.id !== project.userId) return sendJson(response, 404, { error: 'NOT_FOUND', message: '项目图片不存在' });
+  }
+  return redirectToCosAsset(response, assetPath);
+}
+
+function redirectToCosAsset(response, assetPath) {
+  try {
+    response.writeHead(302, {
+      Location: resolveCosAssetUrl(assetPath, loadTencentCosConfig()),
+      'Cache-Control': 'no-store',
+    });
+    response.end();
+  } catch {
+    sendJson(response, 404, { error: 'NOT_FOUND', message: '项目图片不可用' });
+  }
+}
+
+function parseDataUrl(value, kind) {
+  const match = String(value || '').match(/^data:([^;,]+);base64,([A-Za-z0-9+/=\s]+)$/);
+  if (!match) throw new Error(`${kind} 图片格式无效`);
+  const buffer = Buffer.from(match[2].replace(/\s/g, ''), 'base64');
+  if (buffer.length === 0 || buffer.length > MAX_PROJECT_IMAGE_BYTES) {
+    throw new Error(`${kind} 图片大小无效，不能超过 20MB`);
+  }
+  return { buffer, contentType: match[1] };
+}
+
+async function uploadProjectImages(request, response, userId) {
+  try {
+    const body = await readJson(request);
+    const images = Array.isArray(body.images) ? body.images : [];
+    if (images.length === 0 || images.length > 2) {
+      return sendJson(response, 400, { error: 'INVALID_INPUT', message: '至少需要上传一张项目图片' });
+    }
+    const uploaded = {};
+    for (const image of images) {
+      const kind = image?.kind === 'source' ? 'source' : image?.kind === 'thumbnail' ? 'thumbnail' : '';
+      if (!kind) return sendJson(response, 400, { error: 'INVALID_INPUT', message: '项目图片类型无效' });
+      const parsed = parseDataUrl(image.dataUrl, kind === 'source' ? '原图' : '缩略图');
+      const result = await uploadProjectImage({
+        ...parsed,
+        filename: image.filename || `${kind}.webp`,
+        userId,
+        kind,
+      });
+      uploaded[`${kind}ImagePath`] = result.path;
+      uploaded[`${kind}ImageUrl`] = result.url;
+    }
+    sendJson(response, 201, uploaded);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '腾讯云 COS 上传失败';
+    if (message.includes('图片格式无效') || message.includes('图片大小无效')) {
+      return sendJson(response, 400, { error: 'INVALID_INPUT', message });
+    }
+    sendJson(response, 503, { error: 'COS_UPLOAD_FAILED', message });
+  }
+}
+
+async function uploadProjectImage(input) {
+  try {
+    const config = loadTencentCosConfig();
+    return await uploadToTencentCos(input, config);
+  } catch (error) {
+    if (!String(error?.message || '').includes('COS 未配置')) throw error;
+    if (input.kind === 'source') return { path: '', url: '' };
+    const dataUrl = `data:${input.contentType || 'application/octet-stream'};base64,${input.buffer.toString('base64')}`;
+    return { path: dataUrl, url: dataUrl };
+  }
+}
+
+function listProjects(response, userId) {
+  const projects = getAll(
+    `SELECT id, name, rows, cols, tone, source_image AS sourceImage, thumbnail_image AS thumbnailImage, canvas_data AS canvasData,
+            shared_to_community AS sharedToCommunity, shared_at AS sharedAt, likes_count AS likesCount,
+            created_at AS createdAt, updated_at AS updatedAt
+     FROM projects
+     WHERE user_id = ?
+     ORDER BY updated_at DESC`,
+    [userId],
+  );
+  sendJson(response, 200, {
+    projects: projects.map((project) => ({
+      ...project,
+      sourceImage: resolveProjectImage(project.sourceImage, userId),
+      thumbnailImage: resolveProjectImage(project.thumbnailImage, userId),
+    })),
+  });
+}
+
+async function createProject(request, response, userId) {
+  const body = await readJson(request);
+  const name = String(body.name || '').trim();
+  const rows = Math.round(Number(body.rows));
+  const cols = Math.round(Number(body.cols));
+  const tone = /^recent-(?:dog|bear|flower|house)$/.test(String(body.tone)) ? String(body.tone) : 'recent-flower';
+  let sourceImage = '';
+  let thumbnailImage = '';
+  try {
+    sourceImage = normalizeProjectImagePath(body.sourceImagePath, userId, 'source');
+    thumbnailImage = normalizeProjectImagePath(body.thumbnailImagePath, userId, 'thumbnail');
+  } catch (error) {
+    return sendJson(response, 400, { error: 'INVALID_INPUT', message: error instanceof Error ? error.message : '项目图片路径无效' });
+  }
+  const canvasData = String(body.canvasData || '').trim();
+  if (!name || !Number.isInteger(rows) || !Number.isInteger(cols) || rows < 1 || cols < 1) {
+    return sendJson(response, 400, { error: 'INVALID_INPUT', message: '项目名称和画布尺寸无效' });
+  }
+  const now = new Date().toISOString();
+  const id = randomUUID();
+  db.run(
+    'INSERT INTO projects (id, user_id, name, rows, cols, tone, source_image, thumbnail_image, canvas_data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [id, userId, name, rows, cols, tone, sourceImage, thumbnailImage, canvasData, now, now],
+  );
+  await persist();
+  sendJson(response, 201, { project: {
+    id, name, rows, cols, tone,
+    sourceImage: resolveProjectImage(sourceImage, userId),
+    thumbnailImage: resolveProjectImage(thumbnailImage, userId),
+    canvasData,
+    createdAt: now,
+    updatedAt: now,
+    sharedToCommunity: false,
+    sharedAt: null,
+    likesCount: 0,
+  } });
+}
+
+async function updateProject(request, response, userId, projectId) {
+  const existing = getOne(
+    `SELECT id, user_id, source_image AS sourceImage, thumbnail_image AS thumbnailImage,
+            shared_to_community AS sharedToCommunity, shared_at AS sharedAt, likes_count AS likesCount,
+            created_at AS createdAt
+     FROM projects WHERE id = ?`,
+    [projectId],
+  );
+  if (!existing || existing.user_id !== userId) return sendJson(response, 404, { error: 'NOT_FOUND', message: '作品不存在' });
+  const body = await readJson(request);
+  const name = String(body.name || '').trim();
+  const rows = Math.round(Number(body.rows));
+  const cols = Math.round(Number(body.cols));
+  const tone = /^recent-(?:dog|bear|flower|house)$/.test(String(body.tone)) ? String(body.tone) : 'recent-flower';
+  let sourceImage = existing.sourceImage;
+  let thumbnailImage = existing.thumbnailImage;
+  try {
+    if (Object.hasOwn(body, 'sourceImagePath')) sourceImage = normalizeProjectImagePath(body.sourceImagePath, userId, 'source');
+    if (Object.hasOwn(body, 'thumbnailImagePath')) thumbnailImage = normalizeProjectImagePath(body.thumbnailImagePath, userId, 'thumbnail');
+  } catch (error) {
+    return sendJson(response, 400, { error: 'INVALID_INPUT', message: error instanceof Error ? error.message : '项目图片路径无效' });
+  }
+  const canvasData = String(body.canvasData || '').trim();
+  if (!name || !Number.isInteger(rows) || !Number.isInteger(cols) || rows < 1 || cols < 1) {
+    return sendJson(response, 400, { error: 'INVALID_INPUT', message: '项目名称和画布尺寸无效' });
+  }
+  const now = new Date().toISOString();
+  db.run(
+    `UPDATE projects
+     SET name = ?, rows = ?, cols = ?, tone = ?, source_image = ?, thumbnail_image = ?, canvas_data = ?, updated_at = ?
+     WHERE id = ? AND user_id = ?`,
+    [name, rows, cols, tone, sourceImage, thumbnailImage, canvasData, now, projectId, userId],
+  );
+  await persist();
+  sendJson(response, 200, { project: {
+    id: projectId,
+    name,
+    rows,
+    cols,
+    tone,
+    sourceImage: resolveProjectImage(sourceImage, userId),
+    thumbnailImage: resolveProjectImage(thumbnailImage, userId),
+    canvasData,
+    createdAt: existing.createdAt,
+    updatedAt: now,
+    sharedToCommunity: Boolean(existing.sharedToCommunity),
+    sharedAt: existing.sharedAt,
+    likesCount: Number(existing.likesCount || 0),
+  } });
+}
+
+function getCommunityPost(userId, projectId) {
+  return getOne(
+    `SELECT p.id, p.name, p.rows, p.cols, p.tone,
+            p.source_image AS sourceImage, p.thumbnail_image AS thumbnailImage,
+            p.shared_at AS sharedAt, p.likes_count AS likesCount,
+            u.username AS author,
+            COUNT(DISTINCT c.id) AS commentsCount,
+            CASE WHEN l.user_id IS NULL THEN 0 ELSE 1 END AS likedByMe
+     FROM projects p
+     JOIN users u ON u.id = p.user_id
+     LEFT JOIN project_comments c ON c.project_id = p.id
+     LEFT JOIN project_likes l ON l.project_id = p.id AND l.user_id = ?
+     WHERE p.id = ? AND p.shared_to_community = 1
+     GROUP BY p.id, l.user_id`,
+    [userId, projectId],
+  );
+}
+
+function formatCommunityPost(post) {
+  return {
+    ...post,
+    sourceImage: resolveProjectImage(post.sourceImage),
+    thumbnailImage: resolveProjectImage(post.thumbnailImage),
+    rows: Number(post.rows),
+    cols: Number(post.cols),
+    likesCount: Number(post.likesCount || 0),
+    commentsCount: Number(post.commentsCount || 0),
+    likedByMe: Boolean(post.likedByMe),
+  };
+}
+
+function parsePagination(searchParams) {
+  const page = Math.max(1, Number.parseInt(searchParams.get('page') || '1', 10) || 1);
+  const pageSizeInput = Number.parseInt(searchParams.get('pageSize') || '20', 10) || 20;
+  const pageSize = Math.max(1, Math.min(50, pageSizeInput));
+  return { page, pageSize, offset: (page - 1) * pageSize };
+}
+
+function listCommunityPosts(response, userId, sort, pagination = { page: 1, pageSize: 20, offset: 0 }) {
+  const orderBy = sort === 'latest' ? 'p.shared_at DESC, p.id DESC' : 'p.likes_count DESC, p.shared_at DESC, p.id DESC';
+  const posts = getAll(
+    `SELECT p.id, p.name, p.rows, p.cols, p.tone,
+            p.source_image AS sourceImage, p.thumbnail_image AS thumbnailImage,
+            p.shared_at AS sharedAt, p.likes_count AS likesCount,
+            u.username AS author,
+            COUNT(DISTINCT c.id) AS commentsCount,
+            CASE WHEN l.user_id IS NULL THEN 0 ELSE 1 END AS likedByMe
+     FROM projects p
+     JOIN users u ON u.id = p.user_id
+     LEFT JOIN project_comments c ON c.project_id = p.id
+     LEFT JOIN project_likes l ON l.project_id = p.id AND l.user_id = ?
+     WHERE p.shared_to_community = 1
+     GROUP BY p.id, l.user_id
+     ORDER BY ${orderBy}
+     LIMIT ? OFFSET ?`,
+    [userId, pagination.pageSize, pagination.offset],
+  );
+  sendJson(response, 200, { posts: posts.map(formatCommunityPost), page: pagination.page, pageSize: pagination.pageSize });
+}
+
+function assertSharedProject(response, userId, projectId) {
+  const post = getCommunityPost(userId, projectId);
+  if (!post) {
+    sendJson(response, 404, { error: 'NOT_FOUND', message: '社区稿件不存在' });
+    return null;
+  }
+  return post;
+}
+
+async function shareProject(response, userId, projectId) {
+  const project = getOne('SELECT id, user_id, thumbnail_image AS thumbnailImage, source_image AS sourceImage, shared_to_community AS sharedToCommunity, shared_at AS sharedAt FROM projects WHERE id = ?', [projectId]);
+  if (!project || project.user_id !== userId) return sendJson(response, 404, { error: 'NOT_FOUND', message: '作品不存在' });
+  if (!String(project.thumbnailImage || project.sourceImage || '').trim()) {
+    return sendJson(response, 400, { error: 'INVALID_INPUT', message: '作品缺少有效预览图，无法分享到社区' });
+  }
+  if (!project.sharedToCommunity) {
+    const now = new Date().toISOString();
+    db.run('UPDATE projects SET shared_to_community = 1, shared_at = ?, updated_at = ? WHERE id = ?', [now, now, projectId]);
+    await persist();
+    return sendJson(response, 200, { shared: true, sharedAt: now, projectId });
+  }
+  sendJson(response, 200, { shared: true, sharedAt: project.sharedAt, projectId });
+}
+
+function listProjectComments(response, userId, projectId, pagination = { page: 1, pageSize: 20, offset: 0 }) {
+  if (!assertSharedProject(response, userId, projectId)) return;
+  const comments = getAll(
+    `SELECT c.id, c.project_id AS projectId, c.content, c.created_at AS createdAt, u.username AS author
+     FROM project_comments c JOIN users u ON u.id = c.user_id
+     WHERE c.project_id = ? ORDER BY c.created_at DESC, c.id DESC
+     LIMIT ? OFFSET ?`,
+    [projectId, pagination.pageSize, pagination.offset],
+  );
+  sendJson(response, 200, { comments, page: pagination.page, pageSize: pagination.pageSize });
+}
+
+async function createProjectComment(request, response, userId, projectId) {
+  if (!assertSharedProject(response, userId, projectId)) return;
+  const body = await readJson(request);
+  const content = String(body.content || '').trim();
+  if (!content || [...content].length > 300) return sendJson(response, 400, { error: 'INVALID_INPUT', message: '评论内容不能为空且不能超过 300 个字' });
+  const comment = { id: randomUUID(), projectId, author: getOne('SELECT username FROM users WHERE id = ?', [userId]).username, content, createdAt: new Date().toISOString() };
+  db.run('INSERT INTO project_comments (id, project_id, user_id, content, created_at) VALUES (?, ?, ?, ?, ?)', [comment.id, projectId, userId, comment.content, comment.createdAt]);
+  await persist();
+  sendJson(response, 201, { comment });
+}
+
+async function likeCommunityPost(response, userId, projectId) {
+  const post = assertSharedProject(response, userId, projectId);
+  if (!post) return;
+  const existing = getOne('SELECT project_id FROM project_likes WHERE project_id = ? AND user_id = ?', [projectId, userId]);
+  if (!existing) {
+    db.run('INSERT INTO project_likes (project_id, user_id, created_at) VALUES (?, ?, ?)', [projectId, userId, new Date().toISOString()]);
+    db.run('UPDATE projects SET likes_count = likes_count + 1 WHERE id = ?', [projectId]);
+    await persist();
+  }
+  const latest = getCommunityPost(userId, projectId);
+  sendJson(response, 200, { liked: true, likesCount: Number(latest.likesCount || 0) });
 }
 
 async function createWarehouse(request, response, userId) {
@@ -583,6 +1069,17 @@ async function createWarehouse(request, response, userId) {
   );
   await persist();
   sendJson(response, 201, { warehouse: { id, name, remark, colorSystem: 'MARD_221', createdAt: now, updatedAt: now } });
+}
+
+async function deleteWarehouse(response, userId, warehouseId) {
+  if (!assertWarehouseOwner(userId, warehouseId)) {
+    return sendJson(response, 404, { error: 'NOT_FOUND', message: '仓库不存在' });
+  }
+  db.run('DELETE FROM inventory_transactions WHERE warehouse_id = ? AND user_id = ?', [warehouseId, userId]);
+  db.run('DELETE FROM inventory WHERE warehouse_id = ?', [warehouseId]);
+  db.run('DELETE FROM warehouses WHERE id = ? AND user_id = ?', [warehouseId, userId]);
+  await persist();
+  sendJson(response, 200, { deleted: true, warehouseId });
 }
 
 function assertWarehouseOwner(userId, warehouseId) {

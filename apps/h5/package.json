@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "lucide-react": "^1.28.0",
     "react-zoom-pan-pinch": "^4.0.3"
   }
 }
