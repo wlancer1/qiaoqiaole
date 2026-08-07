@@ -8,6 +8,11 @@ describe('phone auth client', () => {
     expect(() => normalizePhone('123')).toThrow('请输入正确的手机号');
   });
 
+  it('creates a UUID-shaped request id for older browsers', async () => {
+    const { createRequestId } = await import('./phoneAuthClient');
+    expect(createRequestId()).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  });
+
   it('uses the backend-compatible hexadecimal SHA-256 body hash for SMS signatures', async () => {
     const signature = await signWebSmsRequest(
       { phone: '138 0013 8000', scene: 'REGISTER', captchaTicket: '', captchaRandstr: '', deviceId: 'device-1' },
