@@ -1,13 +1,88 @@
 import { HomeUploadHero } from '../../flow/H5FlowComponents';
 import { AuthorProfilePage, PatternDetailPage, PatternDiscoverPage, PatternMessagesPage } from '../../patterns/H5PatternPages';
 import { Icon } from '../../shared/h5Icons';
-import { Heart } from 'lucide-react';
+import { Heart, LogOut, MessageCircle } from 'lucide-react';
 
 type HomeShellPageProps = Record<string, any>;
 
+export function PhoneLoginModal(props: Record<string, any>) {
+  const {
+    phoneNumber, setPhoneNumber, phonePassword, setPhonePassword, phoneConfirmPassword, setPhoneConfirmPassword, phoneCode, setPhoneCode, phoneAuthMode, setPhoneAuthMode, phoneAgreement, setPhoneAgreement,
+    phoneAuthError, phoneSending, phoneVerifying, phoneCountdown, sendPhoneCode, submitPhoneLogin, submitPhoneRegister, closeLoginModal, logoutPhone,
+  } = props;
+  return (
+    <div className="home-create-modal" role="dialog" aria-label="手机号登录">
+      <div className="home-create-panel phone-login-panel">
+        <div className="home-create-head">
+          <strong>手机号{phoneAuthMode === 'register' ? '注册' : '登录'}</strong>
+          <button aria-label="关闭登录" onClick={closeLoginModal}>关闭</button>
+        </div>
+        <div className="phone-auth-tabs" role="tablist" aria-label="账号操作">
+          <button type="button" className={phoneAuthMode === 'login' ? 'active' : ''} onClick={() => setPhoneAuthMode('login')}>登录</button>
+          <button type="button" className={phoneAuthMode === 'register' ? 'active' : ''} onClick={() => setPhoneAuthMode('register')}>注册</button>
+        </div>
+        <div className="login-form phone-login-form">
+          <label>
+            <span>手机号</span>
+            <div className="phone-input-row">
+              <b>+86</b>
+              <input type="tel" inputMode="numeric" aria-label="手机号" placeholder="请输入手机号" maxLength={13} value={phoneNumber} onChange={(event) => setPhoneNumber(event.target.value)} />
+            </div>
+          </label>
+          <label>
+            <span>密码</span>
+            <div className="phone-password-row">
+              <input type="password" aria-label="密码" placeholder="请输入 8-128 位密码" maxLength={128} value={phonePassword} onChange={(event) => setPhonePassword(event.target.value)} />
+            </div>
+          </label>
+          {phoneAuthMode === 'register' ? <label>
+            <span>确认密码</span>
+            <div className="phone-password-row">
+              <input type="password" aria-label="确认密码" placeholder="请再次输入密码" maxLength={128} value={phoneConfirmPassword} onChange={(event) => setPhoneConfirmPassword(event.target.value)} />
+            </div>
+          </label> : null}
+          {phoneAuthMode === 'register' ? <label>
+            <span>验证码</span>
+            <div className="phone-code-row">
+              <input type="text" inputMode="numeric" aria-label="验证码" placeholder="6位验证码" maxLength={6} value={phoneCode} onChange={(event) => setPhoneCode(event.target.value.replace(/\D/g, '').slice(0, 6))} />
+              <button type="button" className="phone-send-code" onClick={() => void sendPhoneCode()} disabled={phoneSending || phoneCountdown > 0}>
+                {phoneSending ? '发送中' : phoneCountdown > 0 ? `${phoneCountdown}s 后重发` : '获取验证码'}
+              </button>
+            </div>
+          </label> : null}
+        </div>
+        <label className="phone-agreement-row">
+          <input type="checkbox" checked={phoneAgreement} onChange={(event) => setPhoneAgreement(event.target.checked)} />
+          <span>我已阅读并同意用户协议和隐私政策</span>
+        </label>
+        {phoneAuthError ? <p className="phone-auth-error" role="alert">{phoneAuthError}</p> : null}
+        <button className="home-create-submit" onClick={() => void (phoneAuthMode === 'register' ? submitPhoneRegister() : submitPhoneLogin())} disabled={phoneVerifying || phonePassword.length < 8 || (phoneAuthMode === 'register' && phoneCode.length !== 6)}>
+          {phoneVerifying ? '处理中...' : phoneAuthMode === 'register' ? '注册' : '登录'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function LogoutConfirmModal({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
+  return (
+    <div className="home-create-modal logout-confirm-backdrop" role="presentation" onClick={onCancel}>
+      <div className="logout-confirm-panel" role="dialog" aria-modal="true" aria-labelledby="logout-confirm-title" onClick={(event) => event.stopPropagation()}>
+        <div className="logout-confirm-icon" aria-hidden="true"><LogOut /></div>
+        <h2 id="logout-confirm-title">确认退出登录？</h2>
+        <p>退出后需要重新登录才能同步作品和豆子仓库。</p>
+        <div className="logout-confirm-actions">
+          <button type="button" className="logout-cancel-btn" onClick={onCancel}>取消</button>
+          <button type="button" className="logout-confirm-btn" onClick={onConfirm}>确认退出</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function HomeShellPage(props: HomeShellPageProps) {
   const {
-    fileInputRef, handleUpload, status, activeTab, recentProjects, homeTemplateFilters, onOpenRecentProject,
+    fileInputRef, handleUpload, status, activeTab, recentProjects, onOpenRecentProject,
     openUpload, isLoggedIn, loginName, setLoginName, loginPassword, setLoginPassword, submitLogin, isAuthenticating, showLoginModal,
     setShowLoginModal, showUploadModal, closeUploadModal, showXhsInput, setShowXhsInput, xhsLink, setXhsLink,
     xhsExtractedImages, isExtractingXhs, chooseLocalDrawing, extractXiaohongshuImage, importXhsImage,
@@ -15,7 +90,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
     cfgCols, setCfgCols, cfgRows, setCfgRows, normalizeGridSize, createBlankCanvas, requireLogin,
     setStatus, patternListCards, homeTemplateCards, setActivePattern, setScreen, warehouses, stockedColorCount, totalWarehouseStock,
     activeWarehouse, mardColors, openWarehouse, setActiveTab, communitySort, setCommunitySort, authRequestSeqRef, pendingAuthActionRef,
-    setIsAuthenticating,
+    setIsAuthenticating, logoutPhone, showLogoutConfirm, setShowLogoutConfirm,
   } = props;
   return (
     <main className="h5-home-shell">
@@ -93,20 +168,28 @@ export function HomeShellPage(props: HomeShellPageProps) {
                   <span aria-hidden="true">›</span>
                 </button>
               </div>
-              <div className="home-template-filters" aria-label="模板分类">
-                {homeTemplateFilters.map((filter: string) => (
-                  <span key={filter}>{filter}</span>
-                ))}
-              </div>
               <div className="home-template-row" aria-label="热门模板预览">
                 {homeTemplateCards.map((template: any) => (
-                  <button className={`home-template-card ${template.tone}`} key={template.id} type="button" onClick={() => {
+                  <button className="pattern-card home-template-card" key={template.id} type="button" onClick={() => {
                     setActivePattern(template);
                     setScreen('pattern-detail');
                   }}>
-                    {template.image ? <img src={template.image} alt="" /> : <div className="home-template-art-empty" aria-hidden="true" />}
-                    <strong>{template.title}</strong>
-                    <small><Heart aria-hidden="true" /> {template.likes}</small>
+                    <div className={`pattern-art ${template.tone}`} aria-hidden="true">
+                      {template.image ? <img className="pattern-card-image" src={template.image} alt="" /> : <div className="pattern-card-empty">暂无预览图</div>}
+                    </div>
+                    <div className="pattern-card-body">
+                      <h2>{template.title}</h2>
+                      <div className="pattern-card-info-row">
+                        <div className="pattern-author-row">
+                          <span className={`pattern-avatar ${template.tone}`} aria-hidden="true" />
+                          <strong>{template.author}</strong>
+                        </div>
+                        <div className="pattern-card-meta">
+                          <span><Heart aria-hidden="true" /> {template.likes}</span>
+                          <span><MessageCircle aria-hidden="true" /> {template.comments}</span>
+                        </div>
+                      </div>
+                    </div>
                   </button>
                 ))}
                 {homeTemplateCards.length === 0 ? <p className="community-empty">还没有分享的作品</p> : null}
@@ -224,46 +307,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
               </div>
             </div>
           ) : null}
-          {showLoginModal ? (
-            <div className="home-create-modal" role="dialog" aria-label="登录面板">
-              <div className="home-create-panel">
-                <div className="home-create-head">
-                  <strong>登录</strong>
-                  <button aria-label="关闭登录" onClick={() => {
-                    authRequestSeqRef.current += 1;
-                    setIsAuthenticating(false);
-                    pendingAuthActionRef.current = null;
-                    setShowLoginModal(false);
-                  }}>关闭</button>
-                </div>
-                <div className="login-form">
-                  <label>
-                    <span>用户名</span>
-                    <input
-                      type="text"
-                      aria-label="用户名"
-                      placeholder="输入用户名"
-                      value={loginName}
-                      onChange={(event) => setLoginName(event.target.value)}
-                    />
-                  </label>
-                  <label>
-                    <span>密码</span>
-                    <input
-                      type="password"
-                      aria-label="密码"
-                      placeholder="输入密码"
-                      value={loginPassword}
-                      onChange={(event) => setLoginPassword(event.target.value)}
-                    />
-                  </label>
-                </div>
-                <button className="home-create-submit" onClick={() => void submitLogin()} disabled={isAuthenticating}>
-                  {isAuthenticating ? '处理中...' : '登录并继续'}
-                </button>
-              </div>
-            </div>
-          ) : null}
+          {showLoginModal ? <PhoneLoginModal {...props} /> : null}
         </section>
       ) : activeTab === 'discover' ? (
         <PatternDiscoverPage
@@ -345,46 +389,9 @@ export function HomeShellPage(props: HomeShellPageProps) {
             <button className="profile-row"><span className="profile-row-icon"><Icon name="help" /></span><span><strong>帮助中心</strong><small>常见问题与使用指南</small></span><em>›</em></button>
             <button className="profile-row"><span className="profile-row-icon"><Icon name="settings" /></span><span><strong>设置</strong><small>账号、安全与偏好</small></span><em>›</em></button>
           </section>
-          {showLoginModal ? (
-            <div className="home-create-modal" role="dialog" aria-label="登录面板">
-              <div className="home-create-panel">
-                <div className="home-create-head">
-                  <strong>登录</strong>
-                  <button aria-label="关闭登录" onClick={() => {
-                    authRequestSeqRef.current += 1;
-                    setIsAuthenticating(false);
-                    pendingAuthActionRef.current = null;
-                    setShowLoginModal(false);
-                  }}>关闭</button>
-                </div>
-                <div className="login-form">
-                  <label>
-                    <span>用户名</span>
-                    <input
-                      type="text"
-                      aria-label="用户名"
-                      placeholder="输入用户名"
-                      value={loginName}
-                      onChange={(event) => setLoginName(event.target.value)}
-                    />
-                  </label>
-                  <label>
-                    <span>密码</span>
-                    <input
-                      type="password"
-                      aria-label="密码"
-                      placeholder="输入密码"
-                      value={loginPassword}
-                      onChange={(event) => setLoginPassword(event.target.value)}
-                    />
-                  </label>
-                </div>
-                <button className="home-create-submit" onClick={() => void submitLogin()} disabled={isAuthenticating}>
-                  {isAuthenticating ? '处理中...' : '登录并继续'}
-                </button>
-              </div>
-            </div>
-          ) : null}
+          {isLoggedIn ? <button className="profile-logout-btn" type="button" onClick={() => setShowLogoutConfirm(true)}><LogOut aria-hidden="true" /><span>退出登录</span></button> : null}
+          {showLogoutConfirm ? <LogoutConfirmModal onCancel={() => setShowLogoutConfirm(false)} onConfirm={() => void logoutPhone()} /> : null}
+          {showLoginModal ? <PhoneLoginModal {...props} /> : null}
         </section>
       )}
 

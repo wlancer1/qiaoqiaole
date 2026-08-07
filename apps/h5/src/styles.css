@@ -296,7 +296,7 @@ input:focus-visible {
   height: 4.317rem;
   margin: 0.254rem 0.254rem 0;
   border-radius: 0.3175rem;
-  background: #e6f1ff;
+  background: #fff;
 }
 
 .pattern-art::before {
@@ -347,19 +347,19 @@ input:focus-visible {
 }
 
 .pattern-flower {
-  background: linear-gradient(145deg, #e6f1ff 0%, #d9ecff 100%);
+  background: #fff;
 }
 
 .pattern-corgi {
-  background: linear-gradient(180deg, #b8e673 0%, #86c66a 100%);
+  background: #fff;
 }
 
 .pattern-bear {
-  background: linear-gradient(145deg, #ffe7f0 0%, #ffd0df 100%);
+  background: #fff;
 }
 
 .pattern-house {
-  background: linear-gradient(180deg, #cfe7ff 0 52%, #8bc34a 52% 100%);
+  background: #fff;
 }
 
 /* Match the reference's natural masonry rhythm: each artwork keeps its own height. */
@@ -648,14 +648,18 @@ input:focus-visible {
   display: grid;
   place-items: center;
   min-height: 0;
-  height: min(58vw, 12rem);
+  height: auto;
+  overflow: hidden;
   border-radius: 0.381rem;
   background: #ddf0fc;
 }
 
 .detail-hero-art img {
+  display: block;
   width: 100%;
-  height: 100%;
+  height: auto;
+  max-width: 100%;
+  max-height: none;
   object-fit: contain;
   border-radius: inherit;
 }
@@ -773,6 +777,79 @@ input:focus-visible {
   color: #7a8799;
   font-size: 0.349rem;
   font-weight: 400;
+}
+
+.detail-info-card > h1 {
+  margin: 0 0 0.381rem;
+  color: #142039;
+  font-size: 0.635rem;
+  font-weight: 750;
+  line-height: 1.2;
+}
+
+.detail-title-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.127rem 0.381rem;
+  margin: -0.127rem 0 0.381rem;
+  color: #7a8799;
+  font-size: 0.305rem;
+}
+
+.detail-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.254rem;
+}
+
+.detail-meta-card {
+  display: flex;
+  align-items: center;
+  gap: 0.19rem;
+  min-width: 0;
+  min-height: 2.286rem;
+  padding: 0.254rem;
+  border: 0.019rem solid #e5ebf4;
+  border-radius: 0.381rem;
+  background: #fff;
+}
+
+.detail-meta-card > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 0.095rem;
+}
+
+.detail-meta-icon {
+  display: grid;
+  flex: 0 0 1.016rem;
+  place-items: center;
+  width: 1.016rem;
+  height: 1.016rem;
+  border-radius: 50%;
+  background: #eef4ff;
+  color: #263449;
+}
+
+.detail-meta-icon svg {
+  width: 0.571rem;
+  height: 0.571rem;
+  stroke-width: 1.8;
+}
+
+.detail-meta-card small {
+  color: #7a8799;
+  font-size: 0.349rem;
+}
+
+.detail-meta-card strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #273449;
+  font-size: 0.413rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .detail-main-copy p {
@@ -940,6 +1017,49 @@ input:focus-visible {
 .detail-beads-card {
   min-height: 140px;
   justify-content: space-between;
+}
+
+.detail-bead-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.19rem 0.381rem;
+  margin-top: 0.286rem;
+}
+
+.detail-bead-item {
+  display: grid;
+  grid-template-columns: 0.508rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.127rem;
+  min-width: 0;
+  min-height: 0.762rem;
+  color: #596a82;
+  font-size: 0.267rem;
+}
+
+.detail-bead-item i {
+  width: 0.508rem;
+  height: 0.508rem;
+  border-radius: 0.127rem;
+  box-shadow: inset 0 0 0 0.019rem rgba(0, 0, 0, 0.12);
+}
+
+.detail-bead-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-bead-item strong {
+  color: #1f2937;
+  font-size: 0.305rem;
+  font-weight: 700;
+}
+
+.detail-bead-more {
+  grid-column: 1 / -1;
+  text-decoration: underline;
+  text-underline-offset: 0.06rem;
 }
 
 .detail-comments-card {
@@ -1900,11 +2020,11 @@ input:focus-visible {
   height: 100%;
   object-fit: contain;
   object-position: center;
-  background: #edf5ff;
+  background: #fff;
 }
 
 .home-recent-card .home-recent-thumb-image {
-  background: #edf5ff;
+  background: #fff;
 }
 
 .home-recent-thumb::before {
@@ -2041,9 +2161,9 @@ input:focus-visible {
   background: #a96a36;
 }
 
-/* Project placeholders use the same quiet canvas as real thumbnails. */
-.home-recent-card .home-recent-thumb {
-  background: #edf5ff;
+/* Real thumbnails should keep a neutral canvas; tone colors belong to placeholders only. */
+.home-recent-card .home-recent-thumb-image {
+  background: #fff;
 }
 
 .home-creation-tools {
@@ -2825,72 +2945,16 @@ input:focus-visible {
 
 .home-template-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.483rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.381rem;
+  margin-top: 0.29rem;
 }
 
-.home-template-card {
+.home-template-card.pattern-card {
   min-width: 0;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-}
-
-.home-template-card > img {
-  display: block;
   width: 100%;
-  height: 3rem;
-  object-fit: contain;
-  border-radius: 0.169rem;
-  background: #dcecff;
-  box-shadow: var(--flow-shadow-card);
-}
-
-.home-template-card small {
-  display: block;
-  margin-top: 0.08rem;
-  color: #7a8799;
-  font-size: 0.25rem;
-  text-align: center;
-}
-
-.home-template-card small .lucide { width: 0.25rem; height: 0.25rem; vertical-align: -0.04rem; }
-
-.home-template-card > div {
-  position: relative;
-  overflow: hidden;
-
-  height: 3rem;
-  border-radius: 0.169rem;
-  background: #dcecff;
-  box-shadow: var(--flow-shadow-card);
-}
-
-.home-template-card > div::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.32) 0.0317rem, transparent 0.0317rem),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.32) 0.0317rem, transparent 0.0317rem);
-  background-size: 0.254rem 0.254rem;
-}
-
-.home-template-card span,
-.home-template-card i {
-  position: absolute;
-  display: block;
-}
-
-.home-template-card strong {
-  display: block;
-  margin-top: 0.145rem;
-  color: var(--flow-text);
-  font-size: 0.29rem;
-  font-weight: 850;
-  text-align: center;
+  padding: 0;
+  text-align: left;
 }
 
 .template-corgi > div {
@@ -3387,6 +3451,121 @@ input:focus-visible {
   background: var(--soft);
   color: var(--ink);
   font-size: 0.5079rem;
+}
+
+.phone-login-panel {
+  gap: 0.42rem;
+}
+
+.phone-auth-tabs {
+  display: flex;
+  align-self: stretch;
+  gap: 0.18rem;
+  padding: 0.08rem;
+  border-radius: 0.36rem;
+  background: #eef4ff;
+}
+
+.phone-auth-tabs button {
+  flex: 1;
+  height: 0.82rem;
+  border: 0;
+  border-radius: 0.28rem;
+  background: transparent;
+  color: #667085;
+  font-size: 0.36rem;
+  font-weight: 700;
+}
+
+.phone-auth-tabs button.active {
+  background: #fff;
+  color: var(--flow-brand, #146cff);
+  box-shadow: 0 0.08rem 0.2rem rgb(20 108 255 / 12%);
+}
+
+.phone-login-hint {
+  margin: -0.16rem 0 0;
+  color: #718096;
+  font-size: 0.35rem;
+}
+
+.phone-login-form {
+  gap: 0.4rem;
+}
+
+.phone-input-row,
+.phone-code-row,
+.phone-password-row {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  min-height: 1.4rem;
+  border: 0.0317rem solid var(--flow-line, #e6edf7);
+  border-radius: 0.4rem;
+  background: #f8fbff;
+}
+
+.phone-input-row b {
+  flex: 0 0 auto;
+  padding-left: 0.4rem;
+  color: #344054;
+  font-size: 0.4rem;
+}
+
+.phone-input-row input,
+.phone-code-row input,
+.phone-password-row input {
+  min-width: 0;
+  width: 100%;
+  height: 1.35rem;
+  padding: 0 0.3rem;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #101828;
+  font-size: 0.4rem;
+}
+
+.phone-password-row input {
+  padding-left: 0.4rem;
+  padding-right: 0.4rem;
+}
+
+.phone-code-row {
+  padding-left: 0.1rem;
+}
+
+.phone-send-code {
+  flex: 0 0 auto;
+  min-width: 2.8rem;
+  height: 1.05rem;
+  margin-right: 0.15rem;
+  border-radius: 0.28rem;
+  background: var(--flow-brand, #146cff);
+  color: #fff;
+  font-size: 0.32rem;
+  font-weight: 700;
+}
+
+.phone-agreement-row {
+  display: flex;
+  align-items: center;
+  gap: 0.18rem;
+  color: #718096;
+  font-size: 0.31rem;
+}
+
+.phone-agreement-row input {
+  width: 0.45rem;
+  height: 0.45rem;
+  accent-color: var(--flow-brand, #146cff);
+}
+
+.phone-auth-error {
+  margin: -0.12rem 0 0;
+  color: #d6455d;
+  font-size: 0.34rem;
+  line-height: 1.35;
 }
 
 .auth-mode-tabs {
@@ -5574,6 +5753,109 @@ input:focus-visible {
 
 .profile-menu-card {
   border-radius: 0.6984rem;
+}
+
+.profile-logout-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  align-self: stretch;
+  width: 100%;
+  min-width: 0;
+  min-height: 1.35rem;
+  margin-top: 0.05rem;
+  margin-bottom: 0.25rem;
+  padding: 0 0.65rem;
+  border: 0.0317rem solid #f1d8dc;
+  border-radius: 0.45rem;
+  background: #fff;
+  color: #d6455d;
+  font-size: 0.36rem;
+  font-weight: 800;
+}
+
+.profile-logout-btn:active {
+  background: #fff5f6;
+}
+
+.profile-logout-btn svg {
+  width: 0.48rem;
+  height: 0.48rem;
+}
+
+.logout-confirm-backdrop {
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(16 24 40 / 42%);
+}
+
+.logout-confirm-panel {
+  width: min(100%, 11rem);
+  padding: 1rem 0.9rem 0.82rem;
+  border: 0.0317rem solid #e7eef8;
+  border-radius: 0.78rem;
+  background: #fff;
+  text-align: center;
+  box-shadow: 0 0.8rem 2rem rgb(16 24 40 / 18%);
+}
+
+.logout-confirm-icon {
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  margin: 0 auto 0.42rem;
+  border-radius: 50%;
+  background: #fff1f3;
+  color: #d6455d;
+}
+
+.logout-confirm-icon svg {
+  width: 0.68rem;
+  height: 0.68rem;
+}
+
+.logout-confirm-panel h2 {
+  margin: 0;
+  color: var(--flow-text, #101828);
+  font-size: 0.52rem;
+  font-weight: 850;
+}
+
+.logout-confirm-panel p {
+  margin: 0.3rem 0 0;
+  color: var(--flow-muted, #718096);
+  font-size: 0.34rem;
+  line-height: 1.5;
+}
+
+.logout-confirm-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem;
+  margin-top: 0.72rem;
+}
+
+.logout-confirm-actions button {
+  min-height: 1.15rem;
+  border-radius: 0.35rem;
+  font-size: 0.35rem;
+  font-weight: 800;
+}
+
+.logout-cancel-btn {
+  border: 0.0317rem solid #dfe7f2;
+  background: #f8fafc;
+  color: #667085;
+}
+
+.logout-confirm-btn {
+  border: 0.0317rem solid #d6455d;
+  background: #d6455d;
+  color: #fff;
 }
 
 .profile-row {

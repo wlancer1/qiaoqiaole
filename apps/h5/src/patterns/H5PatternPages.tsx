@@ -1,6 +1,7 @@
-import { ArrowLeft, Download, Eye, Heart, MessageCircle, Search, Share2, Star } from 'lucide-react';
+import { ArrowLeft, Download, Grid2X2, Heart, MessageCircle, Ruler, Search, Share2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Icon } from '../shared/h5Icons';
+import { BeadListDrawer, type BeadColorItem } from '../flow/H5FlowComponents';
 import type { CommunityComment } from '../community/communityData';
 import type { PatternListCard, RecentProject } from '../shared/h5Types';
 
@@ -158,7 +159,6 @@ export function PatternDiscoverPage({ patterns, activeSort = 'hot', onSortChange
   onOpenAuthor: () => void;
 }) {
   const sortTabs: Array<{ label: string; sort: 'hot' | 'latest'; active: boolean }> = [
-    { label: '推荐', sort: 'hot', active: false },
     { label: '最新', sort: 'latest', active: activeSort === 'latest' },
     { label: '热门', sort: 'hot', active: activeSort === 'hot' },
   ];
@@ -179,16 +179,9 @@ export function PatternDiscoverPage({ patterns, activeSort = 'hot', onSortChange
             ))}
           </div>
 
-          <div className="pattern-filter-row" aria-label="稿件分类">
-            {['全部', '动物', '人物', '植物'].map((filter, index) => (
-              <button key={filter} className={index === 0 ? 'active' : ''} type="button">
-                {filter}
-              </button>
-            ))}
-          </div>
         </header>
 
-        <section className="pattern-masonry" aria-label="推荐稿件列表">
+        <section className="pattern-masonry" aria-label="社区稿件列表">
           {[patterns.filter((_, index) => index % 2 === 0), patterns.filter((_, index) => index % 2 === 1)].map((column, columnIndex) => (
             <div className="pattern-masonry-column" key={`pattern-column-${columnIndex}`}>
               {column.map((card) => (
@@ -279,6 +272,7 @@ export function PatternDetailPage({ pattern, onBack, isLoggedIn, comments, isLoa
   onLogin: () => void;
 }) {
   const [commentDraft, setCommentDraft] = useState('');
+  const [showFullBeadList, setShowFullBeadList] = useState(false);
   useEffect(() => { onLoadComments(); }, [pattern.id]);
 
   const submitComment = () => {
@@ -288,6 +282,10 @@ export function PatternDetailPage({ pattern, onBack, isLoggedIn, comments, isLoa
     onComment(content);
     setCommentDraft('');
   };
+
+  const beadItems = pattern.beadList ?? [];
+  const totalBeads = beadItems.reduce((total, item) => total + item.count, 0);
+  const drawerColors: BeadColorItem[] = beadItems.map((item) => ({ color: item.color, code: item.color.toUpperCase(), count: item.count }));
 
   return (
     <main className="pattern-detail-page" aria-label="图纸详情页">
@@ -311,34 +309,45 @@ export function PatternDetailPage({ pattern, onBack, isLoggedIn, comments, isLoa
 
         <section className="detail-main-card" aria-label="图纸主信息">
           <div className="detail-hero-art" aria-label={`${pattern.title}预览`}>
-            {pattern.image ? <img src={pattern.image} alt="" /> : <div className="detail-art-empty">暂无预览图</div>}
+            {(pattern.detailImage || pattern.image) ? <img src={pattern.detailImage || pattern.image} alt="" /> : <div className="detail-art-empty">暂无预览图</div>}
           </div>
-          <div className="detail-main-copy">
-            <h1>{pattern.title}</h1>
-            <div className="detail-rating"><span><Star aria-hidden="true" /> {pattern.likesCount > 0 ? '热门' : '新分享'}</span><small>社区稿件</small></div>
-            <p>由 {pattern.author} 分享的拼豆作品。</p>
-            <div className="detail-stat-cards">
-              <div><Heart className="like" aria-hidden="true" /><strong>{formatPatternCount(pattern.likes)}</strong><small>喜欢</small></div>
-              <div><MessageCircle className="comment" aria-hidden="true" /><strong>{formatPatternCount(pattern.comments)}</strong><small>评论</small></div>
-              <div><Eye className="view" aria-hidden="true" /><strong>—</strong><small>浏览</small></div>
-              <div><Download className="download" aria-hidden="true" /><strong>—</strong><small>下载</small></div>
+        </section>
+
+        <section className="detail-info-card" aria-label="图纸信息">
+          <h1>{pattern.title}</h1>
+          <div className="detail-title-meta">
+            <span>发布日期 {pattern.meta}</span>
+            <span>浏览次数 未统计</span>
+          </div>
+          <div className="detail-meta-grid" aria-label="图纸信息">
+            <div className="detail-meta-card">
+              <span className="detail-meta-icon"><Ruler aria-hidden="true" /></span>
+              <span><small>图纸尺寸</small><strong>{pattern.physicalSize || '未记录'}</strong></span>
+            </div>
+            <div className="detail-meta-card">
+              <span className="detail-meta-icon"><Grid2X2 aria-hidden="true" /></span>
+              <span><small>格数</small><strong>{pattern.size}</strong></span>
             </div>
           </div>
         </section>
 
-        <section className="detail-info-card" aria-label="作品信息">
-          <h2><span>i</span>作品信息</h2>
-          <div className="detail-info-grid">
-            <div><small>图纸尺寸</small><strong>{pattern.size}</strong></div>
-            <div><small>作者</small><strong>{pattern.author}</strong></div>
-            <div><small>发布时间</small><strong>{pattern.meta}</strong></div>
-            <div><small>社区点赞</small><strong>{pattern.likes}</strong></div>
-          </div>
-        </section>
-
         <section className="detail-beads-card" aria-label="豆子清单">
-          <div className="detail-section-title"><h2>豆子清单</h2><span>待生成</span></div>
-          <p className="community-empty">作品颜色清单将在打开作品后生成。</p>
+          <div className="detail-section-title">
+            <h2>豆子清单</h2>
+          <span>{totalBeads} 颗 · {beadItems.length} 色</span>
+        </div>
+          {beadItems.length ? (
+            <div className="detail-bead-list">
+              {beadItems.slice(0, 5).map((item) => (
+                <div className="detail-bead-item" key={item.color}>
+                  <i style={{ backgroundColor: item.color }} aria-hidden="true" />
+                  <span>{item.color.toUpperCase()}</span>
+                  <strong>{item.count}</strong>
+                </div>
+              ))}
+              <button type="button" className="detail-bead-more" onClick={() => setShowFullBeadList(true)}>查看全部颜色</button>
+            </div>
+          ) : <p className="community-empty">该稿件没有可统计的豆子。</p>}
         </section>
 
         <section className="detail-comments-card" aria-label="部分评论">
@@ -370,6 +379,7 @@ export function PatternDetailPage({ pattern, onBack, isLoggedIn, comments, isLoa
           <button className="detail-download-action" type="button"><Download aria-hidden="true" /> 下载图纸</button>
         </div>
       </div>
+      {showFullBeadList ? <BeadListDrawer colors={drawerColors} totalBeads={totalBeads} description="按作品实时统计颜色和数量" onClose={() => setShowFullBeadList(false)} /> : null}
     </main>
   );
 }

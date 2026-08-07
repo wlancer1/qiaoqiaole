@@ -212,7 +212,7 @@ export function SplitBeadList({ colors, totalBeads }: { colors: readonly BeadCol
   );
 }
 
-export function BeadListDrawer({ colors, totalBeads, onClose }: { colors: readonly BeadColorItem[]; totalBeads: number; onClose: () => void }) {
+export function BeadListDrawer({ colors, totalBeads, onClose, description = '按当前画布实时统计颜色和数量' }: { colors: readonly BeadColorItem[]; totalBeads: number; onClose: () => void; description?: string }) {
   return (
     <div className="split-bead-drawer-backdrop split-preview-page" role="presentation" onClick={onClose}>
       <section className="split-bead-drawer split-bead-sheet" role="dialog" aria-modal="true" aria-label="豆子清单" onClick={(event) => event.stopPropagation()}>
@@ -221,7 +221,7 @@ export function BeadListDrawer({ colors, totalBeads, onClose }: { colors: readon
           <h2>豆子清单</h2>
           <button type="button" aria-label="关闭豆子清单" onClick={onClose}>×</button>
         </header>
-        <p className="split-bead-drawer-copy">按当前画布实时统计颜色和数量</p>
+        <p className="split-bead-drawer-copy">{description}</p>
         <SplitBeadList colors={colors} totalBeads={totalBeads} />
       </section>
     </div>

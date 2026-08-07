@@ -18,6 +18,8 @@ import {
 } from './xiaohongshu.mjs';
 import { loadEnvFile } from './env.mjs';
 import { loadTencentCosConfig, resolveCosAssetUrl, uploadToTencentCos } from './tencentCos.mjs';
+import { createPhoneAuthService, AuthError, verifyAccessToken } from './phoneAuth.mjs';
+import { getRedisClient, closeRedisClient } from './redisStore.mjs';
 
 loadEnvFile();
 
@@ -45,6 +47,7 @@ const SQL = await initSqlJs();
 const db = await openDatabase(DB_PATH);
 initSchema();
 let persistQueue = Promise.resolve();
+let phoneAuthService;
 
 const server = http.createServer(async (request, response) => {
   try {
@@ -61,6 +64,9 @@ const server = http.createServer(async (request, response) => {
 server.listen(PORT, () => {
   console.log(`qiaoqiaole api listening on :${PORT}`);
 });
+
+process.on('SIGTERM', () => { void closeRedisClient().finally(() => server.close()); });
+process.on('SIGINT', () => { void closeRedisClient().finally(() => server.close()); });
 
 function requiredEnv(name) {
   const value = String(process.env[name] || '').trim();
@@ -87,7 +93,15 @@ function initSchema() {
       username TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
       salt TEXT NOT NULL,
-      created_at TEXT NOT NULL
+      nickname TEXT,
+      avatar_url TEXT,
+      status TEXT NOT NULL DEFAULT 'ACTIVE',
+      register_source TEXT,
+      registered_at TEXT,
+      last_login_at TEXT,
+      last_login_ip_hash TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT
     );
 
     CREATE TABLE IF NOT EXISTS sessions (
@@ -96,6 +110,73 @@ function initSchema() {
       created_at TEXT NOT NULL,
       expires_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS user_identities (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      identifier_hash TEXT NOT NULL,
+      identifier_ciphertext TEXT NOT NULL,
+      identifier_last4 TEXT NOT NULL,
+      verified_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(provider, identifier_hash),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS auth_sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      refresh_token_hash TEXT NOT NULL UNIQUE,
+      token_family_id TEXT NOT NULL,
+      platform TEXT NOT NULL,
+      device_id_hash TEXT,
+      ip_hash TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      revoked_at TEXT,
+      last_used_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS user_agreement_acceptances (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      agreement_version TEXT NOT NULL,
+      accepted_at TEXT NOT NULL,
+      ip_hash TEXT NOT NULL,
+      platform TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS sms_send_logs (
+      id TEXT PRIMARY KEY,
+      request_id TEXT NOT NULL,
+      trace_id TEXT NOT NULL,
+      sms_request_id TEXT NOT NULL,
+      phone_hash TEXT NOT NULL,
+      phone_masked TEXT NOT NULL,
+      ip_hash TEXT NOT NULL,
+      platform TEXT NOT NULL,
+      sign_version TEXT NOT NULL,
+      scene TEXT NOT NULL,
+      risk_result TEXT NOT NULL,
+      risk_reason TEXT,
+      result TEXT NOT NULL,
+      provider_request_id TEXT,
+      provider_code TEXT,
+      latency_ms INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS admin_audit_logs (
+      id TEXT PRIMARY KEY,
+      admin_user_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      target_user_id TEXT,
+      reason TEXT NOT NULL,
+      created_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS warehouses (
@@ -141,6 +222,7 @@ function initSchema() {
       source_image TEXT,
       thumbnail_image TEXT,
       canvas_data TEXT,
+      bead_list TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id)
@@ -165,13 +247,21 @@ function initSchema() {
       FOREIGN KEY (user_id) REFERENCES users(id)
     );
   `);
-  for (const column of ['source_image', 'thumbnail_image', 'canvas_data']) {
+  for (const column of ['source_image', 'thumbnail_image', 'canvas_data', 'bead_list']) {
     try {
       db.run(`ALTER TABLE projects ADD COLUMN ${column} TEXT`);
     } catch {
       // Existing databases already contain the column.
     }
   }
+  for (const [column, definition] of [
+    ['nickname', 'TEXT'], ['avatar_url', 'TEXT'], ['status', "TEXT NOT NULL DEFAULT 'ACTIVE'"],
+    ['register_source', 'TEXT'], ['registered_at', 'TEXT'], ['last_login_at', 'TEXT'],
+    ['last_login_ip_hash', 'TEXT'], ['updated_at', 'TEXT'],
+  ]) {
+    try { db.run(`ALTER TABLE users ADD COLUMN ${column} ${definition}`); } catch {}
+  }
+  try { db.run('ALTER TABLE sms_send_logs ADD COLUMN risk_reason TEXT'); } catch {}
   for (const statement of [
     'ALTER TABLE projects ADD COLUMN shared_to_community INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE projects ADD COLUMN shared_at TEXT',
@@ -199,6 +289,9 @@ async function route(request, response) {
   if (request.method === 'OPTIONS') return sendCors(response);
   if (request.method === 'GET' && url.pathname === '/api/health') {
     return sendJson(response, 200, { ok: true });
+  }
+  if (url.pathname.startsWith('/api/v1/auth/')) {
+    return handlePhoneAuthRoute(request, response, url);
   }
   if (request.method === 'POST' && url.pathname === '/api/auth/register') {
     return sendJson(response, 410, { error: 'REGISTER_DISABLED', message: '注册功能已下线，请使用管理员提供的账号登录' });
@@ -236,6 +329,25 @@ async function route(request, response) {
 
   const user = requireUser(request, response);
   if (!user) return;
+
+  if (request.method === 'GET' && url.pathname === '/api/admin/users') {
+    if (user.username !== AUTH_USERNAME) return sendJson(response, 403, { error: 'FORBIDDEN', message: '无权限' });
+    const service = await getPhoneAuthService();
+    return sendJson(response, 200, { users: service.adminListUsers(url) });
+  }
+  const adminUserStatusMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)\/status$/);
+  if (request.method === 'POST' && adminUserStatusMatch) {
+    if (user.username !== AUTH_USERNAME) return sendJson(response, 403, { error: 'FORBIDDEN', message: '无权限' });
+    const body = await readJson(request);
+    const service = await getPhoneAuthService();
+    const result = await service.adminSetUserStatus(adminUserStatusMatch[1], body.status, body.reason, user.id);
+    return sendJson(response, 200, result);
+  }
+  if (request.method === 'GET' && url.pathname === '/api/admin/sms-logs') {
+    if (user.username !== AUTH_USERNAME) return sendJson(response, 403, { error: 'FORBIDDEN', message: '无权限' });
+    const service = await getPhoneAuthService();
+    return sendJson(response, 200, { logs: service.adminSmsLogs(url) });
+  }
 
   if (request.method === 'GET' && url.pathname === '/api/me') {
     return sendJson(response, 200, { user });
@@ -286,6 +398,89 @@ async function route(request, response) {
   }
 
   sendJson(response, 404, { error: 'NOT_FOUND', message: '接口不存在' });
+}
+
+async function getPhoneAuthService() {
+  if (phoneAuthService) return phoneAuthService;
+  const redis = await getRedisClient();
+  phoneAuthService = createPhoneAuthService({ db, getOne, getAll, persist, redis });
+  return phoneAuthService;
+}
+
+async function handlePhoneAuthRoute(request, response, url) {
+  const requestId = `trace_${randomUUID()}`;
+  try {
+    if (request.method === 'POST' && !String(request.headers['content-type'] || '').toLowerCase().startsWith('application/json')) {
+      return sendJson(response, 400, { code: 'AUTH_REQUEST_INVALID', message: '请求无效，请刷新后重试', requestId });
+    }
+    if (request.method === 'POST' && Number(request.headers['content-length'] || 0) > 8192) {
+      return sendJson(response, 400, { code: 'AUTH_REQUEST_INVALID', message: '请求无效，请刷新后重试', requestId });
+    }
+    const service = await getPhoneAuthService();
+    if (request.method === 'POST' && url.pathname === '/api/v1/auth/sms/challenge') {
+      return sendAuthResult(response, await service.challenge(await readJson(request), trustedClientIp(request), requestId));
+    }
+    if (request.method === 'POST' && url.pathname === '/api/v1/auth/sms/send') {
+      const body = await readJson(request);
+      const headers = {
+        platform: request.headers['x-client-platform'], signVersion: request.headers['x-sign-version'],
+        requestId: request.headers['x-request-id'], timestamp: request.headers['x-timestamp'], nonce: request.headers['x-nonce'],
+        challengeId: request.headers['x-challenge-id'], signature: request.headers['x-signature'],
+      };
+      return sendAuthResult(response, await service.send(body, headers, trustedClientIp(request), requestId));
+    }
+    if (request.method === 'POST' && url.pathname === '/api/v1/auth/sms/login') {
+      return sendAuthResult(response, await service.login(await readJson(request), trustedClientIp(request), requestId));
+    }
+    if (request.method === 'POST' && url.pathname === '/api/v1/auth/sms/register') {
+      return sendAuthResult(response, await service.register(await readJson(request), trustedClientIp(request), requestId));
+    }
+    if (request.method === 'POST' && url.pathname === '/api/v1/auth/token/refresh') {
+      const body = await readJson(request);
+      const cookies = parseCookieHeader(request.headers.cookie);
+      return sendAuthResult(response, await service.refresh(body.refreshToken || cookies.refresh_token, requestId));
+    }
+    if (request.method === 'POST' && url.pathname === '/api/v1/auth/logout') {
+      const body = await readJson(request);
+      const cookies = parseCookieHeader(request.headers.cookie);
+      return sendAuthResult(response, await service.logout(body.refreshToken || cookies.refresh_token, requestId));
+    }
+    if (request.method === 'GET' && url.pathname === '/api/v1/auth/me') {
+      const user = service.authenticate(request.headers.authorization || '');
+      if (!user) return sendJson(response, 401, { code: 'AUTH_UNAUTHORIZED', message: '请先登录', requestId });
+      return sendJson(response, 200, { code: 'OK', message: 'success', data: { user: { id: user.id, nickname: user.nickname, avatarUrl: user.avatarUrl || null, status: user.status } }, requestId });
+    }
+    return sendJson(response, 404, { code: 'NOT_FOUND', message: '接口不存在', requestId });
+  } catch (error) {
+    if (error instanceof AuthError) {
+      const headers = error.retryAfter ? { 'retry-after': String(error.retryAfter) } : {};
+      return sendJson(response, error.status, { code: error.code, message: error.message, requestId }, headers);
+    }
+    if (error?.message === 'REDIS_NOT_CONFIGURED' || error?.code === 'ECONNREFUSED' || error?.message?.includes('Redis')) {
+      return sendJson(response, 503, { code: 'AUTH_RISK_SERVICE_UNAVAILABLE', message: '服务暂不可用，请稍后再试', requestId });
+    }
+    if (error?.message === 'AUTH_PHONE_INVALID') {
+      return sendJson(response, 400, { code: 'AUTH_PHONE_INVALID', message: '请输入正确的手机号', requestId });
+    }
+    if (error?.message === 'ALIYUN_PNVS_NOT_CONFIGURED') {
+      return sendJson(response, 503, { code: 'AUTH_SMS_PROVIDER_UNAVAILABLE', message: '短信服务暂不可用，请稍后再试', requestId });
+    }
+    throw error;
+  }
+}
+
+function sendAuthResult(response, result) {
+  const headers = result.headers || {};
+  response.writeHead(result.status, { ...corsHeaders(), ...headers, 'content-type': 'application/json; charset=utf-8' });
+  response.end(JSON.stringify(result.body));
+}
+
+function parseCookieHeader(value) {
+  return Object.fromEntries(String(value || '').split(';').map((part) => part.trim().split('=').map(decodeURIComponent)).filter(([key]) => key));
+}
+
+function trustedClientIp(request) {
+  return request.socket.remoteAddress || 'unknown';
 }
 
 async function login(request, response) {
@@ -645,20 +840,24 @@ function requireUser(request, response) {
     sendJson(response, 401, { error: 'UNAUTHORIZED', message: '请先登录' });
     return null;
   }
-  return { id: row.id, username: row.username };
+  return { id: row.id, username: row.username, nickname: row.nickname || row.username, status: row.status || 'ACTIVE' };
 }
 
 function getUserFromRequest(request) {
   const header = request.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : '';
   if (!token) return null;
-  return getOne(
-    `SELECT users.id, users.username
+  const legacyUser = getOne(
+    `SELECT users.id, users.username, users.nickname, users.status
      FROM sessions
      JOIN users ON users.id = sessions.user_id
      WHERE sessions.token = ? AND sessions.expires_at > ? AND users.username = ?`,
     [token, new Date().toISOString(), AUTH_USERNAME],
   );
+  if (legacyUser) return legacyUser;
+  const payload = verifyAccessToken(token, String(process.env.AUTH_JWT_SECRET || '').trim());
+  if (!payload) return null;
+  return getOne('SELECT id, username, nickname, status FROM users WHERE id = ? AND status = \'ACTIVE\'', [payload.sub]);
 }
 
 function getOptionalUser(request) {
@@ -936,10 +1135,38 @@ async function updateProject(request, response, userId, projectId) {
   } });
 }
 
+function buildBeadList(canvasData) {
+  let cells;
+  try {
+    cells = JSON.parse(String(canvasData || ''));
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(cells)) return [];
+  const counts = new Map();
+  for (const cell of cells) {
+    const color = String(cell?.color || '').trim().toLowerCase();
+    if (!color || cell?.transparent) continue;
+    counts.set(color, (counts.get(color) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([color, count]) => ({ color, count }))
+    .sort((left, right) => right.count - left.count || left.color.localeCompare(right.color));
+}
+
+function parseStoredBeadList(value) {
+  try {
+    const list = JSON.parse(String(value || ''));
+    return Array.isArray(list) ? list.filter((item) => item && typeof item.color === 'string' && Number.isFinite(Number(item.count))) : [];
+  } catch {
+    return [];
+  }
+}
+
 function getCommunityPost(userId, projectId) {
   return getOne(
     `SELECT p.id, p.name, p.rows, p.cols, p.tone,
-            p.source_image AS sourceImage, p.thumbnail_image AS thumbnailImage,
+            p.source_image AS sourceImage, p.thumbnail_image AS thumbnailImage, p.canvas_data AS canvasData, p.bead_list AS beadList,
             p.shared_at AS sharedAt, p.likes_count AS likesCount,
             u.username AS author,
             COUNT(DISTINCT c.id) AS commentsCount,
@@ -955,10 +1182,12 @@ function getCommunityPost(userId, projectId) {
 }
 
 function formatCommunityPost(post) {
+  const storedBeadList = parseStoredBeadList(post.beadList);
   return {
     ...post,
     sourceImage: resolveProjectImage(post.sourceImage),
     thumbnailImage: resolveProjectImage(post.thumbnailImage),
+    beadList: storedBeadList.length > 0 ? storedBeadList : buildBeadList(post.canvasData),
     rows: Number(post.rows),
     cols: Number(post.cols),
     likesCount: Number(post.likesCount || 0),
@@ -978,7 +1207,7 @@ function listCommunityPosts(response, userId, sort, pagination = { page: 1, page
   const orderBy = sort === 'latest' ? 'p.shared_at DESC, p.id DESC' : 'p.likes_count DESC, p.shared_at DESC, p.id DESC';
   const posts = getAll(
     `SELECT p.id, p.name, p.rows, p.cols, p.tone,
-            p.source_image AS sourceImage, p.thumbnail_image AS thumbnailImage,
+            p.source_image AS sourceImage, p.thumbnail_image AS thumbnailImage, p.canvas_data AS canvasData, p.bead_list AS beadList,
             p.shared_at AS sharedAt, p.likes_count AS likesCount,
             u.username AS author,
             COUNT(DISTINCT c.id) AS commentsCount,
@@ -1006,18 +1235,23 @@ function assertSharedProject(response, userId, projectId) {
 }
 
 async function shareProject(response, userId, projectId) {
-  const project = getOne('SELECT id, user_id, thumbnail_image AS thumbnailImage, source_image AS sourceImage, shared_to_community AS sharedToCommunity, shared_at AS sharedAt FROM projects WHERE id = ?', [projectId]);
+  const project = getOne('SELECT id, user_id, thumbnail_image AS thumbnailImage, source_image AS sourceImage, canvas_data AS canvasData, bead_list AS beadList, shared_to_community AS sharedToCommunity, shared_at AS sharedAt FROM projects WHERE id = ?', [projectId]);
   if (!project || project.user_id !== userId) return sendJson(response, 404, { error: 'NOT_FOUND', message: '作品不存在' });
   if (!String(project.thumbnailImage || project.sourceImage || '').trim()) {
     return sendJson(response, 400, { error: 'INVALID_INPUT', message: '作品缺少有效预览图，无法分享到社区' });
   }
+  const beadList = buildBeadList(project.canvasData);
   if (!project.sharedToCommunity) {
     const now = new Date().toISOString();
-    db.run('UPDATE projects SET shared_to_community = 1, shared_at = ?, updated_at = ? WHERE id = ?', [now, now, projectId]);
+    db.run('UPDATE projects SET shared_to_community = 1, shared_at = ?, bead_list = ?, updated_at = ? WHERE id = ?', [now, JSON.stringify(beadList), now, projectId]);
     await persist();
-    return sendJson(response, 200, { shared: true, sharedAt: now, projectId });
+    return sendJson(response, 200, { shared: true, sharedAt: now, projectId, beadList });
   }
-  sendJson(response, 200, { shared: true, sharedAt: project.sharedAt, projectId });
+  if (!project.beadList) {
+    db.run('UPDATE projects SET bead_list = ? WHERE id = ?', [JSON.stringify(beadList), projectId]);
+    await persist();
+  }
+  sendJson(response, 200, { shared: true, sharedAt: project.sharedAt, projectId, beadList: project.beadList ? parseStoredBeadList(project.beadList) : beadList });
 }
 
 function listProjectComments(response, userId, projectId, pagination = { page: 1, pageSize: 20, offset: 0 }) {
@@ -1209,9 +1443,10 @@ function sendCors(response) {
   response.end();
 }
 
-function sendJson(response, status, payload) {
+function sendJson(response, status, payload, extraHeaders = {}) {
   response.writeHead(status, {
     ...corsHeaders(),
+    ...extraHeaders,
     'content-type': 'application/json; charset=utf-8',
   });
   response.end(JSON.stringify(payload));
@@ -1221,6 +1456,7 @@ function corsHeaders() {
   return {
     'access-control-allow-origin': '*',
     'access-control-allow-methods': 'GET,POST,OPTIONS',
-    'access-control-allow-headers': 'content-type, authorization',
+    'access-control-allow-headers': 'content-type, authorization, x-client-platform, x-client-version, x-sign-version, x-request-id, x-timestamp, x-nonce, x-challenge-id, x-signature',
+    'access-control-expose-headers': 'retry-after',
   };
 }

@@ -44,7 +44,11 @@ beforeAll(async () => {
   const login = await request('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'test-user', password: 'test-password' }) });
   token = login.body.token;
   userId = login.body.user.id;
-  const created = await request('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ name: 'API 社区稿件', rows: 2, cols: 3, thumbnailImagePath: 'data:image/png;base64,AA==', canvasData: '[]' }) });
+  const created = await request('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ name: 'API 社区稿件', rows: 2, cols: 3, thumbnailImagePath: 'data:image/png;base64,AA==', canvasData: JSON.stringify([
+    { x: 0, y: 0, color: '#ff0000', transparent: false },
+    { x: 1, y: 0, color: '#ff0000', transparent: false },
+    { x: 0, y: 1, color: '#0000ff', transparent: false },
+  ]) }) });
   projectId = created.body.project.id;
 });
 
@@ -59,6 +63,10 @@ describe('community API', () => {
     const firstShare = await request(`/api/projects/${projectId}/share`, { method: 'POST', headers });
     const secondShare = await request(`/api/projects/${projectId}/share`, { method: 'POST', headers });
     expect(firstShare.body.shared).toBe(true);
+    expect(firstShare.body.beadList).toEqual([
+      { color: '#ff0000', count: 2 },
+      { color: '#0000ff', count: 1 },
+    ]);
     expect(secondShare.body.sharedAt).toBe(firstShare.body.sharedAt);
 
     await request(`/api/community/posts/${projectId}/like`, { method: 'POST', headers });
@@ -71,6 +79,7 @@ describe('community API', () => {
     expect(post.likesCount).toBe(1);
     expect(post.commentsCount).toBe(1);
     expect(post.likedByMe).toBe(true);
+    expect(post.beadList).toEqual(firstShare.body.beadList);
   });
 
   it('rejects comments before sharing and invalid empty comments', async () => {

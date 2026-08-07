@@ -30,7 +30,11 @@ export type PatternListCard = {
   downloads: string;
   tone: string;
   beads: string[];
+  beadList?: Array<{ color: string; count: number }>;
   image: string;
+  detailImage?: string;
+  imageAspectRatio?: string;
+  physicalSize?: string;
   likesCount: number;
   commentsCount: number;
   likedByMe: boolean;

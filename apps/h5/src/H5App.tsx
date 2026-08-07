@@ -104,14 +104,16 @@ import {
 } from './utils/h5AppUtils';
 import { normalizeProjectPayload, parseProjectCells, serializeProjectCells } from './utils/projectPayload';
 import { cropSize, getAutoCropBounds, splitCropRegion, splitPreviewBackTarget, type CropBounds } from './utils/splitCrop';
+import { defaultSplitImageView } from './utils/splitImageView';
 import { AuthorProfilePage, MyWorksPage, PatternDetailPage, PatternDiscoverPage, PatternMessagesPage } from './patterns/H5PatternPages';
-import { homeTemplateFilters, quickTools } from './patterns/h5PatternData';
+import { quickTools } from './patterns/h5PatternData';
 import { sortCommunityPosts, toPatternListCard, type CommunityComment, type CommunityPost } from './community/communityData';
 import { WarehousePage } from './pages/warehouse/WarehousePage';
 import { WarehouseListPage } from './pages/warehouse/WarehouseListPage';
 import { SplitCropPage, SplitPreviewPage, SplitSettingsPage } from './pages/split/SplitPages';
 import { CanvasPage } from './pages/editor/CanvasPage';
-import { HomeShellPage } from './pages/home/HomeShellPage';
+import { HomeShellPage, PhoneLoginModal } from './pages/home/HomeShellPage';
+import { createNonce, createRequestId, getPhoneDeviceId, normalizePhone, showTencentCaptcha, signWebSmsRequest } from './utils/phoneAuthClient';
 import type {
   AlignedGrid,
   AppScreen,
@@ -149,6 +151,7 @@ const WHITE_BEAD_COLOR = nearestPaletteColor(255, 255, 255, MARD_221_HEX);
 const BEADS_PER_GRAM = 15;
 const WAREHOUSE_LETTERS = ['全部', ...Array.from(new Set(MARD_221_COLORS.map((color) => color.code.charAt(0))))];
 const API_BASE = '/api';
+const CAPTCHA_APP_ID = String((import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_TENCENT_CAPTCHA_APP_ID || '');
 const AUTH_STORAGE_KEY = 'qiaoqiaole.auth';
 const STATUS_VISIBLE_MS = 2800;
 const STICKY_STATUS_PREFIXES = ['正在'];
@@ -182,6 +185,30 @@ function H5App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loginName, setLoginName] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [phonePassword, setPhonePassword] = useState('');
+  const [phoneConfirmPassword, setPhoneConfirmPassword] = useState('');
+  const [phoneCode, setPhoneCode] = useState('');
+  const [phoneAuthMode, setPhoneAuthMode] = useState<'login' | 'register'>('login');
+  const [phoneAgreement, setPhoneAgreement] = useState(false);
+  const [phoneAuthError, setPhoneAuthError] = useState('');
+  const [phoneSending, setPhoneSending] = useState(false);
+  const [phoneVerifying, setPhoneVerifying] = useState(false);
+  const [phoneCountdown, setPhoneCountdown] = useState(0);
+  const [phoneChallenge, setPhoneChallenge] = useState<{ challengeId: string; seed: string; serverTime: number } | null>(null);
+  const [phoneSmsRequestId, setPhoneSmsRequestId] = useState('');
+  const switchPhoneAuthMode = (mode: 'login' | 'register') => {
+    setPhoneAuthMode(mode);
+    setStatus('');
+    setPhoneNumber('');
+    setPhonePassword('');
+    setPhoneConfirmPassword('');
+    setPhoneCode('');
+    setPhoneAuthError('');
+    setPhoneCountdown(0);
+    setPhoneChallenge(null);
+    setPhoneSmsRequestId('');
+  };
   const [authToken, setAuthToken] = useState('');
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
   const [activeProjectId, setActiveProjectId] = useState('');
@@ -200,6 +227,7 @@ function H5App() {
   );
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [showSaveProjectModal, setShowSaveProjectModal] = useState(false);
   const [shareToCommunity, setShareToCommunity] = useState(false);
   const [sharingProjectId, setSharingProjectId] = useState('');
@@ -370,6 +398,12 @@ function H5App() {
   }, [status]);
 
   useEffect(() => {
+    if (phoneCountdown <= 0) return undefined;
+    const timer = window.setInterval(() => setPhoneCountdown((value) => Math.max(0, value - 1)), 1000);
+    return () => window.clearInterval(timer);
+  }, [phoneCountdown]);
+
+  useEffect(() => {
     let cancelled = false;
     const restoreSession = async () => {
       let stored: { token?: string; username?: string } | null = null;
@@ -389,7 +423,7 @@ function H5App() {
         if (!response.ok) throw new Error(payload.message || '登录状态已失效');
         if (cancelled) return;
         setAuthToken(stored.token);
-        setLoginName(payload.user.username || stored.username || '');
+        setLoginName(payload.user.username || payload.user.nickname || stored.username || '');
         setIsLoggedIn(true);
         await loadRecentProjects(stored.token);
         await loadCommunityPosts('hot', stored.token);
@@ -948,6 +982,137 @@ function H5App() {
     }
   };
 
+  const sendPhoneCode = async () => {
+    if (phoneSending || phoneCountdown > 0) return;
+    setPhoneAuthError('');
+    setStatus('');
+    let phone: string;
+    try {
+      phone = normalizePhone(phoneNumber);
+    } catch (error) {
+      setPhoneAuthError(error instanceof Error ? error.message : '请输入正确的手机号');
+      return;
+    }
+    setPhoneSending(true);
+    try {
+      const deviceId = getPhoneDeviceId();
+      const challengeResponse = await fetch(`${API_BASE}/v1/auth/sms/challenge`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ platform: 'web', deviceId }),
+      });
+      const challengePayload = await challengeResponse.json().catch(() => ({}));
+      if (!challengeResponse.ok) throw new Error(challengePayload.message || '请求已失效，请稍后重试');
+      const challenge = challengePayload.data as { challengeId: string; seed: string; serverTime: number };
+      const requestId = createRequestId();
+      const nonce = createNonce();
+      const timestamp = challenge.serverTime;
+      const captcha = await showTencentCaptcha(CAPTCHA_APP_ID);
+      const body = { phone, scene: 'REGISTER', captchaTicket: captcha.ticket, captchaRandstr: captcha.randstr, deviceId };
+      const signature = await signWebSmsRequest(body, { platform: 'web', signVersion: 'web-v1', timestamp, requestId, nonce, challengeId: challenge.challengeId }, challenge.seed);
+      const sendResponse = await fetch(`${API_BASE}/v1/auth/sms/send`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json', 'x-client-platform': 'web', 'x-client-version': '1.0.0', 'x-sign-version': 'web-v1',
+          'x-request-id': requestId, 'x-timestamp': String(timestamp), 'x-nonce': nonce, 'x-challenge-id': challenge.challengeId, 'x-signature': signature,
+        },
+        body: JSON.stringify(body),
+      });
+      const sendPayload = await sendResponse.json().catch(() => ({}));
+      if (!sendResponse.ok) {
+        const retryAfter = Number(sendResponse.headers.get('retry-after') || 0);
+        if (retryAfter > 0) setPhoneCountdown(retryAfter);
+        throw new Error(sendPayload.message || '操作过于频繁，请稍后再试');
+      }
+      setPhoneChallenge({ challengeId: challenge.challengeId, seed: challenge.seed, serverTime: challenge.serverTime });
+      setPhoneSmsRequestId(sendPayload.data.smsRequestId);
+      setPhoneCountdown(Number(sendPayload.data.retryAfter || 60));
+      setStatus('验证码已发送，请注意查收短信。');
+    } catch (error) {
+      setPhoneAuthError(error instanceof Error ? error.message : '验证码发送失败');
+    } finally {
+      setPhoneSending(false);
+    }
+  };
+
+  const submitPhoneAuth = async (mode: 'login' | 'register') => {
+    if (phoneVerifying) return;
+    if (!phoneAgreement) {
+      setPhoneAuthError('请先勾选用户协议和隐私政策');
+      return;
+    }
+    let phone: string;
+    try { phone = normalizePhone(phoneNumber); } catch (error) {
+      setPhoneAuthError(error instanceof Error ? error.message : '请输入正确的手机号');
+      return;
+    }
+    if (mode === 'register' && (!phoneSmsRequestId || !/^\d{6}$/.test(phoneCode))) {
+      setPhoneAuthError('请输入6位验证码');
+      return;
+    }
+    setPhoneVerifying(true);
+    setPhoneAuthError('');
+    try {
+      if (phonePassword.length < 8 || phonePassword.length > 128) {
+        setPhoneAuthError('密码长度需为 8-128 位');
+        return;
+      }
+      if (mode === 'register' && phonePassword !== phoneConfirmPassword) {
+        setPhoneAuthError('两次密码输入不一致');
+        return;
+      }
+      const response = await fetch(`${API_BASE}/v1/auth/sms/${mode}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ phone, password: phonePassword, ...(mode === 'register' ? { confirmPassword: phoneConfirmPassword, smsRequestId: phoneSmsRequestId, code: phoneCode } : {}), agreementVersion: 'privacy-2026-08-01', device: { platform: 'web', deviceId: getPhoneDeviceId(), appVersion: '1.0.0' } }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || '登录失败，请稍后重试');
+      const data = payload.data as { accessToken: string; user: { nickname?: string; id: string } };
+      setAuthToken(data.accessToken);
+      setLoginName(data.user.nickname || '我的创作');
+      setIsLoggedIn(true);
+      window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token: data.accessToken, username: data.user.nickname || '我的创作' }));
+      setShowLoginModal(false);
+      setPhoneCode('');
+      setPhonePassword('');
+      setPhoneConfirmPassword('');
+      setPhoneSmsRequestId('');
+      setPhoneChallenge(null);
+      setStatus(data.user.nickname ? `登录成功：${data.user.nickname}。` : '登录成功。');
+      await loadRecentProjects(data.accessToken);
+      await loadCommunityPosts('hot', data.accessToken);
+      await loadWarehouses(data.accessToken);
+      const pendingAuthAction = pendingAuthActionRef.current;
+      pendingAuthActionRef.current = null;
+      pendingAuthAction?.(data.accessToken);
+    } catch (error) {
+      setPhoneAuthError(error instanceof Error ? error.message : '登录失败，请稍后重试');
+    } finally {
+      setPhoneVerifying(false);
+    }
+  };
+
+  const submitPhoneLogin = async () => submitPhoneAuth('login');
+  const submitPhoneRegister = async () => submitPhoneAuth('register');
+
+  const logoutPhone = async () => {
+    try {
+      await fetch(`${API_BASE}/v1/auth/logout`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    } catch {
+      // Clear the local session even when the server is unavailable.
+    }
+    setAuthToken('');
+    setIsLoggedIn(false);
+    setLoginName('');
+    setRecentProjects([]);
+    setCommunityPosts([]);
+    setCommunityComments([]);
+    setWarehouses([]);
+    setBeadStock({});
+    pendingAuthActionRef.current = null;
+    window.localStorage.removeItem(AUTH_STORAGE_KEY);
+    setShowLogoutConfirm(false);
+    setStatus('已退出登录。');
+  };
+
   const openWarehouse = () => {
     requireLogin(() => {
       setScreen('warehouse');
@@ -1453,6 +1618,9 @@ function H5App() {
     setLockedAlignedGrid(finalizedAlignment);
     const nextRows = finalizedAlignment?.rows ?? splitRows;
     const nextCols = finalizedAlignment?.cols ?? splitCols;
+    const nextImageView = defaultSplitImageView();
+    setSplitImageScale(nextImageView.scale);
+    updateSplitImageOffset(nextImageView.offset);
     setIsSplitCropStep(true);
     setIsSplitCropped(false);
     setSplitPreviewLoading(false);
@@ -2023,39 +2191,17 @@ function H5App() {
     setShowLoginModal(false);
   };
   const loginModalFallback = showLoginModal && !(screen === 'home' && (activeTab === 'home' || activeTab === 'profile')) ? (
-    <div className="home-create-modal" role="dialog" aria-label="登录面板">
-      <div className="home-create-panel">
-        <div className="home-create-head">
-          <strong>登录</strong>
-          <button aria-label="关闭登录" onClick={closeLoginModal}>关闭</button>
-        </div>
-        <div className="login-form">
-          <label>
-            <span>用户名</span>
-            <input
-              type="text"
-              aria-label="用户名"
-              placeholder="输入用户名"
-              value={loginName}
-              onChange={(event) => setLoginName(event.target.value)}
-            />
-          </label>
-          <label>
-            <span>密码</span>
-            <input
-              type="password"
-              aria-label="密码"
-              placeholder="输入密码"
-              value={loginPassword}
-              onChange={(event) => setLoginPassword(event.target.value)}
-            />
-          </label>
-        </div>
-        <button className="home-create-submit" onClick={() => void submitLogin()} disabled={isAuthenticating}>
-          {isAuthenticating ? '处理中...' : '登录并继续'}
-        </button>
-      </div>
-    </div>
+    <PhoneLoginModal
+      phoneNumber={phoneNumber} setPhoneNumber={setPhoneNumber} phoneCode={phoneCode} setPhoneCode={setPhoneCode}
+      phonePassword={phonePassword} setPhonePassword={setPhonePassword}
+      phoneConfirmPassword={phoneConfirmPassword} setPhoneConfirmPassword={setPhoneConfirmPassword}
+      phoneAuthMode={phoneAuthMode} setPhoneAuthMode={switchPhoneAuthMode}
+      phoneAgreement={phoneAgreement} setPhoneAgreement={setPhoneAgreement} phoneAuthError={phoneAuthError}
+      phoneSending={phoneSending} phoneVerifying={phoneVerifying} phoneCountdown={phoneCountdown}
+      sendPhoneCode={sendPhoneCode} submitPhoneLogin={submitPhoneLogin} submitPhoneRegister={submitPhoneRegister} closeLoginModal={closeLoginModal}
+      logoutPhone={logoutPhone}
+      showLogoutConfirm={showLogoutConfirm} setShowLogoutConfirm={setShowLogoutConfirm}
+    />
   ) : null;
   const withLoginModalFallback = (content: ReactNode) => (
     <>
@@ -2319,7 +2465,7 @@ function H5App() {
   return withLoginModalFallback(<HomeShellPage
     fileInputRef={fileInputRef} handleUpload={handleUpload} status={status} activeTab={activeTab}
     recentProjects={sortedRecentProjects} homeTemplateCards={homeTemplateCards} onOpenRecentProject={openSavedProject}
-    homeTemplateFilters={homeTemplateFilters} openUpload={openUpload} isLoggedIn={isLoggedIn}
+    openUpload={openUpload} isLoggedIn={isLoggedIn}
     loginName={loginName} setLoginName={setLoginName} loginPassword={loginPassword} setLoginPassword={setLoginPassword} submitLogin={submitLogin}
     isAuthenticating={isAuthenticating} showLoginModal={showLoginModal} setShowLoginModal={setShowLoginModal}
     showUploadModal={showUploadModal} closeUploadModal={closeUploadModal} showXhsInput={showXhsInput}
@@ -2336,6 +2482,15 @@ function H5App() {
     setActiveTab={setActiveTab} communitySort={communitySort} setCommunitySort={setCommunitySort}
     authRequestSeqRef={authRequestSeqRef} pendingAuthActionRef={pendingAuthActionRef}
     setIsAuthenticating={setIsAuthenticating} setIsLoggedIn={setIsLoggedIn} setAuthToken={setAuthToken}
+    phoneNumber={phoneNumber} setPhoneNumber={setPhoneNumber} phoneCode={phoneCode} setPhoneCode={setPhoneCode}
+    phonePassword={phonePassword} setPhonePassword={setPhonePassword}
+    phoneConfirmPassword={phoneConfirmPassword} setPhoneConfirmPassword={setPhoneConfirmPassword}
+    phoneAuthMode={phoneAuthMode} setPhoneAuthMode={switchPhoneAuthMode}
+    phoneAgreement={phoneAgreement} setPhoneAgreement={setPhoneAgreement} phoneAuthError={phoneAuthError}
+    phoneSending={phoneSending} phoneVerifying={phoneVerifying} phoneCountdown={phoneCountdown}
+    sendPhoneCode={sendPhoneCode} submitPhoneLogin={submitPhoneLogin} submitPhoneRegister={submitPhoneRegister} closeLoginModal={closeLoginModal}
+    logoutPhone={logoutPhone}
+    showLogoutConfirm={showLogoutConfirm} setShowLogoutConfirm={setShowLogoutConfirm}
     recentProjectsRequestSeqRef={recentProjectsRequestSeqRef} inventoryRequestSeqRef={inventoryRequestSeqRef}
     setWarehouses={setWarehouses} activeWarehouseIdRef={activeWarehouseIdRef} setActiveWarehouseId={setActiveWarehouseId}
     setBeadStock={setBeadStock} setSelectedWarehouseCodes={setSelectedWarehouseCodes}

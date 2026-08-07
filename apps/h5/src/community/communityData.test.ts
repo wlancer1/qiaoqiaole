@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { sortCommunityPosts, toPatternListCard } from './communityData';
+import { formatCommunityTime, formatPatternSizeCm, sortCommunityPosts, toPatternListCard } from './communityData';
+
+describe('formatCommunityTime', () => {
+  it('formats ISO timestamps for community cards and detail metadata', () => {
+    expect(formatCommunityTime('2026-08-06T12:07:31.429Z')).toBe('2026-08-06 20:07');
+  });
+});
+
+describe('formatPatternSizeCm', () => {
+  it('converts grid counts from 2.6mm cells to centimeters', () => {
+    expect(formatPatternSizeCm(47, 61)).toBe('12.22 × 15.86 cm');
+  });
+});
 
 describe('community data helpers', () => {
   it('maps a real community post to a discover card without fabricated content', () => {
@@ -11,7 +23,8 @@ describe('community data helpers', () => {
       cols: 24,
       tone: 'recent-flower',
       thumbnailImage: '/uploads/cat.webp',
-      sourceImage: '',
+      sourceImage: '/uploads/cat-source.webp',
+      beadList: [{ color: '#ff0000', count: 3 }],
       likesCount: 12,
       commentsCount: 3,
       likedByMe: true,
@@ -27,8 +40,11 @@ describe('community data helpers', () => {
       commentsCount: 3,
       likedByMe: true,
       image: '/uploads/cat.webp',
+      detailImage: '/uploads/cat.webp',
+      physicalSize: '6.24 × 4.68 cm',
     });
     expect(card.beads).toEqual([]);
+    expect(card.beadList).toEqual([{ color: '#ff0000', count: 3 }]);
   });
 
   it('sorts hot posts by likes and uses share time as the tie-breaker', () => {
