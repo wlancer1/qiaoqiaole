@@ -1,3 +1,6 @@
+import { hmac as nobleHmac } from '@noble/hashes/hmac.js';
+import { sha256 as nobleSha256 } from '@noble/hashes/sha2.js';
+
 const DEVICE_STORAGE_KEY = 'qiaoqiaole.phone-device';
 const PUBLIC_APP_ID = 'qiaoqiaole-h5';
 
@@ -16,6 +19,7 @@ function base64Url(bytes: Uint8Array) {
 }
 
 function randomBytes(size: number) {
+  if (!globalThis.crypto?.getRandomValues) throw new Error('短信认证需要使用支持安全加密的浏览器');
   const bytes = new Uint8Array(size);
   crypto.getRandomValues(bytes);
   return bytes;
@@ -45,13 +49,28 @@ function canonicalJson(value: unknown): string {
 }
 
 async function sha256(value: string) {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  const digest = await sha256Bytes(value);
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-async function hmac(key: ArrayBuffer, value: string) {
-  const cryptoKey = await crypto.subtle.importKey('raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  return base64Url(new Uint8Array(await crypto.subtle.sign('HMAC', cryptoKey, new TextEncoder().encode(value))));
+function nativeWebCryptoAvailable() {
+  return Boolean(globalThis.isSecureContext && globalThis.crypto?.subtle);
+}
+
+async function sha256Bytes(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  if (nativeWebCryptoAvailable()) return crypto.subtle.digest('SHA-256', bytes);
+  // Temporary HTTP compatibility path. HTTPS should remain the production mode.
+  return nobleSha256(bytes);
+}
+
+async function hmac(key: ArrayBuffer | Uint8Array, value: string) {
+  if (nativeWebCryptoAvailable()) {
+    const cryptoKey = await crypto.subtle.importKey('raw', key as BufferSource, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    return base64Url(new Uint8Array(await crypto.subtle.sign('HMAC', cryptoKey, new TextEncoder().encode(value))));
+  }
+  // Temporary HTTP compatibility path. This does not make HTTP transport secure.
+  return base64Url(nobleHmac(nobleSha256, new Uint8Array(key), new TextEncoder().encode(value)));
 }
 
 export function createRequestId() {
@@ -107,6 +126,6 @@ export async function signWebSmsRequest(body: { phone: string; scene: string; ca
   const bodyHash = await sha256(canonicalJson(normalizedBody));
   const canonical = ['SMS_SEND', 'POST', '/api/v1/auth/sms/send', headers.platform, headers.signVersion, String(headers.timestamp), headers.requestId, headers.nonce, headers.challengeId, bodyHash].join('\n');
   const keyMaterial = `${seed}|${headers.nonce.split('').reverse().join('')}|W1|${PUBLIC_APP_ID}`;
-  const keyDigest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(keyMaterial));
+  const keyDigest = await sha256Bytes(keyMaterial);
   return hmac(keyDigest, canonical);
 }
