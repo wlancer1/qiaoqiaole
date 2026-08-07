@@ -7307,7 +7307,7 @@ input:focus-visible {
   height: 1.0159rem;
   border: 0.0635rem solid currentColor;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.22);
   box-shadow: 0 0 0 0.0635rem rgba(32, 142, 220, 0.18), 0 0.127rem 0.3175rem rgba(32, 142, 220, 0.16);
   transform: translate(-50%, -50%);
   transition: transform 100ms, box-shadow 100ms;

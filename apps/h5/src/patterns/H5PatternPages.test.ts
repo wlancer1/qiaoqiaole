@@ -77,7 +77,7 @@ describe('PatternDetailPage', () => {
     }));
 
     expect(markup).toContain('src="/uploads/thumb.webp"');
-    expect(markup).toContain('#FF0000');
+    expect(markup).not.toContain('#FF0000');
     expect(markup).toContain('3 颗');
     expect(markup).toContain('图纸尺寸');
     expect(markup).toContain('格数');

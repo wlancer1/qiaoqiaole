@@ -2,6 +2,7 @@ import { ArrowLeft, Download, Grid2X2, Heart, MessageCircle, Ruler, Search, Shar
 import { useEffect, useState } from 'react';
 import { Icon } from '../shared/h5Icons';
 import { BeadListDrawer, type BeadColorItem } from '../flow/H5FlowComponents';
+import { colorCodeOf } from '../utils/h5AppUtils';
 import type { CommunityComment } from '../community/communityData';
 import type { PatternListCard, RecentProject } from '../shared/h5Types';
 
@@ -285,7 +286,7 @@ export function PatternDetailPage({ pattern, onBack, isLoggedIn, comments, isLoa
 
   const beadItems = pattern.beadList ?? [];
   const totalBeads = beadItems.reduce((total, item) => total + item.count, 0);
-  const drawerColors: BeadColorItem[] = beadItems.map((item) => ({ color: item.color, code: item.color.toUpperCase(), count: item.count }));
+  const drawerColors: BeadColorItem[] = beadItems.map((item) => ({ color: item.color, code: colorCodeOf(item.color), count: item.count }));
 
   return (
     <main className="pattern-detail-page" aria-label="图纸详情页">
@@ -341,7 +342,7 @@ export function PatternDetailPage({ pattern, onBack, isLoggedIn, comments, isLoa
               {beadItems.slice(0, 5).map((item) => (
                 <div className="detail-bead-item" key={item.color}>
                   <i style={{ backgroundColor: item.color }} aria-hidden="true" />
-                  <span>{item.color.toUpperCase()}</span>
+                  <span>{colorCodeOf(item.color)}</span>
                   <strong>{item.count}</strong>
                 </div>
               ))}

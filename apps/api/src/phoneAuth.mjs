@@ -109,12 +109,14 @@ export function createPhoneAuthService({ db, getOne, getAll, persist, redis, env
 
   function redisKey(...parts) { return `auth:sms:${parts.join(':')}`; }
   function authUser(userId) {
-    const user = getOne(`SELECT id, username, nickname, avatar_url AS avatarUrl, status, register_source AS registerSource,
-      registered_at AS registeredAt, last_login_at AS lastLoginAt FROM users WHERE id = ?`, [userId]);
-    return user && user.status !== 'DISABLED' ? user : null;
+    const user = getOne(`SELECT u.id, u.username, u.nickname, i.identifier_last4 AS phoneLast4, u.avatar_url AS avatarUrl, u.status, u.register_source AS registerSource,
+      u.registered_at AS registeredAt, u.last_login_at AS lastLoginAt FROM users u LEFT JOIN user_identities i ON i.user_id = u.id AND i.provider = 'PHONE' WHERE u.id = ?`, [userId]);
+    if (!user || user.status === 'DISABLED') return null;
+    if (!user.nickname && user.phoneLast4) user.nickname = `用户${user.phoneLast4}`;
+    return user;
   }
   function publicUser(user) {
-    return { id: user.id, nickname: user.nickname || user.username, avatarUrl: user.avatarUrl || null, status: user.status || 'ACTIVE' };
+    return { id: user.id, nickname: user.nickname || (user.phoneLast4 ? `用户${user.phoneLast4}` : user.username), avatarUrl: user.avatarUrl || null, status: user.status || 'ACTIVE' };
   }
   function accessToken(userId, sessionId, platform) {
     const iat = epochSeconds();
@@ -173,6 +175,8 @@ export function createPhoneAuthService({ db, getOne, getAll, persist, redis, env
       if (!validCaptcha) throw new AuthError('AUTH_CAPTCHA_INVALID', 400, '请重新完成人机验证');
     }
     const phoneHash = hashValue(normalizedPhone, pepper);
+    const existingPhoneUser = getOne(`SELECT u.id FROM user_identities i JOIN users u ON u.id = i.user_id WHERE i.provider = 'PHONE' AND i.identifier_hash = ?`, [phoneHash]);
+    if (existingPhoneUser) throw new AuthError('AUTH_PHONE_REGISTERED', 409, '该手机号已注册，请直接登录');
     const deviceId = String(body.deviceId).trim();
     const keys = [
       challengeKey,
@@ -289,7 +293,7 @@ export function createPhoneAuthService({ db, getOne, getAll, persist, redis, env
       if (failed > 50) throw new AuthError('AUTH_IP_LIMIT', 429, '操作过于频繁，请稍后再试', 3600);
       throw new AuthError('AUTH_CODE_INVALID', 400, '验证码错误');
     }
-    let identity = getOne(`SELECT u.id, u.status, u.username, u.nickname, u.avatar_url AS avatarUrl FROM user_identities i JOIN users u ON u.id = i.user_id WHERE i.provider = 'PHONE' AND i.identifier_hash = ?`, [phoneHash]);
+    let identity = getOne(`SELECT u.id, u.status, u.username, u.nickname, i.identifier_last4 AS phoneLast4, u.avatar_url AS avatarUrl FROM user_identities i JOIN users u ON u.id = i.user_id WHERE i.provider = 'PHONE' AND i.identifier_hash = ?`, [phoneHash]);
     if (identity) throw new AuthError('AUTH_PHONE_REGISTERED', 409, '该手机号已注册，请直接登录');
     const isNewUser = true;
     const now = nowIso();
@@ -327,10 +331,14 @@ export function createPhoneAuthService({ db, getOne, getAll, persist, redis, env
     const platform = String(device.platform || 'web');
     if (!validPassword(password) || !agreementVersion || !ALLOWED_PLATFORMS.has(platform)) throw new AuthError('AUTH_REQUEST_INVALID', 400, '手机号或密码错误');
     const phoneHash = hashValue(phone, pepper);
-    const identity = getOne(`SELECT u.id, u.status, u.username, u.nickname, u.password_hash AS passwordHash, u.salt, u.avatar_url AS avatarUrl FROM user_identities i JOIN users u ON u.id = i.user_id WHERE i.provider = 'PHONE' AND i.identifier_hash = ?`, [phoneHash]);
+    const identity = getOne(`SELECT u.id, u.status, u.username, u.nickname, i.identifier_last4 AS phoneLast4, u.password_hash AS passwordHash, u.salt, u.avatar_url AS avatarUrl FROM user_identities i JOIN users u ON u.id = i.user_id WHERE i.provider = 'PHONE' AND i.identifier_hash = ?`, [phoneHash]);
     if (!identity || !identity.passwordHash || !identity.salt || passwordDigest(password, identity.salt) !== identity.passwordHash) throw new AuthError('AUTH_LOGIN_INVALID', 401, '手机号或密码错误');
     if (identity.status === 'DISABLED') throw new AuthError('AUTH_USER_DISABLED', 403, '当前账号暂不可用');
     const now = nowIso();
+    if (!identity.nickname && identity.phoneLast4) {
+      identity.nickname = `用户${identity.phoneLast4}`;
+      db.run('UPDATE users SET nickname = ?, updated_at = ? WHERE id = ?', [identity.nickname, now, identity.id]);
+    }
     db.run('UPDATE users SET last_login_at = ?, last_login_ip_hash = ?, updated_at = ? WHERE id = ?', [now, ipHash(ip, pepper), now, identity.id]);
     const tokens = sessionTokens(identity.id, platform, device.deviceId, ip);
     await persist();

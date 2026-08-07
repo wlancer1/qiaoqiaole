@@ -103,6 +103,11 @@ describe('phone SMS authentication', () => {
     expect(login.response.status).toBe(200);
     expect(login.body.data.isNewUser).toBe(false);
 
+    const duplicateRegistrationChallenge = await challenge();
+    const duplicateRegistrationSend = await signedSend(duplicateRegistrationChallenge.body, '+8613800138000');
+    expect(duplicateRegistrationSend.response.status).toBe(409);
+    expect(duplicateRegistrationSend.body.code).toBe('AUTH_PHONE_REGISTERED');
+
     const reused = await request('/api/v1/auth/sms/register', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ phone: '+8613800138000', password: 'test-password-123', confirmPassword: 'test-password-123', smsRequestId: sent.body.data.smsRequestId, code: '123456', agreementVersion: 'privacy-test', device: { platform: 'web', deviceId: 'integration-device', appVersion: 'test' } }),
