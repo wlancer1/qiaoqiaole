@@ -1,0 +1,5 @@
+import { ArrowLeft, Pause, Play, Save, Settings } from 'lucide-react';
+
+export function BeadingToolbar({ title, elapsed, paused, progress, onExit, onTogglePause, onSave, onSettings }: { title: string; elapsed: string; paused: boolean; progress: { completed: number; total: number; percent: number }; onExit: () => void; onTogglePause: () => void; onSave: () => void; onSettings?: () => void }) {
+  return <><header className="beading-toolbar"><button type="button" aria-label="退出拼豆" onClick={onExit}><ArrowLeft /></button><strong>{title}</strong><div className="beading-toolbar-actions"><span className="beading-timer">{elapsed}</span><button type="button" aria-label={paused ? '继续计时' : '暂停计时'} onClick={onTogglePause}>{paused ? <Play /> : <Pause />}</button><button type="button" aria-label="保存拼豆进度" onClick={onSave}><Save /></button>{onSettings ? <button type="button" aria-label="拼豆设置" onClick={onSettings}><Settings /></button> : null}</div></header><div className="beading-progress-bar" aria-label={`完成 ${progress.completed}/${progress.total}`}><span style={{ width: `${progress.percent}%` }} /><strong>{progress.completed}/{progress.total}</strong></div></>;
+}

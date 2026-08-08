@@ -212,7 +212,7 @@ export function SplitBeadList({ colors, totalBeads }: { colors: readonly BeadCol
   );
 }
 
-export function BeadListDrawer({ colors, totalBeads, onClose, description = '按当前画布实时统计颜色和数量' }: { colors: readonly BeadColorItem[]; totalBeads: number; onClose: () => void; description?: string }) {
+export function BeadListDrawer({ colors, totalBeads, onClose, description = '按当前画布实时统计颜色和数量', onInventoryCheck, onStartBeading }: { colors: readonly BeadColorItem[]; totalBeads: number; onClose: () => void; description?: string; onInventoryCheck?: () => void; onStartBeading?: () => void }) {
   return (
     <div className="split-bead-drawer-backdrop split-preview-page" role="presentation" onClick={onClose}>
       <section className="split-bead-drawer split-bead-sheet" role="dialog" aria-modal="true" aria-label="豆子清单" onClick={(event) => event.stopPropagation()}>
@@ -223,6 +223,7 @@ export function BeadListDrawer({ colors, totalBeads, onClose, description = '按
         </header>
         <p className="split-bead-drawer-copy">{description}</p>
         <SplitBeadList colors={colors} totalBeads={totalBeads} />
+        {onInventoryCheck || onStartBeading ? <footer className="beading-sheet-actions bead-list-actions">{onInventoryCheck ? <button type="button" className="beading-secondary-btn" onClick={onInventoryCheck}>检测库存</button> : null}{onStartBeading ? <button type="button" className="beading-primary-btn" onClick={onStartBeading}>开始拼豆</button> : null}</footer> : null}
       </section>
     </div>
   );

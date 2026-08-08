@@ -11,7 +11,7 @@ export function CanvasPage(props: CanvasPageProps) {
   const {
     fileInputRef, handleUpload, referenceInputRef, handleReferenceUpload, clearReferenceImage, setScreen,
     setShowSettings, cols, rows, history, future, undo, redo, chooseReferenceImage, exportPatternPng, workMode,
-    exportStl, saveCurrentProject, selectedCode, selectedColor, showSettings, cfgCols, setCfgCols, cfgRows, setCfgRows, fitView,
+    exportStl, saveCurrentProject, saveAndStartProject, selectedCode, selectedColor, showSettings, cfgCols, setCfgCols, cfgRows, setCfgRows, fitView,
     showSaveProjectModal, setShowSaveProjectModal, saveProjectName, setSaveProjectName, isSavingProject, confirmSaveProject,
     shareToCommunity, setShareToCommunity, activeProjectShared,
     handleResizeCanvas, canvasTools, tool, setTool, handleCanvasPointerDownCapture, handleCanvasPointerEndCapture,
@@ -20,7 +20,7 @@ export function CanvasPage(props: CanvasPageProps) {
     handleCanvasPointerDown, handleCanvasPointerMove, handleCanvasPaintPointerEnd, handleCanvasClick, referenceImage,
     isReferenceMinimized, setIsReferenceMinimized, closeReferenceImage, status, prioritizedPaletteColors,
     selectPaletteColor, showPaletteSearch, setShowPaletteSearch, paletteQuery, setPaletteQuery, filteredPaletteColors,
-    showBeadList, setShowBeadList, beadListColors, totalBeads,
+    showBeadList, setShowBeadList, beadListColors, totalBeads, onInventoryCheck, onStartBeading,
   } = props;
 return (
   <main className="h5-canvas-page cell-codes-visible" aria-label="H5 画布编辑器">
@@ -130,6 +130,10 @@ return (
           <button className="save-project-submit" type="submit" disabled={isSavingProject || !saveProjectName.trim()}>
             <Save aria-hidden="true" />
             {isSavingProject ? '保存中…' : '保存到作品'}
+          </button>
+          <button className="save-project-submit save-project-start" type="button" onClick={saveAndStartProject} disabled={isSavingProject || !saveProjectName.trim()}>
+            <Save aria-hidden="true" />
+            保存并开始拼豆
           </button>
         </form>
       </div>
@@ -252,7 +256,7 @@ return (
       </div>
     </section>
 
-    {showBeadList ? <BeadListDrawer colors={beadListColors} totalBeads={totalBeads} onClose={() => setShowBeadList(false)} /> : null}
+    {showBeadList ? <BeadListDrawer colors={beadListColors} totalBeads={totalBeads} onClose={() => setShowBeadList(false)} onInventoryCheck={onInventoryCheck} onStartBeading={onStartBeading} /> : null}
 
     <footer className="canvas-palette" aria-label="底部色卡">
       <div className="palette-strip">

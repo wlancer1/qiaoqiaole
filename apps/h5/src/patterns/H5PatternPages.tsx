@@ -1,5 +1,5 @@
 import { ArrowLeft, Download, Grid2X2, Heart, MessageCircle, Ruler, Search, Share2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Icon } from '../shared/h5Icons';
 import { BeadListDrawer, type BeadColorItem } from '../flow/H5FlowComponents';
 import { colorCodeOf } from '../utils/h5AppUtils';
@@ -58,6 +58,7 @@ export function MyWorksPage({
   onShare,
   sharingProjectId = '',
   shareFailedProjectIds = new Set<string>(),
+  actionSheet,
 }: {
   projects: RecentProject[];
   onBack: () => void;
@@ -65,6 +66,7 @@ export function MyWorksPage({
   onShare?: (project: RecentProject) => void;
   sharingProjectId?: string;
   shareFailedProjectIds?: Set<string>;
+  actionSheet?: ReactNode;
 }) {
   const thumbColors = [
     ['#dcecff', '#f6bf38', '#67bd65', '#f18d9d'],
@@ -148,6 +150,7 @@ export function MyWorksPage({
           <span>完成创作并保存后，作品会显示在这里</span>
         </section>
       )}
+      {actionSheet}
     </main>
   );
 }

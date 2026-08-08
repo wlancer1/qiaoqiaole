@@ -1,6 +1,6 @@
 import type { Cell } from '@qiaoqiaole/core';
 
-export type AppScreen = 'home' | 'profile' | 'split' | 'split-crop' | 'split-preview' | 'canvas' | 'warehouse' | 'warehouse-detail' | 'pattern-detail' | 'author-profile' | 'my-works';
+export type AppScreen = 'home' | 'profile' | 'split' | 'split-crop' | 'split-preview' | 'canvas' | 'beading' | 'warehouse' | 'warehouse-detail' | 'pattern-detail' | 'author-profile' | 'my-works';
 export type CanvasTool = 'brush' | 'eraser' | 'fill' | 'eyedropper' | 'pan';
 export type WorkMode = 'bead' | 'peg';
 export type SplitMode = 'quick' | 'align';

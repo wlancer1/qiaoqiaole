@@ -113,6 +113,10 @@ import { WarehousePage } from './pages/warehouse/WarehousePage';
 import { WarehouseListPage } from './pages/warehouse/WarehouseListPage';
 import { SplitCropPage, SplitPreviewPage, SplitSettingsPage } from './pages/split/SplitPages';
 import { CanvasPage } from './pages/editor/CanvasPage';
+import { BeadingSessionPage } from './pages/beading/BeadingSessionPage';
+import { InventoryCheckSheet } from './pages/beading/InventoryCheckSheet';
+import { ProjectActionSheet } from './pages/beading/ProjectActionSheet';
+import type { BeadingSession } from './beading/beadingSessionClient';
 import { HomeShellPage, PhoneLoginModal } from './pages/home/HomeShellPage';
 import { createNonce, createRequestId, getPhoneDeviceId, normalizePhone, showTencentCaptcha, signWebSmsRequest } from './utils/phoneAuthClient';
 import type {
@@ -234,6 +238,9 @@ function H5App() {
   const [sharingProjectId, setSharingProjectId] = useState('');
   const [shareFailedProjectIds, setShareFailedProjectIds] = useState<Set<string>>(() => new Set());
   const [showBeadList, setShowBeadList] = useState(false);
+  const [beadingSession, setBeadingSession] = useState<BeadingSession | null>(null);
+  const [beadingInventoryCheck, setBeadingInventoryCheck] = useState<any>(null);
+  const [projectActionTarget, setProjectActionTarget] = useState<RecentProject | null>(null);
   const [saveProjectName, setSaveProjectName] = useState('未命名作品');
   const [isSavingProject, setIsSavingProject] = useState(false);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
@@ -292,6 +299,7 @@ function H5App() {
   const inventoryRequestSeqRef = useRef(0);
   const recentProjectsRequestSeqRef = useRef(0);
   const saveProjectInFlightRef = useRef(false);
+  const saveAndStartRef = useRef(false);
   const cellsRef = useRef(cells);
   const canvasArtboardRef = useRef<HTMLDivElement | null>(null);
   const suppressCanvasClickRef = useRef(false);
@@ -836,6 +844,57 @@ function H5App() {
     setStatus(restoredCells ? `已打开作品：${project.name}。` : `已打开作品：${project.name}，旧作品未保存画布快照。`);
   };
 
+  const startBeadingProject = async (project: RecentProject) => {
+    if (!authToken) {
+      requireLogin(() => void startBeadingProject(project));
+      return;
+    }
+    setProjectActionTarget(null);
+    openSavedProject(project);
+    try {
+      setStatus('正在准备拼豆会话。');
+      const sessionPayload = await requestApi<{ session: BeadingSession }>(`/v1/projects/${project.id}/beading-session`, { method: 'POST', body: JSON.stringify({ warehouseId: activeWarehouseId || undefined }) });
+      const inventory = await requestApi<any>(`/v1/beading-sessions/${sessionPayload.session.id}/inventory-check`, { method: 'POST', body: JSON.stringify({}) });
+      setBeadingSession(sessionPayload.session);
+      setBeadingInventoryCheck(inventory);
+      setScreen('beading');
+      setStatus('库存检测完成，缺豆也可以继续拼豆。');
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : '无法开始拼豆');
+    }
+  };
+
+  const enterBeadingSession = () => {
+    setBeadingInventoryCheck(null);
+    setScreen('beading');
+  };
+
+  const patchBeadingProgress = async (completedColorCodes: string[], elapsedSeconds: number) => {
+    if (!beadingSession) return;
+    try {
+      const payload = await requestApi<{ session: BeadingSession }>(`/v1/beading-sessions/${beadingSession.id}`, { method: 'PATCH', body: JSON.stringify({ version: beadingSession.version, completedColorCodes, elapsedSeconds }) });
+      setBeadingSession(payload.session);
+    } catch (error) { setStatus(error instanceof Error ? error.message : '拼豆进度同步失败'); }
+  };
+
+  const prepareBeadingCompletion = async () => {
+    if (!beadingSession) return;
+    try {
+      const payload = await requestApi<{ session: BeadingSession }>(`/v1/beading-sessions/${beadingSession.id}/prepare-completion`, { method: 'POST', body: JSON.stringify({ version: beadingSession.version }) });
+      setBeadingSession(payload.session);
+    } catch (error) { setStatus(error instanceof Error ? error.message : '无法准备完成确认'); }
+  };
+
+  const completeBeading = async (deductInventory: boolean) => {
+    if (!beadingSession) return;
+    try {
+      const payload = await requestApi<{ session: BeadingSession; deducted: boolean }>(`/v1/beading-sessions/${beadingSession.id}/complete`, { method: 'POST', body: JSON.stringify({ idempotencyKey: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`, deductInventory, warehouseId: activeWarehouseId || undefined }) });
+      setBeadingSession(payload.session);
+      setStatus(payload.deducted ? '已完成拼豆并扣减库存。' : '已完成拼豆，库存未扣减。');
+      setScreen('canvas');
+    } catch (error) { setStatus(error instanceof Error ? error.message : '完成拼豆失败'); }
+  };
+
   const confirmSaveProject = async () => {
     if (isSavingProject || saveProjectInFlightRef.current) return;
     const name = saveProjectName.trim().slice(0, 30);
@@ -859,6 +918,8 @@ function H5App() {
       });
       const saved = await saveRecentProject(name, rows, cols, uploadedSplitImage ? 'recent-dog' : 'recent-flower', imagePayload);
       if (!saved) return;
+      const shouldStartBeading = saveAndStartRef.current;
+      saveAndStartRef.current = false;
       if (shareToCommunity && !saved.sharedToCommunity) {
         try {
           await requestApi(`/projects/${saved.id}/share`, { method: 'POST' });
@@ -871,10 +932,16 @@ function H5App() {
       }
       setShowSaveProjectModal(false);
       if (!shareToCommunity || saved.sharedToCommunity) setStatus(saved.sharedToCommunity ? '已保存，社区分享状态保持不变。' : '已保存到我的作品。');
+      if (shouldStartBeading) await startBeadingProject(saved);
     } finally {
       saveProjectInFlightRef.current = false;
       setIsSavingProject(false);
     }
+  };
+
+  const saveAndStartProject = () => {
+    saveAndStartRef.current = true;
+    saveCurrentProject();
   };
 
   const shareSavedProject = async (project: RecentProject) => {
@@ -2324,6 +2391,7 @@ function H5App() {
       workMode={workMode}
       exportStl={exportStl}
       saveCurrentProject={saveCurrentProject}
+      saveAndStartProject={saveAndStartProject}
       showSaveProjectModal={showSaveProjectModal}
       setShowSaveProjectModal={setShowSaveProjectModal}
       saveProjectName={saveProjectName}
@@ -2376,7 +2444,28 @@ function H5App() {
       setShowBeadList={setShowBeadList}
       beadListColors={beadListColors}
       totalBeads={totalBeads}
+      onInventoryCheck={() => { if (activeSavedProject) void startBeadingProject(activeSavedProject); else saveCurrentProject(); }}
+      onStartBeading={() => { if (activeSavedProject) void startBeadingProject(activeSavedProject); else saveCurrentProject(); }}
     />;
+  }
+
+  if (screen === 'beading' && beadingSession) {
+    return <>
+      <BeadingSessionPage
+        session={beadingSession}
+        cells={cells}
+        rows={rows}
+        cols={cols}
+        getCode={colorCodeOf}
+        onPatch={(completedColorCodes, elapsedSeconds) => { void patchBeadingProgress(completedColorCodes, elapsedSeconds); }}
+        onPrepareCompletion={() => { void prepareBeadingCompletion(); }}
+        onComplete={(deduct) => { void completeBeading(deduct); }}
+        onExit={() => setScreen('canvas')}
+        onResume={() => { void requestApi(`/v1/beading-sessions/${beadingSession.id}/resume`, { method: 'POST', body: JSON.stringify({ version: beadingSession.version }) }); }}
+        status={status}
+      />
+      {beadingInventoryCheck ? <InventoryCheckSheet result={beadingInventoryCheck} onClose={() => setBeadingInventoryCheck(null)} onStart={enterBeadingSession} /> : null}
+    </>;
   }
 
   if (screen === 'warehouse') {
@@ -2469,10 +2558,11 @@ function H5App() {
       <MyWorksPage
         projects={sortedRecentProjects}
         onBack={() => { setScreen('home'); setActiveTab('home'); }}
-        onOpen={openSavedProject}
+        onOpen={(project) => setProjectActionTarget(project)}
         onShare={shareSavedProject}
         sharingProjectId={sharingProjectId}
         shareFailedProjectIds={shareFailedProjectIds}
+        actionSheet={projectActionTarget ? <ProjectActionSheet project={projectActionTarget} hasSession={false} onClose={() => setProjectActionTarget(null)} onStart={() => { void startBeadingProject(projectActionTarget); }} onEdit={() => { setProjectActionTarget(null); openSavedProject(projectActionTarget); }} onShare={() => { void shareSavedProject(projectActionTarget); setProjectActionTarget(null); }} onDelete={async () => { if (!window.confirm('删除后将同时放弃未完成的拼豆会话，确定删除吗？')) return; try { await requestApi(`/projects/${projectActionTarget.id}`, { method: 'DELETE' }); setRecentProjects((projects) => projects.filter((project) => project.id !== projectActionTarget.id)); setProjectActionTarget(null); setStatus('作品已删除。'); } catch (error) { setStatus(error instanceof Error ? error.message : '删除作品失败'); } }} /> : null}
       />
     );
   }
