@@ -10,7 +10,8 @@ export function aggregateBeadRequirements(entries) {
   const totals = new Map();
   for (const entry of entries ?? []) {
     const colorCode = String(entry?.colorCode ?? entry?.color ?? '').trim().toUpperCase();
-    const count = Number(entry?.required ?? entry?.count);
+    const rawCount = entry?.required ?? entry?.count;
+    const count = rawCount === undefined ? 1 : Number(rawCount);
     if (!isValidMard221Code(colorCode)) {
       throw new Error(`Invalid MARD 221 color code: ${colorCode || '(empty)'}`);
     }

@@ -20,6 +20,7 @@ import { loadEnvFile } from './env.mjs';
 import { loadTencentCosConfig, resolveCosAssetUrl, uploadToTencentCos } from './tencentCos.mjs';
 import { createPhoneAuthService, AuthError, verifyAccessToken } from './phoneAuth.mjs';
 import { getRedisClient, closeRedisClient } from './redisStore.mjs';
+import { createBeadingSessionService, BeadingError } from './beadingSessionService.mjs';
 
 loadEnvFile();
 
@@ -48,6 +49,7 @@ const db = await openDatabase(DB_PATH);
 initSchema();
 let persistQueue = Promise.resolve();
 let phoneAuthService;
+let beadingService;
 
 const server = http.createServer(async (request, response) => {
   try {
@@ -348,6 +350,33 @@ async function persist() {
   return operation;
 }
 
+async function withTransaction(work) {
+  db.run('BEGIN IMMEDIATE');
+  try {
+    const result = await work();
+    db.run('COMMIT');
+    await persist();
+    return result;
+  } catch (error) {
+    try { db.run('ROLLBACK'); } catch {}
+    throw error;
+  }
+}
+
+function getBeadingService() {
+  if (!beadingService) beadingService = createBeadingSessionService({ db, getOne, getAll, persist, withTransaction });
+  return beadingService;
+}
+
+async function handleBeadingCall(response, work) {
+  try {
+    return sendJson(response, 200, await work());
+  } catch (error) {
+    if (error instanceof BeadingError) return sendJson(response, error.status, { error: error.code, code: error.code, message: error.message, ...error.details });
+    throw error;
+  }
+}
+
 async function route(request, response) {
   const url = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`);
   if (request.method === 'OPTIONS') return sendCors(response);
@@ -422,6 +451,42 @@ async function route(request, response) {
   if (request.method === 'GET' && url.pathname === '/api/projects') {
     return listProjects(response, user.id);
   }
+  const apiPrefix = url.pathname.startsWith('/api/v1/') ? '/api/v1' : '/api';
+  const inventoryCheckMatch = url.pathname.match(new RegExp(`^${apiPrefix.replace('/', '\\/')}\\/projects\\/([^/]+)\\/inventory-check$`));
+  if (request.method === 'POST' && inventoryCheckMatch) {
+    const body = await readJson(request);
+    return handleBeadingCall(response, () => getBeadingService().checkProjectInventory(user.id, inventoryCheckMatch[1], body.warehouseId, body.expectedProjectRevision));
+  }
+  const sessionInventoryCheckMatch = url.pathname.match(new RegExp(`^${apiPrefix.replace('/', '\\/')}\\/beading-sessions\\/([^/]+)\\/inventory-check$`));
+  if (request.method === 'POST' && sessionInventoryCheckMatch) {
+    const body = await readJson(request);
+    return handleBeadingCall(response, () => getBeadingService().checkSessionInventory(user.id, sessionInventoryCheckMatch[1], body.warehouseId));
+  }
+  const projectSessionMatch = url.pathname.match(new RegExp(`^${apiPrefix.replace('/', '\\/')}\\/projects\\/([^/]+)\\/beading-session$`));
+  if (projectSessionMatch && (request.method === 'GET' || request.method === 'POST')) {
+    const body = request.method === 'POST' ? await readJson(request) : {};
+    if (request.method === 'GET') {
+      return handleBeadingCall(response, async () => {
+        const row = getOne('SELECT * FROM beading_sessions WHERE user_id = ? AND project_id = ? AND status IN (\'in_progress\', \'paused\', \'pending_completion\') ORDER BY updated_at DESC LIMIT 1', [user.id, projectSessionMatch[1]]);
+        return { session: row ? getBeadingService().sessionView(row) : null };
+      });
+    }
+    return handleBeadingCall(response, () => getBeadingService().createOrReuse(user.id, projectSessionMatch[1], body));
+  }
+  const sessionMatch = url.pathname.match(new RegExp(`^${apiPrefix.replace('/', '\\/')}\\/beading-sessions\\/([^/]+)$`));
+  if (sessionMatch && request.method === 'PATCH') {
+    return handleBeadingCall(response, async () => getBeadingService().patchSession(user.id, sessionMatch[1], await readJson(request)));
+  }
+  const sessionActionMatch = url.pathname.match(new RegExp(`^${apiPrefix.replace('/', '\\/')}\\/beading-sessions\\/([^/]+)\\/(pause|resume|prepare-completion|return-to-progress|abandon)$`));
+  if (sessionActionMatch && request.method === 'POST') {
+    const body = await readJson(request);
+    const actionMap = { pause: 'pause', resume: 'resume', 'prepare-completion': 'prepare_completion', 'return-to-progress': 'return_to_progress', abandon: 'abandon' };
+    return handleBeadingCall(response, () => getBeadingService().transition(user.id, sessionActionMatch[1], actionMap[sessionActionMatch[2]], body));
+  }
+  const sessionCompleteMatch = url.pathname.match(new RegExp(`^${apiPrefix.replace('/', '\\/')}\\/beading-sessions\\/([^/]+)\\/complete$`));
+  if (sessionCompleteMatch && request.method === 'POST') {
+    return handleBeadingCall(response, async () => getBeadingService().complete(user.id, sessionCompleteMatch[1], await readJson(request)));
+  }
   if (request.method === 'POST' && url.pathname === '/api/uploads/projects') {
     return uploadProjectImages(request, response, user.id);
   }
@@ -439,6 +504,14 @@ async function route(request, response) {
   const projectShareMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/share$/);
   if (projectShareMatch && request.method === 'POST') {
     return shareProject(response, user.id, projectShareMatch[1]);
+  }
+  const projectCopyMatch = url.pathname.match(/^\/api(?:\/v1)?\/projects\/([^/]+)\/copy$/);
+  if (projectCopyMatch && request.method === 'POST') {
+    return copyCommunityProject(response, user.id, projectCopyMatch[1]);
+  }
+  const projectDeleteMatch = url.pathname.match(/^\/api(?:\/v1)?\/projects\/([^/]+)$/);
+  if (projectDeleteMatch && request.method === 'DELETE') {
+    return deleteProject(response, user.id, projectDeleteMatch[1]);
   }
   const projectMatch = url.pathname.match(/^\/api\/projects\/([^/]+)$/);
   if (projectMatch && request.method === 'PUT') {
@@ -1177,7 +1250,7 @@ async function updateProject(request, response, userId, projectId) {
   const now = new Date().toISOString();
   db.run(
     `UPDATE projects
-     SET name = ?, rows = ?, cols = ?, tone = ?, source_image = ?, thumbnail_image = ?, canvas_data = ?, updated_at = ?
+     SET name = ?, rows = ?, cols = ?, tone = ?, source_image = ?, thumbnail_image = ?, canvas_data = ?, revision = revision + 1, updated_at = ?
      WHERE id = ? AND user_id = ?`,
     [name, rows, cols, tone, sourceImage, thumbnailImage, canvasData, now, projectId, userId],
   );
@@ -1197,6 +1270,32 @@ async function updateProject(request, response, userId, projectId) {
     sharedAt: existing.sharedAt,
     likesCount: Number(existing.likesCount || 0),
   } });
+}
+
+async function copyCommunityProject(response, userId, projectId) {
+  const source = getOne(`SELECT id, name, rows, cols, tone, source_image AS sourceImage, thumbnail_image AS thumbnailImage,
+    canvas_data AS canvasData, bead_list AS beadList, shared_to_community AS sharedToCommunity
+    FROM projects WHERE id = ? AND shared_to_community = 1`, [projectId]);
+  if (!source) return sendJson(response, 404, { error: 'NOT_FOUND', message: '社区稿件不存在或不可复制' });
+  const now = new Date().toISOString();
+  const copyId = randomUUID();
+  db.run(`INSERT INTO projects (id, user_id, name, rows, cols, tone, source_image, thumbnail_image, canvas_data, bead_list, revision, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`, [copyId, userId, `${source.name}（副本）`, source.rows, source.cols, source.tone, source.sourceImage || '', source.thumbnailImage || '', source.canvasData || '', source.beadList || '', now, now]);
+  await persist();
+  return sendJson(response, 201, { project: { id: copyId, userId, name: `${source.name}（副本）`, rows: Number(source.rows), cols: Number(source.cols), tone: source.tone, canvasData: source.canvasData || '', revision: 1, createdAt: now, updatedAt: now } });
+}
+
+async function deleteProject(response, userId, projectId) {
+  const existing = getOne('SELECT id FROM projects WHERE id = ? AND user_id = ?', [projectId, userId]);
+  if (!existing) return sendJson(response, 404, { error: 'NOT_FOUND', message: '作品不存在' });
+  await withTransaction(async () => {
+    const now = new Date().toISOString();
+    db.run("UPDATE beading_sessions SET status = 'abandoned', project_id = NULL, active_key = NULL, abandoned_at = COALESCE(abandoned_at, ?), version = version + 1, updated_at = ? WHERE project_id = ? AND user_id = ? AND status IN ('in_progress', 'paused', 'pending_completion')", [now, now, projectId, userId]);
+    db.run('DELETE FROM project_likes WHERE project_id = ?', [projectId]);
+    db.run('DELETE FROM project_comments WHERE project_id = ?', [projectId]);
+    db.run('DELETE FROM projects WHERE id = ? AND user_id = ?', [projectId, userId]);
+  });
+  return sendJson(response, 200, { deleted: true, projectId });
 }
 
 function buildBeadList(canvasData) {
