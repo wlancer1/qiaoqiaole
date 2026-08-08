@@ -202,6 +202,10 @@ function initSchema() {
       id TEXT PRIMARY KEY,
       warehouse_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
+      project_id TEXT,
+      beading_session_id TEXT,
+      project_name_snapshot TEXT,
+      source TEXT NOT NULL DEFAULT 'manual',
       color_code TEXT NOT NULL,
       type TEXT NOT NULL,
       quantity INTEGER NOT NULL,
@@ -223,9 +227,48 @@ function initSchema() {
       thumbnail_image TEXT,
       canvas_data TEXT,
       bead_list TEXT,
+      revision INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS beading_sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      project_id TEXT,
+      project_name_snapshot TEXT NOT NULL,
+      project_snapshot_json TEXT NOT NULL,
+      requirements_json TEXT NOT NULL,
+      warehouse_id TEXT,
+      warehouse_name_snapshot TEXT,
+      status TEXT NOT NULL,
+      active_key TEXT UNIQUE,
+      completed_color_codes_json TEXT NOT NULL DEFAULT '[]',
+      timer_started_at TEXT,
+      elapsed_seconds INTEGER NOT NULL DEFAULT 0,
+      inventory_deducted INTEGER NOT NULL DEFAULT 0,
+      inventory_deduction_idempotency_key TEXT,
+      idempotency_key TEXT,
+      completed_at TEXT,
+      abandoned_at TEXT,
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (project_id) REFERENCES projects(id),
+      FOREIGN KEY (warehouse_id) REFERENCES warehouses(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS beading_idempotency_keys (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL,
+      request_fingerprint TEXT NOT NULL,
+      first_response_summary TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(user_id, session_id, idempotency_key)
     );
 
     CREATE TABLE IF NOT EXISTS project_likes (
@@ -254,6 +297,15 @@ function initSchema() {
       // Existing databases already contain the column.
     }
   }
+  try { db.run('ALTER TABLE projects ADD COLUMN revision INTEGER NOT NULL DEFAULT 1'); } catch {}
+  for (const [column, definition] of [
+    ['project_id', 'TEXT'],
+    ['beading_session_id', 'TEXT'],
+    ['project_name_snapshot', 'TEXT'],
+    ['source', "TEXT NOT NULL DEFAULT 'manual'"],
+  ]) {
+    try { db.run(`ALTER TABLE inventory_transactions ADD COLUMN ${column} ${definition}`); } catch {}
+  }
   for (const [column, definition] of [
     ['nickname', 'TEXT'], ['avatar_url', 'TEXT'], ['status', "TEXT NOT NULL DEFAULT 'ACTIVE'"],
     ['register_source', 'TEXT'], ['registered_at', 'TEXT'], ['last_login_at', 'TEXT'],
@@ -272,6 +324,18 @@ function initSchema() {
     } catch {
       // Existing databases already contain the column.
     }
+  }
+  db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_beading_sessions_active_key ON beading_sessions(active_key)');
+  const activeSessions = getAll("SELECT id, user_id, project_id FROM beading_sessions WHERE status IN ('in_progress', 'paused', 'pending_completion') ORDER BY updated_at DESC, id DESC");
+  const retained = new Set();
+  for (const session of activeSessions) {
+    const key = session.project_id ? `${session.user_id}:${session.project_id}` : null;
+    if (!key || retained.has(key)) {
+      db.run("UPDATE beading_sessions SET status = 'abandoned', active_key = NULL, abandoned_at = COALESCE(abandoned_at, ?) WHERE id = ?", [new Date().toISOString(), session.id]);
+      continue;
+    }
+    retained.add(key);
+    db.run('UPDATE beading_sessions SET active_key = ? WHERE id = ?', [key, session.id]);
   }
 }
 
