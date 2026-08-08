@@ -844,9 +844,9 @@ function H5App() {
     setStatus(restoredCells ? `已打开作品：${project.name}。` : `已打开作品：${project.name}，旧作品未保存画布快照。`);
   };
 
-  const startBeadingProject = async (project: RecentProject) => {
-    if (!authToken) {
-      requireLogin(() => void startBeadingProject(project));
+  const startBeadingProject = async (project: RecentProject, token = authToken) => {
+    if (!token) {
+      requireLogin((nextToken) => void startBeadingProject(project, nextToken));
       return;
     }
     setProjectActionTarget(null);
@@ -2464,7 +2464,7 @@ function H5App() {
         onResume={() => { void requestApi(`/v1/beading-sessions/${beadingSession.id}/resume`, { method: 'POST', body: JSON.stringify({ version: beadingSession.version }) }); }}
         status={status}
       />
-      {beadingInventoryCheck ? <InventoryCheckSheet result={beadingInventoryCheck} onClose={() => setBeadingInventoryCheck(null)} onStart={enterBeadingSession} /> : null}
+      {beadingInventoryCheck ? <InventoryCheckSheet result={beadingInventoryCheck} warehouseId={beadingInventoryCheck.warehouseId || ''} warehouseOptions={warehouses} onWarehouseChange={(warehouseId) => { if (!beadingSession) return; void requestApi<any>(`/v1/beading-sessions/${beadingSession.id}/inventory-check`, { method: 'POST', body: JSON.stringify({ warehouseId: warehouseId || undefined }) }).then(setBeadingInventoryCheck).catch((error) => setStatus(error instanceof Error ? error.message : '库存检测失败')); }} onClose={() => setBeadingInventoryCheck(null)} onStart={enterBeadingSession} /> : null}
     </>;
   }
 
