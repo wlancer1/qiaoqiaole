@@ -84,10 +84,11 @@ export function HomeShellPage(props: HomeShellPageProps) {
   const {
     fileInputRef, handleUpload, status, activeTab, recentProjects, onOpenRecentProject,
     openUpload, isLoggedIn, loginName, setLoginName, loginPassword, setLoginPassword, submitLogin, isAuthenticating, showLoginModal,
-    setShowLoginModal, showUploadModal, closeUploadModal, showXhsInput, setShowXhsInput, xhsLink, setXhsLink,
+    setShowLoginModal, showUploadModal, showBlankCanvasOption, closeUploadModal, showXhsInput, setShowXhsInput, xhsLink, setXhsLink,
     xhsExtractedImages, isExtractingXhs, chooseLocalDrawing, extractXiaohongshuImage, importXhsImage,
     xhsPreviewSrc, usedColors, colorCodeOf, quickTools, showCreateCanvasModal, setShowCreateCanvasModal, openCreateCanvasModal,
-    cfgCols, setCfgCols, cfgRows, setCfgRows, normalizeGridSize, createBlankCanvas, requireLogin,
+    openBlankCanvasCreation,
+    cfgCols, setCfgCols, cfgRows, setCfgRows, normalizeGridSize, parseGridSizeInput, createBlankCanvas, requireLogin,
     setStatus, patternListCards, homeTemplateCards, setActivePattern, setScreen, warehouses, stockedColorCount, totalWarehouseStock,
     activeWarehouse, mardColors, openWarehouse, setActiveTab, communitySort, setCommunitySort, authRequestSeqRef, pendingAuthActionRef,
     setIsAuthenticating, logoutPhone, showLogoutConfirm, setShowLogoutConfirm,
@@ -204,6 +205,21 @@ export function HomeShellPage(props: HomeShellPageProps) {
                   <strong>新建空白画布</strong>
                   <button aria-label="关闭新建画布" onClick={() => setShowCreateCanvasModal(false)}>关闭</button>
                 </div>
+                <div className="home-create-presets" aria-label="画布尺寸快捷选项">
+                  {[32, 52, 104].map((size) => (
+                    <button
+                      key={size}
+                      type="button"
+                      className={cfgCols === size && cfgRows === size ? 'active' : ''}
+                      onClick={() => {
+                        setCfgCols(size);
+                        setCfgRows(size);
+                      }}
+                    >
+                      {size}×{size}
+                    </button>
+                  ))}
+                </div>
                 <div className="home-create-form">
                   <label>
                     <span>宽度列数</span>
@@ -213,7 +229,8 @@ export function HomeShellPage(props: HomeShellPageProps) {
                       max={120}
                       value={cfgCols}
                       aria-label="宽度列数"
-                      onChange={(event) => setCfgCols(normalizeGridSize(parseInt(event.target.value) || 32))}
+                      onChange={(event) => setCfgCols(parseGridSizeInput(event.target.value))}
+                      onBlur={() => setCfgCols(normalizeGridSize(cfgCols))}
                     />
                   </label>
                   <label>
@@ -224,7 +241,8 @@ export function HomeShellPage(props: HomeShellPageProps) {
                       max={120}
                       value={cfgRows}
                       aria-label="高度行数"
-                      onChange={(event) => setCfgRows(normalizeGridSize(parseInt(event.target.value) || 32))}
+                      onChange={(event) => setCfgRows(parseGridSizeInput(event.target.value))}
+                      onBlur={() => setCfgRows(normalizeGridSize(cfgRows))}
                     />
                   </label>
                 </div>
@@ -246,7 +264,17 @@ export function HomeShellPage(props: HomeShellPageProps) {
                   </button>
                 </div>
                 <div className="upload-source-list">
-                  <button className="upload-source-option" aria-label="选择图纸" onClick={chooseLocalDrawing}>
+                  {showBlankCanvasOption ? (
+                    <button className="upload-source-option blank-canvas-source-option" type="button" onClick={openBlankCanvasCreation}>
+                      <span className="upload-source-icon"><Icon name="brush" /></span>
+                      <span>
+                        <strong>新建空白画布</strong>
+                        <small>选择尺寸，从空白网格开始创作</small>
+                      </span>
+                      <i className="upload-source-arrow" aria-hidden="true">›</i>
+                    </button>
+                  ) : null}
+                  <button className="upload-source-option local-source-option" aria-label="选择图纸" onClick={chooseLocalDrawing}>
                     <span className="upload-source-icon"><Icon name="upload" /></span>
                     <span>
                       <strong>从相册或文件选择</strong>
@@ -255,7 +283,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
                     <i className="upload-source-arrow" aria-hidden="true">›</i>
                   </button>
                   <button
-                    className={showXhsInput ? 'upload-source-option active' : 'upload-source-option'}
+                    className={showXhsInput ? 'upload-source-option xhs-source-option active' : 'upload-source-option xhs-source-option'}
                     onClick={() => requireLogin(() => setShowXhsInput(true))}
                   >
                     <span className="upload-source-icon"><Icon name="spark" /></span>
@@ -300,10 +328,6 @@ export function HomeShellPage(props: HomeShellPageProps) {
                     ) : null}
                   </div>
                 ) : null}
-                <div className="upload-format-note" aria-label="支持的图片格式">
-                  <span>PNG / JPG / WebP</span>
-                  <span>最大 20MB</span>
-                </div>
               </div>
             </div>
           ) : null}
@@ -404,7 +428,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
           <Icon name="discover" />
           <span>发现</span>
         </button>
-        <button className="plus-tab" aria-label="上传" onClick={() => openUpload('bead')}>
+        <button className="plus-tab" aria-label="创建" onClick={() => openUpload('bead', true)}>
           <Icon name="plus" />
         </button>
         <button className={activeTab === 'messages' ? 'active' : ''} aria-label="消息" onClick={() => setActiveTab('messages')}>

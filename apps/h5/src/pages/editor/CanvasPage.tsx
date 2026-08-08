@@ -15,6 +15,7 @@ export function CanvasPage(props: CanvasPageProps) {
     showSaveProjectModal, setShowSaveProjectModal, saveProjectName, setSaveProjectName, isSavingProject, confirmSaveProject,
     shareToCommunity, setShareToCommunity, activeProjectShared,
     handleResizeCanvas, canvasTools, tool, setTool, handleCanvasPointerDownCapture, handleCanvasPointerEndCapture,
+    parseGridSizeInput, normalizeGridSize,
     setCanvasScale, canvasArtboardRef, cells, canvasScale, getCode, getTextColor, handleCanvasKeyDown,
     handleCanvasPointerDown, handleCanvasPointerMove, handleCanvasPaintPointerEnd, handleCanvasClick, referenceImage,
     isReferenceMinimized, setIsReferenceMinimized, closeReferenceImage, status, prioritizedPaletteColors,
@@ -72,11 +73,11 @@ return (
           <div className="h5-settings-form">
             <label>
               <span>宽度列数 (Cols):</span>
-              <input type="number" min={2} max={120} value={cfgCols} onChange={(e) => setCfgCols(Math.max(2, parseInt(e.target.value) || 32))} />
+              <input type="number" min={2} max={120} value={cfgCols} onChange={(e) => setCfgCols(parseGridSizeInput(e.target.value))} onBlur={() => setCfgCols(normalizeGridSize(cfgCols))} />
             </label>
             <label>
               <span>高度行数 (Rows):</span>
-              <input type="number" min={2} max={120} value={cfgRows} onChange={(e) => setCfgRows(Math.max(2, parseInt(e.target.value) || 32))} />
+              <input type="number" min={2} max={120} value={cfgRows} onChange={(e) => setCfgRows(parseGridSizeInput(e.target.value))} onBlur={() => setCfgRows(normalizeGridSize(cfgRows))} />
             </label>
           </div>
           <div className="h5-modal-actions">

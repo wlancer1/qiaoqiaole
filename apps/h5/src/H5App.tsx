@@ -96,6 +96,7 @@ import {
   loadImageData,
   loadImageDataFromUrl,
   normalizeGridSize,
+  parseGridSizeInput,
   resizeCells,
   safeImageFilename,
   sameCells,
@@ -271,6 +272,7 @@ function H5App() {
   const [splitImageScale, setSplitImageScale] = useState(1);
   const [splitImageOffset, setSplitImageOffset] = useState({ x: 0, y: 0 });
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showBlankCanvasOption, setShowBlankCanvasOption] = useState(false);
   const [showXhsInput, setShowXhsInput] = useState(false);
   const [xhsLink, setXhsLink] = useState('');
   const [isExtractingXhs, setIsExtractingXhs] = useState(false);
@@ -315,8 +317,8 @@ function H5App() {
   const [showCreateCanvasModal, setShowCreateCanvasModal] = useState(false);
 
   // Config fields inside modal
-  const [cfgRows, setCfgRows] = useState(32);
-  const [cfgCols, setCfgCols] = useState(32);
+  const [cfgRows, setCfgRows] = useState<number | ''>(32);
+  const [cfgCols, setCfgCols] = useState<number | ''>(32);
 
   const gestureRef = useRef({
     isPointerDown: false,
@@ -608,10 +610,11 @@ function H5App() {
     setStatus('已重置并居中视图。');
   };
 
-  const openUpload = (nextMode: WorkMode) => {
+  const openUpload = (nextMode: WorkMode, includeBlankCanvas = false) => {
     xhsRequestSeqRef.current += 1;
     setWorkMode(nextMode);
     setActiveTab('home');
+    setShowBlankCanvasOption(includeBlankCanvas);
     setShowUploadModal(true);
     setShowXhsInput(false);
     setXhsLink('');
@@ -623,6 +626,7 @@ function H5App() {
     xhsRequestSeqRef.current += 1;
     xhsImportSeqRef.current += 1;
     setShowUploadModal(false);
+    setShowBlankCanvasOption(false);
     setShowXhsInput(false);
     setXhsLink('');
     setXhsExtractedTitle('');
@@ -1241,6 +1245,11 @@ function H5App() {
     setCfgCols(cols);
     setCfgRows(rows);
     setShowCreateCanvasModal(true);
+  };
+
+  const openBlankCanvasCreation = () => {
+    closeUploadModal();
+    openCreateCanvasModal();
   };
 
   const createBlankCanvas = () => {
@@ -2082,10 +2091,14 @@ function H5App() {
 
   // Resize canvas handler
   const handleResizeCanvas = () => {
-    const newCells = resizeCells(cells, rows, cols, cfgRows, cfgCols);
-    setRows(cfgRows);
-    setCols(cfgCols);
-    commitCells(newCells, `已调整画布为 ${cfgCols} x ${cfgRows}。`);
+    const nextCols = normalizeGridSize(cfgCols);
+    const nextRows = normalizeGridSize(cfgRows);
+    const newCells = resizeCells(cells, rows, cols, nextRows, nextCols);
+    setRows(nextRows);
+    setCols(nextCols);
+    setCfgCols(nextCols);
+    setCfgRows(nextRows);
+    commitCells(newCells, `已调整画布为 ${nextCols} x ${nextRows}。`);
     setShowSettings(false);
   };
 
@@ -2327,6 +2340,8 @@ function H5App() {
       setCfgCols={setCfgCols}
       cfgRows={cfgRows}
       setCfgRows={setCfgRows}
+      parseGridSizeInput={parseGridSizeInput}
+      normalizeGridSize={normalizeGridSize}
       fitView={fitView}
       handleResizeCanvas={handleResizeCanvas}
       canvasTools={canvasTools}
@@ -2468,14 +2483,15 @@ function H5App() {
     openUpload={openUpload} isLoggedIn={isLoggedIn}
     loginName={loginName} setLoginName={setLoginName} loginPassword={loginPassword} setLoginPassword={setLoginPassword} submitLogin={submitLogin}
     isAuthenticating={isAuthenticating} showLoginModal={showLoginModal} setShowLoginModal={setShowLoginModal}
-    showUploadModal={showUploadModal} closeUploadModal={closeUploadModal} showXhsInput={showXhsInput}
+    showUploadModal={showUploadModal} showBlankCanvasOption={showBlankCanvasOption} closeUploadModal={closeUploadModal} showXhsInput={showXhsInput}
     setShowXhsInput={setShowXhsInput} xhsLink={xhsLink} setXhsLink={setXhsLink}
     xhsExtractedImages={xhsExtractedImages} isExtractingXhs={isExtractingXhs} chooseLocalDrawing={chooseLocalDrawing}
     extractXiaohongshuImage={extractXiaohongshuImage} importXhsImage={importXhsImage}
     xhsPreviewSrc={xhsPreviewSrc} usedColors={usedColors} colorCodeOf={colorCodeOf} quickTools={quickTools}
     showCreateCanvasModal={showCreateCanvasModal} setShowCreateCanvasModal={setShowCreateCanvasModal} openCreateCanvasModal={openCreateCanvasModal}
+    openBlankCanvasCreation={openBlankCanvasCreation}
     cfgCols={cfgCols} setCfgCols={setCfgCols} cfgRows={cfgRows} setCfgRows={setCfgRows}
-    normalizeGridSize={normalizeGridSize} createBlankCanvas={createBlankCanvas} requireLogin={requireLogin}
+    normalizeGridSize={normalizeGridSize} parseGridSizeInput={parseGridSizeInput} createBlankCanvas={createBlankCanvas} requireLogin={requireLogin}
     setStatus={setStatus} patternListCards={communityCards} setActivePattern={setActivePattern} setScreen={setScreen}
     warehouses={warehouses} stockedColorCount={stockedColorCount} totalWarehouseStock={totalWarehouseStock}
     activeWarehouse={activeWarehouse} mardColors={MARD_221_COLORS} openWarehouse={openWarehouse}

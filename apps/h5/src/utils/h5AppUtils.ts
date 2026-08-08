@@ -344,8 +344,14 @@ export function downloadBlob(filename: string, blob: Blob) {
   URL.revokeObjectURL(url);
 }
 
-export function normalizeGridSize(value: number): number {
-  return Math.max(2, Math.min(MAX_AUTO_GRID_SIDE, Math.round(value) || 32));
+export function normalizeGridSize(value: number | ''): number {
+  return Math.max(2, Math.min(MAX_AUTO_GRID_SIDE, Math.round(Number(value)) || 32));
+}
+
+export function parseGridSizeInput(value: string): number | '' {
+  if (value === '') return '';
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : '';
 }
 
 export function resizeCells(oldCells: Cell[], oldRows: number, oldCols: number, newRows: number, newCols: number): Cell[] {

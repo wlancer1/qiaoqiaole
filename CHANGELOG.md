@@ -1,5 +1,10 @@
 ## [Unreleased]
 
+### Fixed
+
+- Fixed H5 blank-canvas width and height fields so custom multi-digit sizes can be edited before validation, and aligned the new-canvas modal typography with the canvas settings modal.
+- Affected modules: `apps/h5/src/pages/home/HomeShellPage.tsx`, `apps/h5/src/pages/editor/CanvasPage.tsx`, `apps/h5/src/H5App.tsx`, and H5 shared styles/utilities.
+
 ### Added
 
 - Added real-data community/template flows with project saving, one-time share-to-community behavior, community comments, likes, and hot sorting by like count.
