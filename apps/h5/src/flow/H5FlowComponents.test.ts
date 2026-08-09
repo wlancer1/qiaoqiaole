@@ -407,6 +407,29 @@ describe('H5 flow presentation components', () => {
     expect(complete).toContain("setScreen('canvas')");
   });
 
+  it('serializes pause as progress PATCH followed by pause with the patched version', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+    const pause = getVariableInitializer(source, 'pauseBeading');
+    const patchPath = '`/v1/beading-sessions/${activeSession.id}`';
+    const pausePath = '`/v1/beading-sessions/${activeSession.id}/pause`';
+
+    expect(pause).toContain('async ({ completedColorCodes, elapsedSeconds, version })');
+    expect(pause).toContain('const activeSession = beadingSession');
+    expect(pause).toContain(patchPath);
+    expect(pause).toContain("method: 'PATCH'");
+    expect(pause).toContain('JSON.stringify({ version, completedColorCodes, elapsedSeconds })');
+    expect(pause).toContain('setBeadingSession(patched.session)');
+    expect(pause).toContain(pausePath);
+    expect(pause).toContain("method: 'POST'");
+    expect(pause).toContain('JSON.stringify({ version: patched.session.version })');
+    expect(pause).toContain('setBeadingSession(paused.session)');
+    expect(pause).toContain('return paused.session');
+    expect(pause.indexOf(patchPath)).toBeLessThan(pause.indexOf(pausePath));
+    expect(pause.indexOf('setBeadingSession(patched.session)')).toBeLessThan(pause.indexOf(pausePath));
+    expect(pause).toContain('syncBeadingSessionFromError(error, activeSession.id)');
+    expect(pause).toContain('throw error');
+  });
+
   it('syncs complete error sessions and keeps inventory sheet data in H5App', () => {
     const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
     const sessionFromError = getVariableInitializer(source, 'beadingSessionFromError');
@@ -428,6 +451,7 @@ describe('H5 flow presentation components', () => {
     const page = source.slice(pageStart, pageEnd);
 
     expect(page).toContain('onPatch={patchBeadingProgress}');
+    expect(page).toContain('onPause={pauseBeading}');
     expect(page).toContain('onPrepareCompletion={prepareBeadingCompletion}');
     expect(page).toContain('onComplete={completeBeading}');
     expect(page).toContain('onResume={resumeBeading}');

@@ -1027,6 +1027,28 @@ function H5App() {
     }
   };
 
+  const pauseBeading: SessionMutation = async ({ completedColorCodes, elapsedSeconds, version }) => {
+    const activeSession = beadingSession;
+    if (!activeSession) throw new Error('拼豆会话已失效');
+    try {
+      const patched = await requestApi<{ session: BeadingSession }>(`/v1/beading-sessions/${activeSession.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ version, completedColorCodes, elapsedSeconds }),
+      });
+      setBeadingSession(patched.session);
+      const paused = await requestApi<{ session: BeadingSession }>(`/v1/beading-sessions/${activeSession.id}/pause`, {
+        method: 'POST',
+        body: JSON.stringify({ version: patched.session.version }),
+      });
+      setBeadingSession(paused.session);
+      return paused.session;
+    } catch (error) {
+      syncBeadingSessionFromError(error, activeSession.id);
+      setStatus(error instanceof Error ? error.message : '无法暂停拼豆');
+      throw error;
+    }
+  };
+
   const prepareBeadingCompletion: Prepare = async ({ version }) => {
     if (!beadingSession) throw new Error('拼豆会话已失效');
     try {
@@ -2669,6 +2691,7 @@ function H5App() {
         cols={cols}
         getCode={colorCodeOf}
         onPatch={patchBeadingProgress}
+        onPause={pauseBeading}
         onPrepareCompletion={prepareBeadingCompletion}
         onComplete={completeBeading}
         onResume={resumeBeading}

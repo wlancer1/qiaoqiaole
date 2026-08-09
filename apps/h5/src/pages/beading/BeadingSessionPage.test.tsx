@@ -100,6 +100,9 @@ function callbacks(overrides: Partial<BeadingSessionPageProps> = {}): BeadingSes
       version: version + 1,
       progress: { completed: completedColorCodes.length, total: 2, percent: completedColorCodes.length * 50 },
     })),
+    onPause: vi.fn(async ({ completedColorCodes, elapsedSeconds, version }) => session({
+      completedColorCodes, elapsedSeconds, status: 'paused', version: version + 2,
+    })),
     onPrepareCompletion: vi.fn(async ({ version }) => session({
       completedColorCodes: ['A1', 'B2'], status: 'pending_completion', version: version + 1,
     })),
@@ -356,20 +359,36 @@ describe('BeadingSessionPage integration', () => {
     expect(storage.getItem(key)).toBeNull();
   });
 
-  it('pauses by saving elapsed time, stops the timer, and only resumes after the latest version succeeds', async () => {
+  it('keeps timing until pause succeeds, remains running on failure, and only resumes after success', async () => {
     vi.useFakeTimers();
     installWindow();
-    const props = callbacks();
+    let resolvePause!: (value: BeadingSession) => void;
+    const pauseRequest = new Promise<BeadingSession>((resolve) => { resolvePause = resolve; });
+    const onPause = vi.fn(() => pauseRequest);
+    const props = callbacks({ onPause });
     const { renderer } = await renderPage(props);
     act(() => { vi.advanceTimersByTime(2000); });
     expect(button(renderer, '暂停计时').findByType('span').children.join('')).toBe('00:12');
-    await click(renderer, '暂停计时');
-    expect(props.onPatch).toHaveBeenLastCalledWith({ completedColorCodes: [], elapsedSeconds: 12, version: 4 });
+    act(() => { button(renderer, '暂停计时').props.onClick(); });
+    expect(onPause).toHaveBeenCalledWith({ completedColorCodes: [], elapsedSeconds: 12, version: 4 });
+    expect(button(renderer, '暂停计时').props.disabled).toBe(true);
     act(() => { vi.advanceTimersByTime(2000); });
-    expect(button(renderer, '继续计时').findByType('span').children.join('')).toBe('00:12');
+    expect(button(renderer, '暂停计时').findByType('span').children.join('')).toBe('00:14');
+    await act(async () => { resolvePause(session({ status: 'paused', elapsedSeconds: 12, version: 6 })); });
+    expect(button(renderer, '继续计时').findByType('span').children.join('')).toBe('00:14');
+    act(() => { vi.advanceTimersByTime(2000); });
+    expect(button(renderer, '继续计时').findByType('span').children.join('')).toBe('00:14');
     await click(renderer, '继续计时');
     expect(props.onResume).toHaveBeenCalledWith({ version: 4 });
     expect(button(renderer, '暂停计时')).toBeTruthy();
+
+    const failedProps = callbacks({ onPause: vi.fn(async () => { throw new Error('暂停失败'); }) });
+    const failed = await renderPage(failedProps);
+    await click(failed.renderer, '暂停计时');
+    expect(button(failed.renderer, '暂停计时')).toBeTruthy();
+    act(() => { vi.advanceTimersByTime(1000); });
+    expect(button(failed.renderer, '暂停计时').findByType('span').children.join('')).toBe('00:11');
+    expect(failedProps.onStatus).toHaveBeenCalledWith('暂停失败');
   });
 
   it('keeps pending controls disabled, retries terminal prepare, and opens the completion dialog only after success', async () => {
@@ -424,18 +443,84 @@ describe('BeadingSessionPage integration', () => {
     expect(props.onStatus).toHaveBeenCalledWith('保存失败');
   });
 
-  it('resets elapsed, pause state, and current color when the session id changes', async () => {
+  it('syncs authoritative elapsed and pause state only when the same-session version changes', async () => {
     vi.useFakeTimers();
     installWindow();
     const initial = callbacks();
     const { renderer } = await renderPage(initial);
-    await click(renderer, '选择色号 B2');
     act(() => { vi.advanceTimersByTime(2000); });
     await act(async () => renderer.update(<BeadingSessionPage {...callbacks({
-      session: session({ id: 's2', elapsedSeconds: 40, status: 'paused', completedColorCodes: ['A1'] }),
+      session: session({ version: 4, elapsedSeconds: 99, status: 'paused' }),
+    })} />));
+    expect(button(renderer, '暂停计时').findByType('span').children.join('')).toBe('00:12');
+
+    const pausedProps = callbacks({
+      session: session({ version: 5, elapsedSeconds: 50, status: 'paused' }),
+    });
+    await act(async () => renderer.update(<BeadingSessionPage {...pausedProps} />));
+    expect(button(renderer, '继续计时').findByType('span').children.join('')).toBe('00:50');
+    await click(renderer, '保存');
+    expect(pausedProps.onPatch).toHaveBeenCalledWith({ completedColorCodes: [], elapsedSeconds: 50, version: 5 });
+
+    await act(async () => renderer.update(<BeadingSessionPage {...callbacks({
+      session: session({ version: 6, elapsedSeconds: 55, status: 'in_progress' }),
+    })} />));
+    expect(button(renderer, '暂停计时').findByType('span').children.join('')).toBe('00:55');
+    act(() => { vi.advanceTimersByTime(1000); });
+    expect(button(renderer, '暂停计时').findByType('span').children.join('')).toBe('00:56');
+  });
+
+  it('resets every local tool and selects the new next color when session id changes without an owner', async () => {
+    const { renderer } = await renderPage();
+    await click(renderer, '高亮');
+    await click(renderer, '标记');
+    pointerTap(renderer, 25, 25);
+    await click(renderer, '锁定画布');
+    await click(renderer, '更多工具');
+    await click(renderer, '显示色号');
+    await click(renderer, '显示网格');
+    await click(renderer, '关闭更多工具');
+    await click(renderer, '切换排序，当前作品顺序');
+    await click(renderer, '进入专注模式');
+
+    await act(async () => renderer.update(<BeadingSessionPage {...callbacks({
+      session: session({
+        id: 's2', version: 1, elapsedSeconds: 40, status: 'paused',
+        requirements: [{ colorCode: 'C3', required: 1 }, { colorCode: 'D4', required: 1 }],
+        completedColorCodes: [],
+      }),
     })} />));
     expect(button(renderer, '继续计时').findByType('span').children.join('')).toBe('00:40');
-    expect(canvasSpy.props?.overlay.currentColorCode).toBe('B2');
+    expect(renderer.root.findByType('main').props.className).not.toContain('is-focus');
+    expect(renderer.root.findByProps({ className: 'beading-canvas-stage' }).props).toMatchObject({
+      'data-locked': 'false', 'data-mode': 'pan',
+    });
+    expect(canvasSpy.props).toMatchObject({ codesVisible: true, gridVisible: true });
+    expect(canvasSpy.props?.overlay).toMatchObject({
+      currentColorCode: 'C3', highlightEnabled: true, markedCellIndexes: [],
+    });
+    expect(button(renderer, '切换排序，当前作品顺序')).toBeTruthy();
+    expect(renderer.root.findAllByProps({ role: 'dialog' })).toHaveLength(0);
+  });
+
+  it('applies the new session draft after the layout reset', async () => {
+    const storage = installWindow();
+    storage.setItem('qiaoqiaole.beading-draft:alice:s2', JSON.stringify({
+      markedCellIndexes: [1], highlightEnabled: false, locked: true,
+      codesVisible: false, gridVisible: false, sortMode: 'code', updatedAt: new Date().toISOString(),
+    }));
+    const initial = callbacks({ draftOwnerId: 'alice' });
+    const { renderer } = await renderPage(initial);
+
+    await act(async () => renderer.update(<BeadingSessionPage {...callbacks({
+      draftOwnerId: 'alice',
+      session: session({ id: 's2', version: 1 }),
+    })} />));
+
+    expect(renderer.root.findByProps({ className: 'beading-canvas-stage' }).props['data-locked']).toBe('true');
+    expect(canvasSpy.props).toMatchObject({ codesVisible: false, gridVisible: false });
+    expect(canvasSpy.props?.overlay).toMatchObject({ highlightEnabled: false, markedCellIndexes: [1] });
+    expect(button(renderer, '切换排序，当前色号顺序')).toBeTruthy();
   });
 });
 

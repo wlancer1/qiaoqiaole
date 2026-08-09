@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
@@ -44,6 +45,7 @@ export type BeadingSessionPageProps = {
   cols: number;
   getCode: (color: string) => string;
   onPatch: SessionMutation;
+  onPause: SessionMutation;
   onPrepareCompletion: Prepare;
   onComplete: Complete;
   onResume: Resume;
@@ -76,6 +78,7 @@ export function BeadingSessionPage({
   cols,
   getCode,
   onPatch,
+  onPause,
   onPrepareCompletion,
   onComplete,
   onResume,
@@ -88,7 +91,8 @@ export function BeadingSessionPage({
 }: BeadingSessionPageProps) {
   const artboardRef = useRef<HTMLDivElement>(null);
   const fitRef = useRef<() => void>(() => undefined);
-  const previousSessionIdRef = useRef(session.id);
+  const lastSyncedSessionIdRef = useRef(session.id);
+  const lastSyncedVersionRef = useRef(session.version);
   const [toolState, dispatch] = useReducer(beadingToolReducer, undefined, createBeadingToolState);
   const [searchQuery, setSearchQuery] = useState('');
   const [paused, setPaused] = useState(() => pausedFromSession(session));
@@ -115,6 +119,7 @@ export function BeadingSessionPage({
     elapsedSeconds: elapsed,
     currentColor: current,
     onPatch,
+    onPause,
     onPrepareCompletion,
     onComplete,
     onResume,
@@ -129,16 +134,24 @@ export function BeadingSessionPage({
     onCompleted: clearDraft,
   });
 
-  useEffect(() => {
-    if (previousSessionIdRef.current === session.id) return;
-    previousSessionIdRef.current = session.id;
+  useLayoutEffect(() => {
+    if (lastSyncedSessionIdRef.current !== session.id) {
+      lastSyncedSessionIdRef.current = session.id;
+      lastSyncedVersionRef.current = session.version;
+      dispatch({ type: 'reset' });
+      setElapsed(session.elapsedSeconds);
+      setPaused(pausedFromSession(session));
+      setCurrent(nextIncompleteColor(session.requirements, session.completedColorCodes));
+      setSearchQuery('');
+      setShowExit(false);
+      setShowCompletion(session.status === 'pending_completion');
+      return;
+    }
+    if (lastSyncedVersionRef.current === session.version) return;
+    lastSyncedVersionRef.current = session.version;
     setElapsed(session.elapsedSeconds);
     setPaused(pausedFromSession(session));
-    setCurrent(nextIncompleteColor(session.requirements, session.completedColorCodes));
-    setSearchQuery('');
-    setShowExit(false);
-    setShowCompletion(session.status === 'pending_completion');
-  }, [session.id, session.elapsedSeconds, session.requirements, session.completedColorCodes, session.status]);
+  }, [session.id, session.version, session.elapsedSeconds, session.status, session.requirements, session.completedColorCodes]);
 
   useEffect(() => {
     setCurrent((selected) => {
@@ -208,11 +221,11 @@ export function BeadingSessionPage({
   const allCompleted = nextIncompleteColor(session.requirements, session.completedColorCodes) === null;
   const terminalPrepare = allCompleted && !isTerminalStatus(session.status);
   const hasPendingAction = actions.pendingAction !== null;
+  const toolbarPendingAction = actions.pendingAction === 'pause' ? 'resume' : actions.pendingAction;
 
   const togglePause = useCallback(async () => {
     if (!paused) {
-      setPaused(true);
-      await actions.save();
+      if (await actions.pause()) setPaused(true);
       return;
     }
     if (await actions.resume()) setPaused(false);
@@ -241,7 +254,7 @@ export function BeadingSessionPage({
         elapsed={elapsedText}
         paused={paused}
         progress={progress}
-        pendingAction={actions.pendingAction}
+        pendingAction={toolbarPendingAction}
         focusMode={toolState.focusMode}
         onExit={() => setShowExit(true)}
         onInventory={() => { void actions.openInventory(); }}

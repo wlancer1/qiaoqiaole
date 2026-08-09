@@ -9,13 +9,14 @@ export type SessionMutation = (input: {
 export type Prepare = (input: { version: number }) => Promise<BeadingSession>;
 export type Complete = (input: { deduct: boolean }) => Promise<BeadingSession>;
 export type Resume = (input: { version: number }) => Promise<BeadingSession>;
-export type PendingAction = null | 'save' | 'inventory' | 'patch' | 'prepare' | 'complete' | 'resume';
+export type PendingAction = null | 'save' | 'inventory' | 'patch' | 'prepare' | 'complete' | 'pause' | 'resume';
 
 export type UseBeadingSessionActionsInput = {
   session: BeadingSession;
   elapsedSeconds: number;
   currentColor: string | null;
   onPatch: SessionMutation;
+  onPause: SessionMutation;
   onPrepareCompletion: Prepare;
   onComplete: Complete;
   onResume: Resume;
@@ -33,6 +34,7 @@ export type UseBeadingSessionActionsResult = {
   completeCurrent(): Promise<boolean>;
   retryPrepare(): Promise<boolean>;
   openInventory(): Promise<boolean>;
+  pause(): Promise<boolean>;
   resume(): Promise<boolean>;
   complete(deduct: boolean): Promise<boolean>;
 };
@@ -313,6 +315,27 @@ export function useBeadingSessionActions(input: UseBeadingSessionActionsInput): 
     }
   }, [begin, finish, isCurrent, reportError]);
 
+  const pause = useCallback(async (): Promise<boolean> => {
+    const operation = begin('pause');
+    if (!operation) return false;
+    try {
+      try {
+        await operation.input.onPause({
+          completedColorCodes: uniqueCodes(operation.input.session.completedColorCodes),
+          elapsedSeconds: operation.input.elapsedSeconds,
+          version: operation.input.session.version,
+        });
+      } catch (error) {
+        if (!isCurrent(operation)) return false;
+        reportError(operation, error);
+        return false;
+      }
+      return isCurrent(operation);
+    } finally {
+      finish(operation);
+    }
+  }, [begin, finish, isCurrent, reportError]);
+
   const resume = useCallback(async (): Promise<boolean> => {
     const operation = begin('resume');
     if (!operation) return false;
@@ -352,5 +375,5 @@ export function useBeadingSessionActions(input: UseBeadingSessionActionsInput): 
     }
   }, [begin, finish, isCurrent, reportError]);
 
-  return { pendingAction, save, completeCurrent, retryPrepare, openInventory, resume, complete };
+  return { pendingAction, save, completeCurrent, retryPrepare, openInventory, pause, resume, complete };
 }

@@ -52,6 +52,7 @@ function defaultProps(overrides: Partial<UseBeadingSessionActionsInput> = {}): U
     elapsedSeconds: 19,
     currentColor: 'A1',
     onPatch: vi.fn(async () => session()),
+    onPause: vi.fn(async () => session({ status: 'paused' })),
     onPrepareCompletion: vi.fn(async () => session({ status: 'pending_completion' })),
     onComplete: vi.fn(async () => session({ status: 'completed_deducted' })),
     onResume: vi.fn(async () => session({ status: 'in_progress' })),
@@ -641,6 +642,92 @@ describe('useBeadingSessionActions', () => {
     await act(async () => { retried = await harness.control.current!.openInventory(); });
     expect(retried).toBe(true);
     expect(onOpenInventory).toHaveBeenCalledTimes(2);
+  });
+
+  it('pauses once with progress, elapsed time, and version while blocking duplicate actions', async () => {
+    const request = deferred<BeadingSession>();
+    const onPause = vi.fn(() => request.promise);
+    const onResume = vi.fn(async () => session());
+    const harness = createHarness();
+    await harness.mount(defaultProps({
+      session: session({ completedColorCodes: ['A1', 'A1'], version: 14 }),
+      elapsedSeconds: 27,
+      onPause,
+      onResume,
+    }));
+
+    let first!: Promise<boolean>;
+    let duplicate!: Promise<boolean>;
+    let competing!: Promise<boolean>;
+    act(() => {
+      first = harness.control.current!.pause();
+      duplicate = harness.control.current!.pause();
+      competing = harness.control.current!.resume();
+    });
+    expect(harness.control.current!.pendingAction).toBe('pause');
+    expect(onPause).toHaveBeenCalledTimes(1);
+    expect(onPause).toHaveBeenCalledWith({ completedColorCodes: ['A1'], elapsedSeconds: 27, version: 14 });
+    expect(await duplicate).toBe(false);
+    expect(await competing).toBe(false);
+    expect(onResume).not.toHaveBeenCalled();
+
+    await act(async () => { request.resolve(session({ status: 'paused', version: 16 })); });
+    expect(await first).toBe(true);
+    expect(harness.control.current!.pendingAction).toBeNull();
+  });
+
+  it('reports pause failure, stays unlocked for retry, and does not claim success', async () => {
+    const onPause = vi.fn()
+      .mockRejectedValueOnce(new Error('暂停失败'))
+      .mockResolvedValueOnce(session({ status: 'paused' }));
+    const onStatus = vi.fn();
+    const harness = createHarness();
+    await harness.mount(defaultProps({ onPause, onStatus }));
+
+    let failed!: boolean;
+    await act(async () => { failed = await harness.control.current!.pause(); });
+    expect(failed).toBe(false);
+    expect(onStatus).toHaveBeenCalledWith('暂停失败');
+    expect(harness.control.current!.pendingAction).toBeNull();
+
+    let retried!: boolean;
+    await act(async () => { retried = await harness.control.current!.pause(); });
+    expect(retried).toBe(true);
+    expect(onPause).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores a pause result after the active session changes', async () => {
+    const request = deferred<BeadingSession>();
+    const onPause = vi.fn(() => request.promise);
+    const onStatus = vi.fn();
+    const harness = createHarness();
+    const props = defaultProps({ onPause, onStatus });
+    await harness.mount(props);
+
+    let result!: Promise<boolean>;
+    act(() => { result = harness.control.current!.pause(); });
+    await harness.update({ ...props, session: session({ id: 'session-2', version: 1 }) });
+    await act(async () => { request.resolve(session({ status: 'paused', version: 6 })); });
+
+    expect(await result).toBe(false);
+    expect(onStatus).not.toHaveBeenCalled();
+    expect(harness.control.current!.pendingAction).toBeNull();
+  });
+
+  it('ignores a pause result after unmount', async () => {
+    const request = deferred<BeadingSession>();
+    const onPause = vi.fn(() => request.promise);
+    const onStatus = vi.fn();
+    const harness = createHarness();
+    await harness.mount(defaultProps({ onPause, onStatus }));
+
+    let result!: Promise<boolean>;
+    act(() => { result = harness.control.current!.pause(); });
+    harness.unmount();
+    request.resolve(session({ status: 'paused', version: 6 }));
+
+    expect(await result).toBe(false);
+    expect(onStatus).not.toHaveBeenCalled();
   });
 
   it('uses committed callbacks for the current action and new callbacks for the next action', async () => {
