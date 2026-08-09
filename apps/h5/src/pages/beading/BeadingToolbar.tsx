@@ -59,7 +59,7 @@ export function BeadingToolbar({
         </button>
         <button
           type="button"
-          className="beading-toolbar-capsule beading-toolbar-secondary"
+          className="beading-toolbar-capsule beading-toolbar-secondary beading-toolbar-save"
           aria-label="保存"
           disabled={hasPendingAction}
           onClick={onSave}

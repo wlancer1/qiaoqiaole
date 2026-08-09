@@ -17,6 +17,8 @@ export const CELL_SIZE = 18;
 export const MIN_VIEWPORT_SCALE = 0.25;
 export const MAX_VIEWPORT_SCALE = 8;
 const VIEWPORT_PADDING = 16;
+export const RULER_LEFT_GUTTER = 22;
+export const RULER_TOP_GUTTER = 20;
 
 export type ViewportFit = { x: number; y: number; scale: number };
 
@@ -31,13 +33,20 @@ export function calculateViewportFit(
   const availableHeight = viewportHeight - VIEWPORT_PADDING * 2;
   if (availableWidth <= 0 || availableHeight <= 0 || artboardWidth <= 0 || artboardHeight <= 0) return null;
 
-  const naturalScale = Math.min(availableWidth / artboardWidth, availableHeight / artboardHeight);
+  const contentWidth = artboardWidth + RULER_LEFT_GUTTER;
+  const contentHeight = artboardHeight + RULER_TOP_GUTTER;
+  const naturalScale = Math.min(availableWidth / contentWidth, availableHeight / contentHeight);
   const scale = Math.min(MAX_VIEWPORT_SCALE, Math.max(MIN_VIEWPORT_SCALE, naturalScale));
   return {
     scale,
-    x: (viewportWidth - artboardWidth * scale) / 2,
-    y: (viewportHeight - artboardHeight * scale) / 2,
+    x: VIEWPORT_PADDING + (availableWidth - contentWidth * scale) / 2 + RULER_LEFT_GUTTER * scale,
+    y: VIEWPORT_PADDING + (availableHeight - contentHeight * scale) / 2 + RULER_TOP_GUTTER * scale,
   };
+}
+
+function fitTransitionDuration(): number {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return 180;
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 180;
 }
 
 type ArtboardDimensions = { width: number; height: number };
@@ -97,7 +106,7 @@ export function BeadingCanvasViewport({
     const next = calculateViewportFit(viewportWidth, viewportHeight, artboardWidth, artboardHeight);
     if (next && transformRef.current) {
       pendingFitRef.current = false;
-      transformRef.current.setTransform(next.x, next.y, next.scale, 180);
+      transformRef.current.setTransform(next.x, next.y, next.scale, fitTransitionDuration());
     }
   }, []);
 

@@ -72,6 +72,18 @@ const EMPTY_OVERLAY: H5CanvasOverlay = {
   completedColorCodes: [],
 };
 
+function untransformedDimension(
+  element: HTMLElement,
+  axis: 'width' | 'height',
+): number {
+  const clientSize = axis === 'width' ? element.clientWidth : element.clientHeight;
+  if (Number.isFinite(clientSize) && clientSize > 0) return clientSize;
+  const offsetSize = axis === 'width' ? element.offsetWidth : element.offsetHeight;
+  if (Number.isFinite(offsetSize) && offsetSize > 0) return offsetSize;
+  const inlineSize = Number.parseFloat(element.style?.[axis] ?? '');
+  return Number.isFinite(inlineSize) && inlineSize > 0 ? inlineSize : 0;
+}
+
 export function canvasLayerInvalidation(
   previous: CanvasLayerSnapshot | null,
   next: CanvasLayerSnapshot,
@@ -161,16 +173,16 @@ export function H5CanvasLayers({
     const overlayCanvas = overlayRef.current;
     if (!stack || !artboardElement || !colorCanvas || !codeCanvas || !gridCanvas || !overlayCanvas) return;
 
-    const viewportRect = stack.getBoundingClientRect();
-    const artboardRect = artboardElement.getBoundingClientRect();
-    const viewportWidth = viewportRect.width;
-    const viewportHeight = viewportRect.height;
+    const artboardWidth = untransformedDimension(artboardElement, 'width');
+    const artboardHeight = untransformedDimension(artboardElement, 'height');
+    const viewportWidth = untransformedDimension(stack, 'width') || artboardWidth;
+    const viewportHeight = untransformedDimension(stack, 'height') || artboardHeight;
     const dpr = window.devicePixelRatio || 1;
     const artboard = {
-      left: artboardRect.left - viewportRect.left,
-      top: artboardRect.top - viewportRect.top,
-      width: artboardRect.width,
-      height: artboardRect.height,
+      left: 0,
+      top: 0,
+      width: artboardWidth,
+      height: artboardHeight,
     };
     const current = latestRef.current;
     const nextSnapshot: CanvasLayerSnapshot = {

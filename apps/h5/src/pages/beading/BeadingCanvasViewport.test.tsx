@@ -28,6 +28,8 @@ vi.mock('react-zoom-pan-pinch', async () => {
 import {
   BeadingCanvasViewport,
   CELL_SIZE,
+  RULER_LEFT_GUTTER,
+  RULER_TOP_GUTTER,
   calculateViewportFit,
 } from './BeadingCanvasViewport';
 
@@ -86,7 +88,29 @@ function flushAnimationFrames() {
   });
 }
 
+function expectedFitTransform(
+  viewportWidth: number,
+  viewportHeight: number,
+  artboardWidth: number,
+  artboardHeight: number,
+) {
+  const availableWidth = viewportWidth - 32;
+  const availableHeight = viewportHeight - 32;
+  const contentWidth = artboardWidth + RULER_LEFT_GUTTER;
+  const contentHeight = artboardHeight + RULER_TOP_GUTTER;
+  const scale = Math.min(8, Math.max(0.25, Math.min(
+    availableWidth / contentWidth,
+    availableHeight / contentHeight,
+  )));
+  return [
+    16 + (availableWidth - contentWidth * scale) / 2 + RULER_LEFT_GUTTER * scale,
+    16 + (availableHeight - contentHeight * scale) / 2 + RULER_TOP_GUTTER * scale,
+    scale,
+  ] as const;
+}
+
 beforeEach(() => {
+  vi.unstubAllGlobals();
   vi.clearAllMocks();
   resizeCallback = undefined;
   animationFrameId = 0;
@@ -105,20 +129,23 @@ beforeEach(() => {
 });
 
 describe('calculateViewportFit', () => {
-  it('subtracts 16px padding on each side and centers the scaled artboard', () => {
+  it('fits and centers the scaled artboard together with its top and left ruler gutters', () => {
+    expect(RULER_LEFT_GUTTER).toBe(22);
+    expect(RULER_TOP_GUTTER).toBe(20);
+    const scale = 368 / (180 + RULER_LEFT_GUTTER);
     expect(calculateViewportFit(400, 300, 180, 90)).toEqual({
-      scale: 368 / 180,
-      x: 16,
-      y: 58,
+      scale,
+      x: 16 + RULER_LEFT_GUTTER * scale,
+      y: 16 + (268 - (90 + RULER_TOP_GUTTER) * scale) / 2 + RULER_TOP_GUTTER * scale,
     });
   });
 
   it('allows small artboards to scale up', () => {
-    expect(calculateViewportFit(212, 212, 18, 18)).toEqual({ scale: 8, x: 34, y: 34 });
+    expect(calculateViewportFit(212, 212, 18, 18)).toEqual({ scale: 4.5, x: 115, y: 110.5 });
   });
 
   it('clamps large artboards to the minimum scale', () => {
-    expect(calculateViewportFit(100, 100, 1000, 1000)).toEqual({ scale: 0.25, x: -75, y: -75 });
+    expect(calculateViewportFit(100, 100, 1000, 1000)).toEqual({ scale: 0.25, x: -72.25, y: -72.5 });
   });
 
   it.each([
@@ -157,7 +184,7 @@ describe('BeadingCanvasViewport', () => {
       opacity: 0.5,
     });
     expect(artboard.props.onPointerDown).toBe(onPointerDown);
-    expect(zoomMocks.setTransform).toHaveBeenLastCalledWith(16, 58, 368 / 180, 180);
+    expect(zoomMocks.setTransform).toHaveBeenLastCalledWith(...expectedFitTransform(400, 300, 180, 90), 180);
   });
 
   it('uses ResizeObserver content-box dimensions and disconnects on unmount', () => {
@@ -174,7 +201,7 @@ describe('BeadingCanvasViewport', () => {
     expect(observe).toHaveBeenCalledWith(stageNode);
     expect(zoomMocks.setTransform).not.toHaveBeenCalled();
     flushAnimationFrames();
-    expect(zoomMocks.setTransform).toHaveBeenLastCalledWith(16, 83, 468 / 180, 180);
+    expect(zoomMocks.setTransform).toHaveBeenLastCalledWith(...expectedFitTransform(500, 400, 180, 90), 180);
     act(() => renderer.unmount());
     expect(disconnect).toHaveBeenCalledTimes(1);
   });
@@ -190,7 +217,7 @@ describe('BeadingCanvasViewport', () => {
         </BeadingCanvasViewport>,
       );
     });
-    expect(zoomMocks.setTransform).toHaveBeenLastCalledWith(16, 58, 368 / 360, 180);
+    expect(zoomMocks.setTransform).toHaveBeenLastCalledWith(...expectedFitTransform(400, 300, 360, 180), 180);
 
     zoomMocks.setTransform.mockClear();
     act(() => {
@@ -246,7 +273,7 @@ describe('BeadingCanvasViewport', () => {
     expect(zoomMocks.setTransform).not.toHaveBeenCalled();
 
     act(() => fit?.());
-    expect(zoomMocks.setTransform).toHaveBeenCalledWith(16, 58, 368 / 180, 180);
+    expect(zoomMocks.setTransform).toHaveBeenCalledWith(...expectedFitTransform(400, 300, 180, 90), 180);
   });
 
   it('defers automatic and manual fit while locked, then fits immediately on unlock', () => {
@@ -277,7 +304,7 @@ describe('BeadingCanvasViewport', () => {
       );
     });
     expect(zoomMocks.setTransform).toHaveBeenCalledTimes(1);
-    expect(zoomMocks.setTransform).toHaveBeenCalledWith(16, 83, 468 / 360, 180);
+    expect(zoomMocks.setTransform).toHaveBeenCalledWith(...expectedFitTransform(500, 400, 360, 180), 180);
   });
 
   it('excludes artboard single-pointer panning in mark mode while preserving pinch panning', () => {
@@ -320,7 +347,17 @@ describe('BeadingCanvasViewport', () => {
     expect(zoomMocks.setTransform).not.toHaveBeenCalled();
     flushAnimationFrames();
     expect(zoomMocks.setTransform).toHaveBeenCalledTimes(1);
-    expect(zoomMocks.setTransform).toHaveBeenCalledWith(16, 78, 488 / 180, 180);
+    expect(zoomMocks.setTransform).toHaveBeenCalledWith(...expectedFitTransform(520, 400, 180, 90), 180);
+  });
+
+  it('uses an immediate fit transform when reduced motion is requested', () => {
+    vi.stubGlobal('window', {
+      matchMedia: vi.fn(() => ({ matches: true })),
+    });
+
+    renderViewport();
+
+    expect(zoomMocks.setTransform).toHaveBeenLastCalledWith(...expectedFitTransform(400, 300, 180, 90), 0);
   });
 
   it('cancels a pending resize frame on unmount', () => {

@@ -191,7 +191,10 @@ function installWindow(storage = new MemoryStorage()) {
 }
 
 function relativeLuminance(hex: string): number {
-  const channels = [1, 3, 5].map((index) => Number.parseInt(hex.slice(index, index + 2), 16) / 255)
+  const normalized = hex.length === 4
+    ? `#${hex.slice(1).split('').map((channel) => channel.repeat(2)).join('')}`
+    : hex;
+  const channels = [1, 3, 5].map((index) => Number.parseInt(normalized.slice(index, index + 2), 16) / 255)
     .map((channel) => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4);
   return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
 }
@@ -210,7 +213,7 @@ function cssSource(file: 'session' | 'global' = 'session'): string {
 
 function cssBlock(source: string, selector: string): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = source.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`, 's'));
+  const match = source.match(new RegExp(`(?:^|})\\s*${escaped}\\s*\\{([^}]*)\\}`, 's'));
   if (!match) throw new Error(`CSS selector not found: ${selector}`);
   return match[1];
 }
@@ -221,6 +224,26 @@ function expectDeclaration(block: string, property: string, value: RegExp | stri
     ? value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     : value.source;
   expect(block).toMatch(new RegExp(`(?:^|;)\\s*${escapedProperty}\\s*:\\s*${valuePattern}\\s*(?:;|$)`, 's'));
+}
+
+function declarationValue(block: string, property: string): string {
+  const escapedProperty = property.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = block.match(new RegExp(`(?:^|;)\\s*${escapedProperty}\\s*:\\s*([^;]+)`));
+  if (!match) throw new Error(`CSS declaration not found: ${property}`);
+  return match[1].trim();
+}
+
+function cssAtRuleBlock(source: string, header: string): string {
+  const start = source.indexOf(header);
+  if (start < 0) throw new Error(`CSS at-rule not found: ${header}`);
+  const open = source.indexOf('{', start + header.length);
+  let depth = 1;
+  for (let index = open + 1; index < source.length; index += 1) {
+    if (source[index] === '{') depth += 1;
+    if (source[index] === '}') depth -= 1;
+    if (depth === 0) return source.slice(open + 1, index);
+  }
+  throw new Error(`Unclosed CSS at-rule: ${header}`);
 }
 
 beforeEach(() => {
@@ -673,12 +696,21 @@ describe('BeadingSessionPage static contracts', () => {
 
     const toolbar = cssBlock(styles, '.beading-toolbar');
     expectDeclaration(toolbar, 'padding-top', /env\(safe-area-inset-top\)/);
+    expectDeclaration(toolbar, 'padding-left', /max\(8px, env\(safe-area-inset-left\)\)/);
+    expectDeclaration(toolbar, 'padding-right', /max\(10px, env\(safe-area-inset-right\)\)/);
     expectDeclaration(toolbar, 'min-height', '64px');
     expectDeclaration(toolbar, 'height', /max\(64px, calc\(44px \+ env\(safe-area-inset-top\)\)\)/);
     const stage = cssBlock(styles, '.beading-canvas-stage');
     expectDeclaration(stage, 'flex', /1(?: 1 auto)?/);
     expectDeclaration(stage, 'min-height', '0');
     expectDeclaration(stage, 'overflow', 'hidden');
+    expectDeclaration(cssBlock(styles, '.beading-focus-toggle'), 'right', /max\(12px, env\(safe-area-inset-right\)\)/);
+    const toolRow = cssBlock(styles, '.beading-tool-row');
+    expectDeclaration(toolRow, 'padding-left', /max\(3px, env\(safe-area-inset-left\)\)/);
+    expectDeclaration(toolRow, 'padding-right', /max\(3px, env\(safe-area-inset-right\)\)/);
+    const colorDock = cssBlock(styles, '.beading-color-section');
+    expectDeclaration(colorDock, 'padding-left', /max\(8px, env\(safe-area-inset-left\)\)/);
+    expectDeclaration(colorDock, 'padding-right', /max\(8px, env\(safe-area-inset-right\)\)/);
   });
 
   it('sizes the header controls, progress, tool row, and color dock to the mobile reference', () => {
@@ -736,7 +768,8 @@ describe('BeadingSessionPage static contracts', () => {
     const narrow = styles.match(/@media\s*\(max-width:\s*360px\)\s*\{([\s\S]*)\}\s*@media/s)?.[1];
     expect(narrow).toBeTruthy();
     expect(narrow).toMatch(/\.beading-toolbar-label\s*\{[^}]*display:\s*none/);
-    expect(narrow).toMatch(/\.beading-toolbar\s*\{[^}]*padding-inline:\s*8px/);
+    expect(narrow).toMatch(/\.beading-toolbar\s*\{[^}]*padding-left:\s*max\(8px, env\(safe-area-inset-left\)\)/);
+    expect(narrow).toMatch(/\.beading-toolbar\s*\{[^}]*padding-right:\s*max\(8px, env\(safe-area-inset-right\)\)/);
     expect(narrow).toMatch(/\.beading-tool-button\s*\{[^}]*font-size:\s*11px/);
     expect(narrow).not.toMatch(/\.beading-color-chip[^{}]*span[^{}]*\{[^}]*font-size:\s*(?:[0-9]|1[01])px/);
     const contentWidth = 320 - 2 * 8;
@@ -755,5 +788,31 @@ describe('BeadingSessionPage static contracts', () => {
     expect(styles).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?transition(?:-duration)?:\s*(?:none|0\.01ms)/);
     expect(contrastRatio('#8a5700', '#f7f9fc')).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio('#1859b8', '#eef5ff')).toBeGreaterThanOrEqual(4.5);
+
+    const actualPairs = [
+      ['.beading-toolbar-actions .beading-toolbar-save', '.beading-toolbar-actions .beading-toolbar-save'],
+      ['.beading-toolbar-actions .beading-timer svg', '.beading-toolbar-actions .beading-timer svg'],
+      ['.beading-tool-button.is-active,\n.beading-tool-button[aria-pressed="true"]', '.beading-tool-button.is-active,\n.beading-tool-button[aria-pressed="true"]'],
+      ['.beading-search-input svg', '.beading-search-input'],
+      ['.beading-search-empty', '.beading-dialog'],
+      ['.beading-dialog-actions button.is-danger', '.beading-dialog-actions button'],
+    ] as const;
+    actualPairs.forEach(([foregroundSelector, backgroundSelector]) => {
+      const foreground = declarationValue(cssBlock(styles, foregroundSelector), 'color');
+      const background = declarationValue(cssBlock(styles, backgroundSelector), 'background');
+      expect(contrastRatio(foreground, background), `${foregroundSelector} on ${backgroundSelector}`)
+        .toBeGreaterThanOrEqual(4.5);
+    });
+  });
+
+  it('keeps controls reachable in short landscape viewports and avoids structural selector debt', () => {
+    const styles = cssSource();
+    const shortLandscape = cssAtRuleBlock(styles, '@media (max-height: 520px) and (orientation: landscape)');
+    expect(shortLandscape).toMatch(/\.beading-session-page\s*\{[^}]*overflow-y:\s*auto/);
+    expect(shortLandscape).toMatch(/\.beading-canvas-stage\s*\{[^}]*min-height:\s*(?:1[2-9][0-9]|[2-9][0-9]{2,})px/);
+    expect(shortLandscape).toMatch(/\.beading-color-section\s*\{[^}]*flex:\s*0 0 auto/);
+    expect(styles).not.toContain('.beading-toolbar-capsule:nth-child');
+    expect(styles).not.toContain('--beading-blue');
+    expect(styles).not.toContain('--beading-orange');
   });
 });

@@ -54,6 +54,7 @@ describe('BeadingToolbar', () => {
     expect(markup).toContain('aria-label="查看库存"');
     expect(markup).toContain('aria-label="暂停计时"');
     expect(markup).toContain('aria-label="保存"');
+    expect(markup).toContain('beading-toolbar-save');
     expect(markup).toContain('aria-label="设置"');
   });
 

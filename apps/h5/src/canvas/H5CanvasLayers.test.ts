@@ -452,7 +452,7 @@ describe('H5CanvasLayers scheduling contract', () => {
 });
 
 describe('H5CanvasLayers production draw path', () => {
-  it('configures four bounded canvases and executes grid clear and overlay paint', async () => {
+  it.each([0.5, 2])('keeps four canvases in untransformed artboard geometry at %s× zoom', async (transformScale) => {
     const originalConsoleError = console.error;
     vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
       if (args[0] === 'react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer') return;
@@ -485,10 +485,24 @@ describe('H5CanvasLayers production draw path', () => {
 
     const stack = {
       dataset: {} as Record<string, string>,
-      getBoundingClientRect: () => ({ left: 0, top: 0, width: 1024, height: 768 }),
+      clientWidth: 1024,
+      clientHeight: 768,
+      getBoundingClientRect: () => ({
+        left: 40,
+        top: 30,
+        width: 1024 * transformScale,
+        height: 768 * transformScale,
+      }),
     };
     const artboard = {
-      getBoundingClientRect: () => ({ left: 0, top: 0, width: 1024, height: 768 }),
+      clientWidth: 1024,
+      clientHeight: 768,
+      getBoundingClientRect: () => ({
+        left: 40,
+        top: 30,
+        width: 1024 * transformScale,
+        height: 768 * transformScale,
+      }),
     };
     const canvases = new Map<string, {
       width: number;
@@ -563,6 +577,7 @@ describe('H5CanvasLayers production draw path', () => {
         width: expected.backingWidth,
         height: expected.backingHeight,
       });
+      expect(canvas.style).toEqual({ width: '1024px', height: '768px' });
     }
     expect(CANVAS_LAYER_COUNT * expected.backingWidth * expected.backingHeight)
       .toBeLessThanOrEqual(MAX_CANVAS_BACKING_AREA);
