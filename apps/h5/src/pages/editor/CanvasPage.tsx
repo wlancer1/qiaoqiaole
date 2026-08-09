@@ -13,6 +13,7 @@ export function CanvasPage(props: CanvasPageProps) {
     setShowSettings, cols, rows, history, future, undo, redo, chooseReferenceImage, exportPatternPng, workMode,
     exportStl, saveCurrentProject, saveAndStartProject, selectedCode, selectedColor, showSettings, cfgCols, setCfgCols, cfgRows, setCfgRows, fitView,
     showSaveProjectModal, setShowSaveProjectModal, saveProjectName, setSaveProjectName, isSavingProject, confirmSaveProject,
+    showSaveLoginPrompt, setShowSaveLoginPrompt, onLoginForSave,
     shareToCommunity, setShareToCommunity, activeProjectShared,
     handleResizeCanvas, canvasTools, tool, setTool, handleCanvasPointerDownCapture, handleCanvasPointerEndCapture,
     parseGridSizeInput, normalizeGridSize,
@@ -136,6 +137,20 @@ return (
             保存并开始拼豆
           </button>
         </form>
+      </div>
+    ) : null}
+
+    {showSaveLoginPrompt ? (
+      <div className="save-login-prompt" role="dialog" aria-modal="true" aria-labelledby="save-login-title">
+        <div className="save-login-prompt-panel">
+          <button className="save-project-close" type="button" aria-label="关闭登录提示" onClick={() => setShowSaveLoginPrompt(false)}><X aria-hidden="true" /></button>
+          <h2 id="save-login-title">登录后保存作品</h2>
+          <p>登录后才能把当前画布保存到我的作品，当前画布内容不会丢失。</p>
+          <div className="h5-modal-actions">
+            <button className="cancel-btn" type="button" onClick={() => setShowSaveLoginPrompt(false)}>暂不登录</button>
+            <button className="confirm-btn" type="button" onClick={onLoginForSave}>去登录</button>
+          </div>
+        </div>
       </div>
     ) : null}
 

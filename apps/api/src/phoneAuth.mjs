@@ -64,6 +64,18 @@ function nowIso() { return new Date().toISOString(); }
 function ttlLeft(seconds, now = epochSeconds()) { return Math.max(1, seconds - now); }
 function passwordDigest(password, salt) { return scryptSync(password, salt, 32).toString('hex'); }
 function validPassword(password) { return password.length >= 8 && password.length <= 128; }
+function canonicalNickname(user) {
+  const nickname = String(user?.nickname || '').trim();
+  if (nickname && !nickname.startsWith('phone_') && [...nickname].length <= 32) return nickname;
+  if (user?.phoneLast4) return `用户${user.phoneLast4}`;
+  const username = String(user?.username || '').trim();
+  return [...username].slice(0, 24).join('') || '用户';
+}
+
+function isLegacyGeneratedNickname(user) {
+  const nickname = String(user?.nickname || '').trim();
+  return nickname.startsWith('phone_') || [...nickname].length > 32;
+}
 
 function jsonResponse(status, data, requestId, extra = {}) {
   return { status, body: { code: 'OK', message: 'success', data, requestId }, headers: extra };
@@ -112,11 +124,17 @@ export function createPhoneAuthService({ db, getOne, getAll, persist, redis, env
     const user = getOne(`SELECT u.id, u.username, u.nickname, i.identifier_last4 AS phoneLast4, u.avatar_url AS avatarUrl, u.status, u.register_source AS registerSource,
       u.registered_at AS registeredAt, u.last_login_at AS lastLoginAt FROM users u LEFT JOIN user_identities i ON i.user_id = u.id AND i.provider = 'PHONE' WHERE u.id = ?`, [userId]);
     if (!user || user.status === 'DISABLED') return null;
-    if (!user.nickname && user.phoneLast4) user.nickname = `用户${user.phoneLast4}`;
+    const nextNickname = canonicalNickname(user);
+    if (isLegacyGeneratedNickname(user) || !user.nickname) {
+      user.nickname = nextNickname;
+      db.run('UPDATE users SET nickname = ?, updated_at = ? WHERE id = ?', [nextNickname, nowIso(), user.id]);
+    } else {
+      user.nickname = nextNickname;
+    }
     return user;
   }
   function publicUser(user) {
-    return { id: user.id, nickname: user.nickname || (user.phoneLast4 ? `用户${user.phoneLast4}` : user.username), avatarUrl: user.avatarUrl || null, status: user.status || 'ACTIVE' };
+    return { id: user.id, nickname: canonicalNickname(user), avatarUrl: user.avatarUrl || null, status: user.status || 'ACTIVE' };
   }
   function accessToken(userId, sessionId, platform) {
     const iat = epochSeconds();
@@ -258,7 +276,8 @@ export function createPhoneAuthService({ db, getOne, getAll, persist, redis, env
     const agreementVersion = String(body.agreementVersion || '');
     const device = body.device && typeof body.device === 'object' ? body.device : {};
     const platform = String(device.platform || 'web');
-    if (!/^\d{6}$/.test(submittedCode) || !smsRequestId || !validPassword(password) || password !== confirmPassword || !agreementVersion || !ALLOWED_PLATFORMS.has(platform)) throw new AuthError('AUTH_REQUEST_INVALID', 400, password !== confirmPassword ? '两次密码输入不一致' : '密码长度需为 8-128 位');
+    if (!validPassword(password)) throw new AuthError('AUTH_REQUEST_INVALID', 400, password.length < 8 ? '密码至少需要 8 位' : '密码长度不能超过 128 位');
+    if (!/^\d{6}$/.test(submittedCode) || !smsRequestId || password !== confirmPassword || !agreementVersion || !ALLOWED_PLATFORMS.has(platform)) throw new AuthError('AUTH_REQUEST_INVALID', 400, password !== confirmPassword ? '两次密码输入不一致' : '注册请求无效');
     const phoneHash = hashValue(phone, pepper);
     const key = redisKey('code', 'REGISTER', phoneHash);
     const codeRecord = await redis.hGetAll(key);
@@ -329,15 +348,19 @@ export function createPhoneAuthService({ db, getOne, getAll, persist, redis, env
     const agreementVersion = String(body.agreementVersion || '');
     const device = body.device && typeof body.device === 'object' ? body.device : {};
     const platform = String(device.platform || 'web');
-    if (!validPassword(password) || !agreementVersion || !ALLOWED_PLATFORMS.has(platform)) throw new AuthError('AUTH_REQUEST_INVALID', 400, '手机号或密码错误');
+    if (!validPassword(password)) throw new AuthError('AUTH_REQUEST_INVALID', 400, password.length < 8 ? '密码至少需要 8 位' : '密码长度不能超过 128 位');
+    if (!agreementVersion || !ALLOWED_PLATFORMS.has(platform)) throw new AuthError('AUTH_REQUEST_INVALID', 400, '登录请求无效');
     const phoneHash = hashValue(phone, pepper);
     const identity = getOne(`SELECT u.id, u.status, u.username, u.nickname, i.identifier_last4 AS phoneLast4, u.password_hash AS passwordHash, u.salt, u.avatar_url AS avatarUrl FROM user_identities i JOIN users u ON u.id = i.user_id WHERE i.provider = 'PHONE' AND i.identifier_hash = ?`, [phoneHash]);
     if (!identity || !identity.passwordHash || !identity.salt || passwordDigest(password, identity.salt) !== identity.passwordHash) throw new AuthError('AUTH_LOGIN_INVALID', 401, '手机号或密码错误');
     if (identity.status === 'DISABLED') throw new AuthError('AUTH_USER_DISABLED', 403, '当前账号暂不可用');
     const now = nowIso();
-    if (!identity.nickname && identity.phoneLast4) {
-      identity.nickname = `用户${identity.phoneLast4}`;
+    const nextNickname = canonicalNickname(identity);
+    if (isLegacyGeneratedNickname(identity) || !identity.nickname) {
+      identity.nickname = nextNickname;
       db.run('UPDATE users SET nickname = ?, updated_at = ? WHERE id = ?', [identity.nickname, now, identity.id]);
+    } else {
+      identity.nickname = nextNickname;
     }
     db.run('UPDATE users SET last_login_at = ?, last_login_ip_hash = ?, updated_at = ? WHERE id = ?', [now, ipHash(ip, pepper), now, identity.id]);
     const tokens = sessionTokens(identity.id, platform, device.deviceId, ip);

@@ -108,7 +108,7 @@ import { cropSize, getAutoCropBounds, splitCropRegion, splitPreviewBackTarget, t
 import { defaultSplitImageView } from './utils/splitImageView';
 import { AuthorProfilePage, MyWorksPage, PatternDetailPage, PatternDiscoverPage, PatternMessagesPage } from './patterns/H5PatternPages';
 import { quickTools } from './patterns/h5PatternData';
-import { sortCommunityPosts, toPatternListCard, type CommunityComment, type CommunityPost } from './community/communityData';
+import { sortCommunityPosts, toPatternListCard, type CommunityComment, type CommunityNotification, type CommunityPost } from './community/communityData';
 import { WarehousePage } from './pages/warehouse/WarehousePage';
 import { WarehouseListPage } from './pages/warehouse/WarehouseListPage';
 import { SplitCropPage, SplitPreviewPage, SplitSettingsPage } from './pages/split/SplitPages';
@@ -119,6 +119,7 @@ import { ProjectActionSheet } from './pages/beading/ProjectActionSheet';
 import type { BeadingSession } from './beading/beadingSessionClient';
 import { HomeShellPage, PhoneLoginModal } from './pages/home/HomeShellPage';
 import { createNonce, createRequestId, getPhoneDeviceId, normalizePhone, showTencentCaptcha, signWebSmsRequest } from './utils/phoneAuthClient';
+import { passwordValidationMessage, validatePasswordLength } from './utils/passwordValidation';
 import type {
   AlignedGrid,
   AppScreen,
@@ -219,6 +220,7 @@ function H5App() {
   const [activeProjectId, setActiveProjectId] = useState('');
   const [communityPosts, setCommunityPosts] = useState<CommunityPost[]>([]);
   const [communityComments, setCommunityComments] = useState<CommunityComment[]>([]);
+  const [notifications, setNotifications] = useState<CommunityNotification[]>([]);
   const [isCommunityLoading, setIsCommunityLoading] = useState(false);
   const [isCommunityCommentsLoading, setIsCommunityCommentsLoading] = useState(false);
   const [communitySort, setCommunitySort] = useState<'hot' | 'latest'>('hot');
@@ -234,6 +236,7 @@ function H5App() {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [showSaveProjectModal, setShowSaveProjectModal] = useState(false);
+  const [showSaveLoginPrompt, setShowSaveLoginPrompt] = useState(false);
   const [shareToCommunity, setShareToCommunity] = useState(false);
   const [sharingProjectId, setSharingProjectId] = useState('');
   const [shareFailedProjectIds, setShareFailedProjectIds] = useState<Set<string>>(() => new Set());
@@ -669,7 +672,7 @@ function H5App() {
       },
     });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.message || '请求失败');
+    if (!response.ok) throw new Error(response.status === 401 ? '登录状态已失效，请重新登录' : payload.message || '请求失败');
     return payload as T;
   };
 
@@ -745,6 +748,41 @@ function H5App() {
     }
   };
 
+  const loadNotifications = async (token = authToken) => {
+    if (!token) {
+      setNotifications([]);
+      return;
+    }
+    try {
+      const payload = await requestApi<{ notifications: CommunityNotification[] }>('/notifications', {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      setNotifications(payload.notifications || []);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : '消息读取失败');
+    }
+  };
+
+  const openNotification = async (notification: CommunityNotification) => {
+    if (notification.projectId) {
+      try {
+        const payload = await requestApi<{ post: CommunityPost }>(`/community/posts/${notification.projectId}`);
+        setActivePattern(toPatternListCard(payload.post));
+        setScreen('pattern-detail');
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : '作品读取失败');
+      }
+    }
+    if (!notification.isRead) {
+      try {
+        await requestApi(`/notifications/${notification.id}/read`, { method: 'PATCH' });
+        setNotifications((items) => items.map((item) => item.id === notification.id ? { ...item, isRead: true, readAt: new Date().toISOString() } : item));
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : '消息状态更新失败');
+      }
+    }
+  };
+
   const likeCommunityPost = async (projectId: string, token = authToken) => {
     if (!token) {
       requireLogin((nextToken) => void likeCommunityPost(projectId, nextToken));
@@ -759,6 +797,24 @@ function H5App() {
       setActivePattern((pattern) => pattern?.id === projectId ? { ...pattern, likes: String(payload.likesCount), likesCount: payload.likesCount, likedByMe: true } : pattern);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : '点赞失败');
+    }
+  };
+
+  const toggleCommunityFollow = async (authorId: string, currentlyFollowing: boolean, token = authToken) => {
+    if (!token) {
+      requireLogin((nextToken) => void toggleCommunityFollow(authorId, currentlyFollowing, nextToken));
+      return;
+    }
+    try {
+      const payload = await requestApi<{ following: boolean }>(`/community/users/${authorId}/follow`, {
+        method: currentlyFollowing ? 'DELETE' : 'POST',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      setCommunityPosts((posts) => posts.map((post) => post.authorId === authorId ? { ...post, isFollowing: payload.following } : post));
+      setActivePattern((pattern) => pattern?.authorId === authorId ? { ...pattern, isFollowing: payload.following } : pattern);
+      setStatus(payload.following ? '已关注作者。' : '已取消关注。');
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : '关注操作失败');
     }
   };
 
@@ -812,7 +868,7 @@ function H5App() {
 
   const saveCurrentProject = (token = authToken) => {
     if (!token) {
-      requireLogin((nextToken) => void saveCurrentProject(nextToken));
+      setShowSaveLoginPrompt(true);
       return;
     }
     const sourceName = uploadedSplitImage?.name?.replace(/\.[^/.]+$/, '').trim();
@@ -933,6 +989,8 @@ function H5App() {
       setShowSaveProjectModal(false);
       if (!shareToCommunity || saved.sharedToCommunity) setStatus(saved.sharedToCommunity ? '已保存，社区分享状态保持不变。' : '已保存到我的作品。');
       if (shouldStartBeading) await startBeadingProject(saved);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : '作品保存失败，请稍后重试。');
     } finally {
       saveProjectInFlightRef.current = false;
       setIsSavingProject(false);
@@ -944,11 +1002,15 @@ function H5App() {
     saveCurrentProject();
   };
 
-  const shareSavedProject = async (project: RecentProject) => {
+  const shareSavedProject = async (project: RecentProject, token = authToken) => {
+    if (!token) {
+      requireLogin((nextToken) => void shareSavedProject(project, nextToken));
+      return;
+    }
     if (project.sharedToCommunity || sharingProjectId) return;
     setSharingProjectId(project.id);
     try {
-      const payload = await requestApi<{ sharedAt: string }>(`/projects/${project.id}/share`, { method: 'POST' });
+      const payload = await requestApi<{ sharedAt: string }>(`/projects/${project.id}/share`, { method: 'POST', headers: { authorization: `Bearer ${token}` } });
       setRecentProjects((projects) => projects.map((item) => (
         item.id === project.id ? { ...item, sharedToCommunity: true, sharedAt: payload.sharedAt } : item
       )));
@@ -1041,6 +1103,7 @@ function H5App() {
       setStatus(`登录成功：${payload.user.username}。`);
       await loadRecentProjects(payload.token);
       await loadCommunityPosts('hot', payload.token);
+      await loadNotifications(payload.token);
       await loadWarehouses(payload.token);
       const pendingAuthAction = pendingAuthActionRef.current;
       pendingAuthActionRef.current = null;
@@ -1115,6 +1178,11 @@ function H5App() {
       setPhoneAuthError(error instanceof Error ? error.message : '请输入正确的手机号');
       return;
     }
+    const passwordError = passwordValidationMessage(phonePassword);
+    if (!validatePasswordLength(phonePassword)) {
+      setPhoneAuthError(passwordError || '密码至少需要 8 位');
+      return;
+    }
     if (mode === 'register' && (!phoneSmsRequestId || !/^\d{6}$/.test(phoneCode))) {
       setPhoneAuthError('请输入6位验证码');
       return;
@@ -1122,10 +1190,6 @@ function H5App() {
     setPhoneVerifying(true);
     setPhoneAuthError('');
     try {
-      if (phonePassword.length < 8 || phonePassword.length > 128) {
-        setPhoneAuthError('密码长度需为 8-128 位');
-        return;
-      }
       if (mode === 'register' && phonePassword !== phoneConfirmPassword) {
         setPhoneAuthError('两次密码输入不一致');
         return;
@@ -1150,6 +1214,7 @@ function H5App() {
       setStatus(data.user.nickname ? `登录成功：${data.user.nickname}。` : '登录成功。');
       await loadRecentProjects(data.accessToken);
       await loadCommunityPosts('hot', data.accessToken);
+      await loadNotifications(data.accessToken);
       await loadWarehouses(data.accessToken);
       const pendingAuthAction = pendingAuthActionRef.current;
       pendingAuthActionRef.current = null;
@@ -1176,6 +1241,7 @@ function H5App() {
     setRecentProjects([]);
     setCommunityPosts([]);
     setCommunityComments([]);
+    setNotifications([]);
     setWarehouses([]);
     setBeadStock({});
     pendingAuthActionRef.current = null;
@@ -2394,6 +2460,12 @@ function H5App() {
       saveAndStartProject={saveAndStartProject}
       showSaveProjectModal={showSaveProjectModal}
       setShowSaveProjectModal={setShowSaveProjectModal}
+      showSaveLoginPrompt={showSaveLoginPrompt}
+      setShowSaveLoginPrompt={setShowSaveLoginPrompt}
+      onLoginForSave={() => {
+        setShowSaveLoginPrompt(false);
+        requireLogin((nextToken) => void saveCurrentProject(nextToken));
+      }}
       saveProjectName={saveProjectName}
       setSaveProjectName={setSaveProjectName}
       isSavingProject={isSavingProject}
@@ -2527,6 +2599,7 @@ function H5App() {
         isLoadingComments={isCommunityCommentsLoading}
         onLoadComments={() => activePattern && void loadCommunityComments(activePattern.id)}
         onLike={() => activePattern && void likeCommunityPost(activePattern.id)}
+        onFollow={() => activePattern?.authorId && void toggleCommunityFollow(activePattern.authorId, Boolean(activePattern.isFollowing))}
         onComment={(content) => activePattern && void addCommunityComment(activePattern.id, content)}
         onLogin={() => setShowLoginModal(true)}
         onBack={() => {
@@ -2583,6 +2656,7 @@ function H5App() {
     cfgCols={cfgCols} setCfgCols={setCfgCols} cfgRows={cfgRows} setCfgRows={setCfgRows}
     normalizeGridSize={normalizeGridSize} parseGridSizeInput={parseGridSizeInput} createBlankCanvas={createBlankCanvas} requireLogin={requireLogin}
     setStatus={setStatus} patternListCards={communityCards} setActivePattern={setActivePattern} setScreen={setScreen}
+    notifications={notifications} loadNotifications={loadNotifications} openNotification={openNotification}
     warehouses={warehouses} stockedColorCount={stockedColorCount} totalWarehouseStock={totalWarehouseStock}
     activeWarehouse={activeWarehouse} mardColors={MARD_221_COLORS} openWarehouse={openWarehouse}
     setActiveTab={setActiveTab} communitySort={communitySort} setCommunitySort={setCommunitySort}

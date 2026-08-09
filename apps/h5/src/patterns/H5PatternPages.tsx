@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Icon } from '../shared/h5Icons';
 import { BeadListDrawer, type BeadColorItem } from '../flow/H5FlowComponents';
 import { colorCodeOf } from '../utils/h5AppUtils';
-import type { CommunityComment } from '../community/communityData';
+import type { CommunityComment, CommunityNotification } from '../community/communityData';
 import type { PatternListCard, RecentProject } from '../shared/h5Types';
 
 export function AuthorProfilePage({ patterns, onBack, onOpen }: { patterns: PatternListCard[]; onBack: () => void; onOpen: (pattern: PatternListCard) => void }) {
@@ -232,27 +232,51 @@ export function PatternDiscoverPage({ patterns, activeSort = 'hot', onSortChange
   );
 }
 
-export function PatternMessagesPage({ isLoggedIn, onHome, onDiscover, onUpload, onProfile, onLogin }: {
+export function PatternMessagesPage({ isLoggedIn, notifications = [], onHome, onDiscover, onUpload, onProfile, onLogin, onOpenNotification }: {
   isLoggedIn: boolean;
+  notifications?: CommunityNotification[];
   onHome: () => void;
   onDiscover: () => void;
   onUpload: () => void;
   onProfile: () => void;
   onLogin: () => void;
+  onOpenNotification?: (notification: CommunityNotification) => void;
 }) {
   return (
     <main className="pattern-message-page" aria-label="消息">
-      <div className="pattern-message-card">
-        <div className="pattern-message-illustration" aria-hidden="true">
-          <span className="pattern-message-spark spark-one" />
-          <span className="pattern-message-spark spark-two" />
-          <span className="pattern-message-spark spark-three" />
-          <Icon name="message" />
+      {isLoggedIn && notifications.length > 0 ? (
+        <section className="pattern-message-list" aria-label="消息列表">
+          <header><h1>消息</h1><span>{notifications.filter((item) => !item.isRead).length} 条未读</span></header>
+          {notifications.map((notification) => (
+            <button
+              className={notification.isRead ? 'pattern-message-item is-read' : 'pattern-message-item'}
+              key={notification.id}
+              type="button"
+              onClick={() => onOpenNotification?.(notification)}
+            >
+              <span className="pattern-message-item-icon"><Icon name="message" /></span>
+              <span className="pattern-message-item-copy">
+                <strong>{notification.senderName}</strong>
+                <span>{notification.content}</span>
+                <small>{new Date(notification.createdAt).toLocaleString('zh-CN')}</small>
+              </span>
+              {!notification.isRead ? <i aria-label="未读" /> : null}
+            </button>
+          ))}
+        </section>
+      ) : (
+        <div className="pattern-message-card">
+          <div className="pattern-message-illustration" aria-hidden="true">
+            <span className="pattern-message-spark spark-one" />
+            <span className="pattern-message-spark spark-two" />
+            <span className="pattern-message-spark spark-three" />
+            <Icon name="message" />
+          </div>
+          <strong>{isLoggedIn ? '暂无消息' : '登录后查看消息'}</strong>
+          <p>评论、关注和下载通知会显示在这里。</p>
+          {!isLoggedIn ? <button type="button" onClick={onLogin}>去登录</button> : null}
         </div>
-        <strong>暂无消息</strong>
-        <p>评论、关注和下载通知会显示在这里。</p>
-        {!isLoggedIn ? <button type="button" onClick={onLogin}>去登录</button> : null}
-      </div>
+      )}
       <nav className="bottom-tabs pattern-message-tabs" aria-label="底部导航">
         <button type="button" aria-label="首页" onClick={onHome}><Icon name="home" /><span>首页</span></button>
         <button type="button" aria-label="发现" onClick={onDiscover}><Icon name="discover" /><span>发现</span></button>
@@ -264,7 +288,7 @@ export function PatternMessagesPage({ isLoggedIn, onHome, onDiscover, onUpload, 
   );
 }
 
-export function PatternDetailPage({ pattern, onBack, isLoggedIn, comments, isLoadingComments, onLoadComments, onLike, onComment, onLogin }: {
+export function PatternDetailPage({ pattern, onBack, isLoggedIn, comments, isLoadingComments, onLoadComments, onLike, onFollow, onComment, onLogin }: {
   pattern: PatternListCard;
   onBack: () => void;
   isLoggedIn: boolean;
@@ -272,6 +296,7 @@ export function PatternDetailPage({ pattern, onBack, isLoggedIn, comments, isLoa
   isLoadingComments: boolean;
   onLoadComments: () => void;
   onLike: () => void;
+  onFollow?: () => void;
   onComment: (content: string) => void;
   onLogin: () => void;
 }) {
@@ -306,7 +331,7 @@ export function PatternDetailPage({ pattern, onBack, isLoggedIn, comments, isLoa
                 <small>社区分享者</small>
               </div>
             </div>
-            <button className="detail-follow-btn" type="button">关注</button>
+            <button className="detail-follow-btn" type="button" onClick={onFollow}>{pattern.isFollowing ? '已关注' : '关注'}</button>
             <button className="detail-share-btn" type="button" aria-label="分享"><Share2 aria-hidden="true" /></button>
           </header>
         </div>

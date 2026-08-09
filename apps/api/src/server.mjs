@@ -50,6 +50,7 @@ initSchema();
 let persistQueue = Promise.resolve();
 let phoneAuthService;
 let beadingService;
+void persist();
 
 const server = http.createServer(async (request, response) => {
   try {
@@ -291,7 +292,35 @@ function initSchema() {
       FOREIGN KEY (project_id) REFERENCES projects(id),
       FOREIGN KEY (user_id) REFERENCES users(id)
     );
+
+    CREATE TABLE IF NOT EXISTS follows (
+      follower_id TEXT NOT NULL,
+      following_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (follower_id, following_id),
+      CHECK (follower_id <> following_id),
+      FOREIGN KEY (follower_id) REFERENCES users(id),
+      FOREIGN KEY (following_id) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS notifications (
+      id TEXT PRIMARY KEY,
+      receiver_id TEXT NOT NULL,
+      sender_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      project_id TEXT,
+      comment_id TEXT,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      read_at TEXT,
+      FOREIGN KEY (receiver_id) REFERENCES users(id),
+      FOREIGN KEY (sender_id) REFERENCES users(id),
+      FOREIGN KEY (project_id) REFERENCES projects(id),
+      FOREIGN KEY (comment_id) REFERENCES project_comments(id)
+    );
   `);
+  db.run('CREATE INDEX IF NOT EXISTS idx_follows_following ON follows(following_id)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_notifications_receiver_created ON notifications(receiver_id, created_at DESC)');
   for (const column of ['source_image', 'thumbnail_image', 'canvas_data', 'bead_list']) {
     try {
       db.run(`ALTER TABLE projects ADD COLUMN ${column} TEXT`);
@@ -338,6 +367,14 @@ function initSchema() {
     }
     retained.add(key);
     db.run('UPDATE beading_sessions SET active_key = ? WHERE id = ?', [key, session.id]);
+  }
+  const legacyPhoneNames = getAll(
+    `SELECT u.id, i.identifier_last4 AS phoneLast4
+     FROM users u JOIN user_identities i ON i.user_id = u.id AND i.provider = 'PHONE'
+     WHERE u.nickname IS NULL OR trim(u.nickname) = '' OR u.nickname LIKE 'phone_%' OR length(u.nickname) > 32`,
+  );
+  for (const user of legacyPhoneNames) {
+    if (user.phoneLast4) db.run('UPDATE users SET nickname = ?, updated_at = ? WHERE id = ?', [`用户${user.phoneLast4}`, new Date().toISOString(), user.id]);
   }
 }
 
@@ -419,6 +456,13 @@ async function route(request, response) {
     const optionalUser = getOptionalUser(request);
     return listProjectComments(response, optionalUser?.id || '', publicCommunityCommentsMatch[1], parsePagination(url.searchParams));
   }
+  const publicCommunityPostMatch = url.pathname.match(/^\/api\/community\/posts\/([^/]+)$/);
+  if (publicCommunityPostMatch && request.method === 'GET') {
+    const optionalUser = getOptionalUser(request);
+    const post = getCommunityPost(optionalUser?.id || '', publicCommunityPostMatch[1]);
+    if (!post) return sendJson(response, 404, { error: 'NOT_FOUND', message: '社区稿件不存在' });
+    return sendJson(response, 200, { post: formatCommunityPost(post) });
+  }
 
   const user = requireUser(request, response);
   if (!user) return;
@@ -450,6 +494,17 @@ async function route(request, response) {
   }
   if (request.method === 'GET' && url.pathname === '/api/projects') {
     return listProjects(response, user.id);
+  }
+  const followMatch = url.pathname.match(/^\/api\/community\/users\/([^/]+)\/follow$/);
+  if (followMatch && (request.method === 'POST' || request.method === 'DELETE')) {
+    return followUser(response, user.id, followMatch[1], request.method === 'POST');
+  }
+  if (request.method === 'GET' && url.pathname === '/api/notifications') {
+    return listNotifications(response, user.id, url);
+  }
+  const notificationReadMatch = url.pathname.match(/^\/api\/notifications\/([^/]+)\/read$/);
+  if (notificationReadMatch && request.method === 'PATCH') {
+    return markNotificationRead(response, user.id, notificationReadMatch[1]);
   }
   const apiPrefix = url.pathname.startsWith('/api/v1/') ? '/api/v1' : '/api';
   const inventoryCheckMatch = url.pathname.match(new RegExp(`^${apiPrefix.replace('/', '\\/')}\\/projects\\/([^/]+)\\/inventory-check$`));
@@ -1331,16 +1386,17 @@ function getCommunityPost(userId, projectId) {
     `SELECT p.id, p.name, p.rows, p.cols, p.tone,
             p.source_image AS sourceImage, p.thumbnail_image AS thumbnailImage, p.canvas_data AS canvasData, p.bead_list AS beadList,
             p.shared_at AS sharedAt, p.likes_count AS likesCount,
-            u.username AS author,
+            u.id AS authorId, COALESCE(NULLIF(u.nickname, ''), u.username) AS author,
             COUNT(DISTINCT c.id) AS commentsCount,
-            CASE WHEN l.user_id IS NULL THEN 0 ELSE 1 END AS likedByMe
+            CASE WHEN l.user_id IS NULL THEN 0 ELSE 1 END AS likedByMe,
+            CASE WHEN EXISTS (SELECT 1 FROM follows f WHERE f.follower_id = ? AND f.following_id = u.id) THEN 1 ELSE 0 END AS isFollowing
      FROM projects p
      JOIN users u ON u.id = p.user_id
      LEFT JOIN project_comments c ON c.project_id = p.id
      LEFT JOIN project_likes l ON l.project_id = p.id AND l.user_id = ?
      WHERE p.id = ? AND p.shared_to_community = 1
      GROUP BY p.id, l.user_id`,
-    [userId, projectId],
+    [userId || '', userId, projectId],
   );
 }
 
@@ -1372,9 +1428,10 @@ function listCommunityPosts(response, userId, sort, pagination = { page: 1, page
     `SELECT p.id, p.name, p.rows, p.cols, p.tone,
             p.source_image AS sourceImage, p.thumbnail_image AS thumbnailImage, p.canvas_data AS canvasData, p.bead_list AS beadList,
             p.shared_at AS sharedAt, p.likes_count AS likesCount,
-            u.username AS author,
+            u.id AS authorId, COALESCE(NULLIF(u.nickname, ''), u.username) AS author,
             COUNT(DISTINCT c.id) AS commentsCount,
-            CASE WHEN l.user_id IS NULL THEN 0 ELSE 1 END AS likedByMe
+            CASE WHEN l.user_id IS NULL THEN 0 ELSE 1 END AS likedByMe,
+            CASE WHEN EXISTS (SELECT 1 FROM follows f WHERE f.follower_id = ? AND f.following_id = u.id) THEN 1 ELSE 0 END AS isFollowing
      FROM projects p
      JOIN users u ON u.id = p.user_id
      LEFT JOIN project_comments c ON c.project_id = p.id
@@ -1383,7 +1440,7 @@ function listCommunityPosts(response, userId, sort, pagination = { page: 1, page
      GROUP BY p.id, l.user_id
      ORDER BY ${orderBy}
      LIMIT ? OFFSET ?`,
-    [userId, pagination.pageSize, pagination.offset],
+    [userId || '', userId, pagination.pageSize, pagination.offset],
   );
   sendJson(response, 200, { posts: posts.map(formatCommunityPost), page: pagination.page, pageSize: pagination.pageSize });
 }
@@ -1420,7 +1477,8 @@ async function shareProject(response, userId, projectId) {
 function listProjectComments(response, userId, projectId, pagination = { page: 1, pageSize: 20, offset: 0 }) {
   if (!assertSharedProject(response, userId, projectId)) return;
   const comments = getAll(
-    `SELECT c.id, c.project_id AS projectId, c.content, c.created_at AS createdAt, u.username AS author
+    `SELECT c.id, c.project_id AS projectId, c.content, c.created_at AS createdAt, u.id AS authorId,
+            COALESCE(NULLIF(u.nickname, ''), u.username) AS author
      FROM project_comments c JOIN users u ON u.id = c.user_id
      WHERE c.project_id = ? ORDER BY c.created_at DESC, c.id DESC
      LIMIT ? OFFSET ?`,
@@ -1430,14 +1488,65 @@ function listProjectComments(response, userId, projectId, pagination = { page: 1
 }
 
 async function createProjectComment(request, response, userId, projectId) {
-  if (!assertSharedProject(response, userId, projectId)) return;
+  const post = assertSharedProject(response, userId, projectId);
+  if (!post) return;
   const body = await readJson(request);
   const content = String(body.content || '').trim();
   if (!content || [...content].length > 300) return sendJson(response, 400, { error: 'INVALID_INPUT', message: '评论内容不能为空且不能超过 300 个字' });
-  const comment = { id: randomUUID(), projectId, author: getOne('SELECT username FROM users WHERE id = ?', [userId]).username, content, createdAt: new Date().toISOString() };
-  db.run('INSERT INTO project_comments (id, project_id, user_id, content, created_at) VALUES (?, ?, ?, ?, ?)', [comment.id, projectId, userId, comment.content, comment.createdAt]);
-  await persist();
+  const author = getOne('SELECT id, username, nickname FROM users WHERE id = ?', [userId]);
+  const comment = { id: randomUUID(), projectId, authorId: userId, author: author ? (author.nickname || author.username) : '用户', content, createdAt: new Date().toISOString() };
+  await withTransaction(async () => {
+    db.run('INSERT INTO project_comments (id, project_id, user_id, content, created_at) VALUES (?, ?, ?, ?, ?)', [comment.id, projectId, userId, comment.content, comment.createdAt]);
+    if (post.authorId !== userId) {
+      db.run(
+        `INSERT INTO notifications (id, receiver_id, sender_id, type, project_id, comment_id, content, created_at, read_at)
+         VALUES (?, ?, ?, 'comment', ?, ?, ?, ?, NULL)`,
+        [randomUUID(), post.authorId, userId, projectId, comment.id, `${comment.author} 评论了你的作品「${post.name}」`, comment.createdAt],
+      );
+    }
+  });
   sendJson(response, 201, { comment });
+}
+
+async function followUser(response, followerId, followingId, shouldFollow) {
+  if (followerId === followingId) return sendJson(response, 400, { error: 'INVALID_INPUT', message: '不能关注自己' });
+  const target = getOne('SELECT id FROM users WHERE id = ? AND status = \'ACTIVE\'', [followingId]);
+  if (!target) return sendJson(response, 404, { error: 'NOT_FOUND', message: '用户不存在' });
+  if (shouldFollow) {
+    db.run('INSERT OR IGNORE INTO follows (follower_id, following_id, created_at) VALUES (?, ?, ?)', [followerId, followingId, new Date().toISOString()]);
+  } else {
+    db.run('DELETE FROM follows WHERE follower_id = ? AND following_id = ?', [followerId, followingId]);
+  }
+  await persist();
+  const counts = getOne(
+    `SELECT
+       (SELECT COUNT(*) FROM follows WHERE following_id = ?) AS followersCount,
+       (SELECT COUNT(*) FROM follows WHERE follower_id = ?) AS followingCount`,
+    [followingId, followingId],
+  );
+  sendJson(response, 200, { following: shouldFollow, followersCount: Number(counts?.followersCount || 0), followingCount: Number(counts?.followingCount || 0) });
+}
+
+function listNotifications(response, userId, url) {
+  const { page, pageSize, offset } = parsePagination(url.searchParams);
+  const notifications = getAll(
+    `SELECT n.id, n.type, n.project_id AS projectId, n.comment_id AS commentId,
+            n.content, n.created_at AS createdAt, n.read_at AS readAt,
+            s.id AS senderId, COALESCE(NULLIF(s.nickname, ''), s.username) AS senderName, s.avatar_url AS senderAvatar
+     FROM notifications n JOIN users s ON s.id = n.sender_id
+     WHERE n.receiver_id = ? ORDER BY n.created_at DESC, n.id DESC LIMIT ? OFFSET ?`,
+    [userId, pageSize, offset],
+  ).map((item) => ({ ...item, isRead: Boolean(item.readAt) }));
+  const unread = getOne('SELECT COUNT(*) AS count FROM notifications WHERE receiver_id = ? AND read_at IS NULL', [userId]);
+  sendJson(response, 200, { notifications, unreadCount: Number(unread?.count || 0), page, pageSize });
+}
+
+async function markNotificationRead(response, userId, notificationId) {
+  const notification = getOne('SELECT id FROM notifications WHERE id = ? AND receiver_id = ?', [notificationId, userId]);
+  if (!notification) return sendJson(response, 404, { error: 'NOT_FOUND', message: '消息不存在' });
+  db.run('UPDATE notifications SET read_at = COALESCE(read_at, ?) WHERE id = ?', [new Date().toISOString(), notificationId]);
+  await persist();
+  sendJson(response, 200, { read: true, notificationId });
 }
 
 async function likeCommunityPost(response, userId, projectId) {
@@ -1618,7 +1727,7 @@ function sendJson(response, status, payload, extraHeaders = {}) {
 function corsHeaders() {
   return {
     'access-control-allow-origin': '*',
-    'access-control-allow-methods': 'GET,POST,OPTIONS',
+    'access-control-allow-methods': 'GET,POST,PATCH,DELETE,OPTIONS',
     'access-control-allow-headers': 'content-type, authorization, x-client-platform, x-client-version, x-sign-version, x-request-id, x-timestamp, x-nonce, x-challenge-id, x-signature',
     'access-control-expose-headers': 'retry-after',
   };

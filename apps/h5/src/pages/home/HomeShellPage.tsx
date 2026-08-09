@@ -2,6 +2,7 @@ import { HomeUploadHero } from '../../flow/H5FlowComponents';
 import { AuthorProfilePage, PatternDetailPage, PatternDiscoverPage, PatternMessagesPage } from '../../patterns/H5PatternPages';
 import { Icon } from '../../shared/h5Icons';
 import { Heart, LogOut, MessageCircle } from 'lucide-react';
+import { passwordValidationMessage } from '../../utils/passwordValidation';
 
 type HomeShellPageProps = Record<string, any>;
 
@@ -10,6 +11,7 @@ export function PhoneLoginModal(props: Record<string, any>) {
     phoneNumber, setPhoneNumber, phonePassword, setPhonePassword, phoneConfirmPassword, setPhoneConfirmPassword, phoneCode, setPhoneCode, phoneAuthMode, setPhoneAuthMode, phoneAgreement, setPhoneAgreement,
     phoneAuthError, phoneSending, phoneVerifying, phoneCountdown, sendPhoneCode, submitPhoneLogin, submitPhoneRegister, closeLoginModal, logoutPhone,
   } = props;
+  const passwordError = passwordValidationMessage(phonePassword);
   return (
     <div className="home-create-modal" role="dialog" aria-label="手机号登录">
       <div className="home-create-panel phone-login-panel">
@@ -35,6 +37,7 @@ export function PhoneLoginModal(props: Record<string, any>) {
               <input type="password" aria-label="密码" placeholder="请输入 8-128 位密码" maxLength={128} value={phonePassword} onChange={(event) => setPhonePassword(event.target.value)} />
             </div>
           </label>
+          {passwordError ? <p className="phone-auth-error phone-password-error" role="alert">{passwordError}</p> : null}
           {phoneAuthMode === 'register' ? <label>
             <span>确认密码</span>
             <div className="phone-password-row">
@@ -56,7 +59,7 @@ export function PhoneLoginModal(props: Record<string, any>) {
           <span>我已阅读并同意用户协议和隐私政策</span>
         </label>
         {phoneAuthError ? <p className="phone-auth-error" role="alert">{phoneAuthError}</p> : null}
-        <button className="home-create-submit" onClick={() => void (phoneAuthMode === 'register' ? submitPhoneRegister() : submitPhoneLogin())} disabled={phoneVerifying || phonePassword.length < 8 || (phoneAuthMode === 'register' && phoneCode.length !== 6)}>
+        <button className="home-create-submit phone-login-submit" onClick={() => void (phoneAuthMode === 'register' ? submitPhoneRegister() : submitPhoneLogin())} disabled={phoneVerifying || !phonePassword || (phoneAuthMode === 'register' && phoneCode.length !== 6)}>
           {phoneVerifying ? '处理中...' : phoneAuthMode === 'register' ? '注册' : '登录'}
         </button>
       </div>
@@ -91,7 +94,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
     cfgCols, setCfgCols, cfgRows, setCfgRows, normalizeGridSize, parseGridSizeInput, createBlankCanvas, requireLogin,
     setStatus, patternListCards, homeTemplateCards, setActivePattern, setScreen, warehouses, stockedColorCount, totalWarehouseStock,
     activeWarehouse, mardColors, openWarehouse, setActiveTab, communitySort, setCommunitySort, authRequestSeqRef, pendingAuthActionRef,
-    setIsAuthenticating, logoutPhone, showLogoutConfirm, setShowLogoutConfirm,
+    setIsAuthenticating, logoutPhone, showLogoutConfirm, setShowLogoutConfirm, notifications, loadNotifications, openNotification,
   } = props;
   return (
     <main className="h5-home-shell">
@@ -347,11 +350,13 @@ export function HomeShellPage(props: HomeShellPageProps) {
       ) : activeTab === 'messages' ? (
         <PatternMessagesPage
           isLoggedIn={isLoggedIn}
+          notifications={notifications}
           onHome={() => setActiveTab('home')}
           onDiscover={() => setActiveTab('discover')}
           onUpload={() => openUpload('bead')}
           onProfile={() => setActiveTab('profile')}
           onLogin={() => setShowLoginModal(true)}
+          onOpenNotification={openNotification}
         />
       ) : (
         <section className="profile-page">
@@ -431,7 +436,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
         <button className="plus-tab" aria-label="创建" onClick={() => openUpload('bead', true)}>
           <Icon name="plus" />
         </button>
-        <button className={activeTab === 'messages' ? 'active' : ''} aria-label="消息" onClick={() => setActiveTab('messages')}>
+        <button className={activeTab === 'messages' ? 'active' : ''} aria-label="消息" onClick={() => { setActiveTab('messages'); void loadNotifications?.(); }}>
           <Icon name="message" />
           <span>消息</span>
         </button>

@@ -81,12 +81,20 @@ describe('phone SMS authentication', () => {
     expect(sent.response.status).toBe(200);
     expect(sent.body.data.smsRequestId).toMatch(/^sms_/);
 
+    const shortPasswordRegistration = await request('/api/v1/auth/sms/register', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ phone: '+8613800138000', password: '1234567', confirmPassword: '1234567', smsRequestId: sent.body.data.smsRequestId, code: '123456', agreementVersion: 'privacy-test', device: { platform: 'web', deviceId: 'integration-device', appVersion: 'test' } }),
+    });
+    expect(shortPasswordRegistration.response.status).toBe(400);
+    expect(shortPasswordRegistration.body.message).toBe('密码至少需要 8 位');
+
     const registration = await request('/api/v1/auth/sms/register', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ phone: '+8613800138000', password: 'test-password-123', confirmPassword: 'test-password-123', smsRequestId: sent.body.data.smsRequestId, code: '123456', agreementVersion: 'privacy-test', device: { platform: 'web', deviceId: 'integration-device', appVersion: 'test' } }),
     });
     expect(registration.response.status).toBe(200);
     expect(registration.body.data.isNewUser).toBe(true);
+    expect(registration.body.data.user.nickname).toBe('用户8000');
     expect(registration.body.data.accessToken).toBeTruthy();
     const refresh = registration.response.headers.get('set-cookie').match(/refresh_token=([^;]+)/)[1];
 
@@ -95,6 +103,13 @@ describe('phone SMS authentication', () => {
       body: JSON.stringify({ phone: '+8613800138000', password: 'wrong-password', agreementVersion: 'privacy-test', device: { platform: 'web', deviceId: 'integration-device', appVersion: 'test' } }),
     });
     expect(wrongPassword.response.status).toBe(401);
+
+    const shortPasswordLogin = await request('/api/v1/auth/sms/login', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ phone: '+8613800138000', password: '1234567', agreementVersion: 'privacy-test', device: { platform: 'web', deviceId: 'integration-device', appVersion: 'test' } }),
+    });
+    expect(shortPasswordLogin.response.status).toBe(400);
+    expect(shortPasswordLogin.body.message).toBe('密码至少需要 8 位');
 
     const login = await request('/api/v1/auth/sms/login', {
       method: 'POST', headers: { 'content-type': 'application/json' },

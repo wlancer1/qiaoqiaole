@@ -23,6 +23,8 @@ export type PatternListCard = {
   id: string;
   title: string;
   author: string;
+  authorId?: string;
+  isFollowing?: boolean;
   size: string;
   meta: string;
   likes: string;

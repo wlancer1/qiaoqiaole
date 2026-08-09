@@ -4,6 +4,8 @@ export type CommunityPost = {
   id: string;
   name: string;
   author: string;
+  authorId?: string;
+  isFollowing?: boolean;
   rows: number;
   cols: number;
   tone: string;
@@ -22,6 +24,21 @@ export type CommunityComment = {
   author: string;
   content: string;
   createdAt: string;
+  authorId?: string;
+};
+
+export type CommunityNotification = {
+  id: string;
+  type: string;
+  projectId?: string;
+  commentId?: string;
+  content: string;
+  createdAt: string;
+  readAt?: string | null;
+  isRead: boolean;
+  senderId: string;
+  senderName: string;
+  senderAvatar?: string | null;
 };
 
 export function formatPatternSizeCm(cols: number, rows: number): string {
@@ -54,6 +71,8 @@ export function toPatternListCard(post: CommunityPost): PatternListCard {
     id: post.id,
     title: post.name,
     author: post.author,
+    authorId: post.authorId,
+    isFollowing: post.isFollowing,
     size: `${post.cols} × ${post.rows}`,
     meta: formatCommunityTime(post.sharedAt),
     likes: String(post.likesCount),
