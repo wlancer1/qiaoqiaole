@@ -284,6 +284,86 @@ async function readCssScale(page: import('@playwright/test').Page, selector: str
   });
 }
 
+test('falls back per comment when an avatar image fails', async ({ page }) => {
+  const inlinePng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
+  await page.route('**/api/community/posts?*', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        posts: [{
+          id: 'avatar-post',
+          name: '头像回退稿件',
+          author: '头像作者',
+          authorId: 'avatar-author',
+          rows: 1,
+          cols: 1,
+          tone: 'recent-flower',
+          thumbnailImage: inlinePng,
+          sourceImage: inlinePng,
+          beadList: [],
+          likesCount: 0,
+          commentsCount: 2,
+          likedByMe: false,
+          sharedAt: '2026-08-09T12:00:00.000Z',
+        }],
+      }),
+    });
+  });
+  await page.route('**/api/community/posts/avatar-post/comments*', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        comments: [
+          {
+            id: 'broken-comment',
+            projectId: 'avatar-post',
+            author: '破图用户',
+            authorId: 'broken-user',
+            authorAvatar: 'https://avatar.invalid/broken.png',
+            content: '这个头像加载失败',
+            createdAt: '2026-08-09T12:01:00.000Z',
+          },
+          {
+            id: 'valid-comment',
+            projectId: 'avatar-post',
+            author: '正常用户',
+            authorId: 'valid-user',
+            authorAvatar: inlinePng,
+            content: '这个头像正常显示',
+            createdAt: '2026-08-09T12:02:00.000Z',
+          },
+        ],
+      }),
+    });
+  });
+  await page.route('https://avatar.invalid/broken.png', async (route) => route.abort());
+
+  await page.goto('/');
+  await page.getByRole('button', { name: '发现', exact: true }).click();
+  const avatarPostCard = page.locator('.pattern-card').filter({ hasText: '头像回退稿件' });
+  await expect(avatarPostCard).toHaveCount(1);
+  await expect(avatarPostCard).toBeVisible();
+  await avatarPostCard.click();
+
+  await expect(page.locator('main[aria-label="图纸详情页"]')).toBeVisible();
+  const comments = page.locator('.detail-comment');
+  await expect(comments).toHaveCount(2);
+  const brokenComment = comments.filter({ hasText: '破图用户' });
+  const validComment = comments.filter({ hasText: '正常用户' });
+  await expect(brokenComment).toHaveCount(1);
+  await expect(validComment).toHaveCount(1);
+  await expect(brokenComment.locator('[data-comment-avatar-fallback="true"]')).toHaveCount(1);
+  await expect(brokenComment.locator('img.detail-comment-avatar-image')).toHaveCount(0);
+  await expect(validComment.locator('[data-comment-avatar-fallback="true"]')).toHaveCount(0);
+  const validAvatar = validComment.locator(`img.detail-comment-avatar-image[src="${inlinePng}"]`);
+  await expect(validAvatar).toHaveCount(1);
+  await expect.poll(() => validAvatar.evaluate((image) => ({
+    complete: (image as HTMLImageElement).complete,
+    naturalWidth: (image as HTMLImageElement).naturalWidth,
+  }))).toEqual({ complete: true, naturalWidth: 1 });
+});
+
 test('shows the reference-driven home hierarchy with only real tools', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
