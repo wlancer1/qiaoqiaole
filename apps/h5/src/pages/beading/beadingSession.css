@@ -24,7 +24,7 @@
 }
 
 .beading-session-page button {
-  font: inherit;
+  font-family: inherit;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
   transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
@@ -396,7 +396,7 @@
 }
 
 .beading-color-chip > span:not(.beading-color-complete-badge) {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 1;
 }

@@ -683,15 +683,21 @@ describe('BeadingSessionPage static contracts', () => {
 
   it('sizes the header controls, progress, tool row, and color dock to the mobile reference', () => {
     const styles = cssSource();
+    const pageButtons = cssBlock(styles, '.beading-session-page button');
+    expectDeclaration(pageButtons, 'font-family', 'inherit');
+    expect(pageButtons).not.toMatch(/(?:^|;)\s*font\s*:/);
     expectDeclaration(cssBlock(styles, '.beading-toolbar > button'), 'min-width', '44px');
     expectDeclaration(cssBlock(styles, '.beading-toolbar-actions button'), 'min-height', '44px');
     expectDeclaration(cssBlock(styles, '.beading-progress-track'), 'height', /[78]px/);
     expectDeclaration(cssBlock(styles, '.beading-progress-fill'), 'background', /linear-gradient\([^;]*#(?:1268d7|146cff)[^;]*#[0-9a-f]{6}[^;]*\)/i);
     expectDeclaration(cssBlock(styles, '.beading-tool-row'), 'height', /6[24]px/);
     expectDeclaration(cssBlock(styles, '.beading-tool-button'), 'font-size', '12px');
+    expectDeclaration(cssBlock(styles, '.beading-focus-toggle'), 'font-size', '13px');
+    expectDeclaration(cssBlock(styles, '.beading-color-sort,\n.beading-color-revise'), 'font-size', '12px');
     const chip = cssBlock(styles, '.beading-color-chip');
     expectDeclaration(chip, 'width', '64px');
     expectDeclaration(chip, 'height', '68px');
+    expectDeclaration(cssBlock(styles, '.beading-color-chip > span:not(.beading-color-complete-badge)'), 'font-size', /(?:1[2-9]|[2-9][0-9])px/);
     expectDeclaration(cssBlock(styles, '.beading-color-chip.is-current'), 'box-shadow', /0 0 0 2px #fff[^,;]*,\s*0 0 0 4px #f0a517/);
     expectDeclaration(cssBlock(styles, '.beading-color-complete-badge'), 'background', /#(?:1268d7|146cff)/i);
     expectDeclaration(cssBlock(styles, '.beading-complete-color'), 'min-width', /(?:8[0-9]|9[0-2])px/);
@@ -732,6 +738,7 @@ describe('BeadingSessionPage static contracts', () => {
     expect(narrow).toMatch(/\.beading-toolbar-label\s*\{[^}]*display:\s*none/);
     expect(narrow).toMatch(/\.beading-toolbar\s*\{[^}]*padding-inline:\s*8px/);
     expect(narrow).toMatch(/\.beading-tool-button\s*\{[^}]*font-size:\s*11px/);
+    expect(narrow).not.toMatch(/\.beading-color-chip[^{}]*span[^{}]*\{[^}]*font-size:\s*(?:[0-9]|1[01])px/);
     const contentWidth = 320 - 2 * 8;
     const fixedControlWidth = 44 + 4 + 44 + 76 + 44 + 44 + 3 * 2;
     expect(fixedControlWidth).toBeLessThanOrEqual(contentWidth);
