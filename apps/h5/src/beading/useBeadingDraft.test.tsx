@@ -1,4 +1,4 @@
-import { StrictMode, act, useReducer } from 'react';
+import { StrictMode, act, useEffect, useReducer, useState } from 'react';
 import { create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { beadingDraftKey } from './beadingSessionUtils';
@@ -18,6 +18,7 @@ type HarnessProps = {
   storage?: TestStorage;
   onWarning?: (message: string) => void;
   renderPhaseRef?: { current: boolean };
+  passiveCellCount?: number;
 };
 
 type HarnessControl = {
@@ -56,7 +57,15 @@ function createHarness() {
     return null;
   }
 
-  const tree = (props: HarnessProps) => <StrictMode><Harness {...props} /></StrictMode>;
+  function Parent(props: HarnessProps) {
+    const [passiveCellCount, setPassiveCellCount] = useState<number>();
+    useEffect(() => {
+      setPassiveCellCount(props.passiveCellCount);
+    }, [props.ownerId, props.passiveCellCount, props.sessionId, props.storage]);
+    return <Harness {...props} cellCount={passiveCellCount ?? props.cellCount} />;
+  }
+
+  const tree = (props: HarnessProps) => <StrictMode><Parent {...props} /></StrictMode>;
 
   return {
     control,
@@ -210,6 +219,42 @@ describe('useBeadingDraft with real React lifecycle', () => {
       markedCellIndexes: [0, 2],
       locked: true,
     });
+  });
+
+  it.each([
+    { direction: 'shrink', initialCellCount: 5, passiveCellCount: 3, expectedMarks: [0, 2], save: 'debounce' },
+    { direction: 'grow', initialCellCount: 3, passiveCellCount: 5, expectedMarks: [0, 2, 4], save: 'unmount' },
+  ] as const)('renormalizes pending B marks after a passive $direction and can save B', async ({
+    initialCellCount,
+    passiveCellCount,
+    expectedMarks,
+    save,
+  }) => {
+    const keyB = beadingDraftKey('owner-b', 'session-b');
+    const storage = createStorage({ [keyB]: draft({ markedCellIndexes: [4, 2, 0] }) });
+    const harness = createHarness();
+    await harness.mount({ ownerId: 'owner-a', sessionId: 'session-a', cellCount: 6, storage });
+
+    await harness.update({
+      ownerId: 'owner-b',
+      sessionId: 'session-b',
+      cellCount: initialCellCount,
+      passiveCellCount,
+      storage,
+    });
+
+    expect(harness.control.current!.state.markedCellIndexes).toEqual(expectedMarks);
+    storage.setItem.mockClear();
+    if (save === 'debounce') {
+      act(() => { vi.advanceTimersByTime(150); });
+    } else {
+      harness.unmount();
+      await flushMicrotasks();
+    }
+
+    expect(storage.setItem).toHaveBeenCalledTimes(1);
+    expect(storage.setItem.mock.calls[0][0]).toBe(keyB);
+    expect(JSON.parse(storage.setItem.mock.calls[0][1]).markedCellIndexes).toEqual(expectedMarks);
   });
 
   it('resets to defaults when B has no draft', async () => {

@@ -30,7 +30,12 @@ type ActiveDraft = {
   hydrated: boolean;
   suppressed: boolean;
 };
-type PendingHydration = { identity: DraftIdentity; persisted: PersistedBeadingToolState };
+type PendingHydration = {
+  identity: DraftIdentity;
+  rawDraft: BeadingDraft | null;
+  normalizedCellCount: number;
+  persisted: PersistedBeadingToolState;
+};
 
 function warn(onWarning: ((message: string) => void) | undefined, message: string): void {
   try { onWarning?.(message); } catch { /* Warning handlers must not break draft persistence. */ }
@@ -139,7 +144,12 @@ export function useBeadingDraft({
       hydrated: false,
       suppressed: false,
     };
-    pendingHydrationRef.current = { identity: currentIdentity, persisted };
+    pendingHydrationRef.current = {
+      identity: currentIdentity,
+      rawDraft: loaded,
+      normalizedCellCount: cellCount,
+      persisted,
+    };
     dispatch({ type: 'hydrate-persisted', state: persisted, cellCount });
   }, [dispatch, ownerId, resolvedStorage, sessionId]);
 
@@ -158,6 +168,13 @@ export function useBeadingDraft({
     if (!active || !sameIdentity(active.identity, currentIdentity)) return;
     const pending = pendingHydrationRef.current;
     if (pending && sameIdentity(pending.identity, currentIdentity)) {
+      if (pending.normalizedCellCount !== cellCount) {
+        const renormalized = normalizeBeadingDraft(pending.rawDraft, cellCount);
+        pending.normalizedCellCount = cellCount;
+        pending.persisted = renormalized;
+        dispatch({ type: 'hydrate-persisted', state: renormalized, cellCount });
+        return;
+      }
       if (!stateMatchesHydration(state, pending.persisted)) return;
       active.hydrated = true;
       pendingHydrationRef.current = undefined;
