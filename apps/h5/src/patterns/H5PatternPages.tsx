@@ -5,6 +5,7 @@ import { BeadListDrawer, type BeadColorItem } from '../flow/H5FlowComponents';
 import { colorCodeOf } from '../utils/h5AppUtils';
 import type { CommunityComment, CommunityNotification } from '../community/communityData';
 import type { PatternListCard, RecentProject } from '../shared/h5Types';
+import { CommentAvatar } from './CommentAvatar';
 
 export function AuthorProfilePage({ patterns, authorPattern, onBack, onOpen, onFollow }: { patterns: PatternListCard[]; authorPattern?: PatternListCard; onBack: () => void; onOpen: (pattern: PatternListCard) => void; onFollow?: () => void }) {
   const authorWorkTitles = ['纸杯蛋糕', '小熊咖啡', '向日葵', '可爱猫', '草莓蛋糕', '樱花树'];
@@ -389,7 +390,7 @@ export function PatternDetailPage({ pattern, onBack, isLoggedIn, comments, isLoa
             {!isLoadingComments && comments.length === 0 ? <p className="community-empty">还没有评论，来留下第一条吧。</p> : null}
             {comments.map((comment) => (
               <article className="detail-comment" key={comment.id}>
-                <span className="detail-comment-avatar">{comment.author[0]}</span>
+                <CommentAvatar avatarUrl={comment.authorAvatar} />
                 <div>
                   <div className="detail-comment-head"><strong>{comment.author}</strong></div>
                   <p>{comment.content}</p>

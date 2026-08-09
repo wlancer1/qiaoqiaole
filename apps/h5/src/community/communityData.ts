@@ -22,6 +22,7 @@ export type CommunityComment = {
   id: string;
   projectId: string;
   author: string;
+  authorAvatar: string | null;
   content: string;
   createdAt: string;
   authorId?: string;

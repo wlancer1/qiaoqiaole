@@ -37,6 +37,17 @@ describe('PatternDetailPage layout contract', () => {
     expect(imageRule).toContain('max-height: none');
     expect(styles).toContain('grid-template-columns: repeat(2, minmax(0, 1fr));');
   });
+
+  it('clips comment avatars and covers the fixed avatar area with images', () => {
+    const styles = fs.readFileSync(path.resolve('apps/h5/src/styles.css'), 'utf8');
+    const avatarRule = styles.match(/\.detail-comment-avatar\s*\{([^}]*)\}/)?.[1] ?? '';
+    const imageRule = styles.match(/\.detail-comment-avatar-image\s*\{([^}]*)\}/)?.[1] ?? '';
+
+    expect(avatarRule).toContain('width: 0.635rem');
+    expect(avatarRule).toContain('height: 0.635rem');
+    expect(avatarRule).toContain('overflow: hidden');
+    expect(imageRule).toContain('object-fit: cover');
+  });
 });
 
 describe('MyWorksPage', () => {
@@ -88,6 +99,33 @@ describe('PatternDetailPage', () => {
     expect(markup).not.toContain('作品信息');
     expect(markup).not.toContain('detail-stat-cards');
     expect(markup).not.toContain('待生成');
+  });
+
+  it('renders real and fallback avatars independently for comments', () => {
+    const markup = renderToStaticMarkup(createElement(PatternDetailPage, {
+      pattern: {
+        id: 'project-1', title: '头像测试', author: '小明', size: '1 × 1', meta: '刚刚',
+        likes: '0', comments: '2', downloads: '0', tone: 'recent-flower', beads: [],
+        image: '', detailImage: '', imageAspectRatio: '1 / 1', physicalSize: '0.26 × 0.26 cm', likesCount: 0, commentsCount: 2, likedByMe: false,
+      },
+      onBack: vi.fn(),
+      isLoggedIn: false,
+      comments: [
+        {
+          id: 'comment-with-avatar', projectId: 'project-1', author: '有头像用户',
+          authorAvatar: 'https://example.com/avatar.png', content: '有头像', createdAt: '2026-08-09T12:00:00.000Z',
+        },
+        {
+          id: 'comment-without-avatar', projectId: 'project-1', author: '无头像用户',
+          authorAvatar: null, content: '无头像', createdAt: '2026-08-09T12:01:00.000Z',
+        },
+      ],
+      isLoadingComments: false,
+      onLoadComments: vi.fn(), onLike: vi.fn(), onComment: vi.fn(), onLogin: vi.fn(),
+    }));
+
+    expect(markup.match(/class="detail-comment-avatar-image"/g)).toHaveLength(1);
+    expect(markup.match(/data-comment-avatar-fallback="true"/g)).toHaveLength(1);
   });
 });
 
