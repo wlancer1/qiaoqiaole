@@ -16,6 +16,38 @@ import {
   getImportAction,
 } from './H5FlowComponents';
 
+function getVariableInitializer(source: string, name: string): string {
+  const sourceFile = ts.createSourceFile('H5App.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let initializer = '';
+
+  const visit = (node: ts.Node) => {
+    if (
+      ts.isVariableDeclaration(node)
+      && ts.isIdentifier(node.name)
+      && node.name.text === name
+      && node.initializer
+    ) {
+      initializer = node.initializer.getText(sourceFile);
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
+  return initializer.replace(/\s+/g, ' ');
+}
+
+function getTypeImports(source: string, moduleName: string): string[] {
+  const sourceFile = ts.createSourceFile('H5App.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const declaration = sourceFile.statements.find((statement): statement is ts.ImportDeclaration => (
+    ts.isImportDeclaration(statement)
+    && ts.isStringLiteral(statement.moduleSpecifier)
+    && statement.moduleSpecifier.text === moduleName
+  ));
+  const bindings = declaration?.importClause?.namedBindings;
+  return bindings && ts.isNamedImports(bindings) ? bindings.elements.map((element) => element.name.text) : [];
+}
+
 describe('H5 flow presentation components', () => {
   it('renders a non-blocking pixel-grid loading state for the generated canvas', () => {
     const markup = renderToStaticMarkup(createElement(SplitCanvasLoading, {
@@ -329,5 +361,63 @@ describe('H5 flow presentation components', () => {
     expect(uploadMarkup).toMatch(/class="[^"]*lucide-image/);
     expect(uploadMarkup).toMatch(/class="[^"]*lucide-arrow-right/);
     expect(topbarMarkup).toMatch(/class="[^"]*lucide-arrow-left/);
+  });
+
+  it('preserves structured API error details without changing the auth fallback', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+    const requestApi = getVariableInitializer(source, 'requestApi');
+
+    expect(requestApi).toContain("response.status === 401 ? '登录状态已失效，请重新登录' : body.message || '请求失败'");
+    expect(requestApi).toContain('Object.assign(new Error(message), { status: response.status, code: body.error || body.code, body })');
+  });
+
+  it('uses explicit action versions and returns the latest session without swallowing failures', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+    const patch = getVariableInitializer(source, 'patchBeadingProgress');
+    const prepare = getVariableInitializer(source, 'prepareBeadingCompletion');
+    const complete = getVariableInitializer(source, 'completeBeading');
+    const resume = getVariableInitializer(source, 'resumeBeading');
+
+    expect(getTypeImports(source, './pages/beading/useBeadingSessionActions')).toEqual(expect.arrayContaining([
+      'Complete',
+      'Prepare',
+      'Resume',
+      'SessionMutation',
+    ]));
+    expect(patch).toContain('async ({ completedColorCodes, elapsedSeconds, version })');
+    expect(patch).toContain('JSON.stringify({ version, completedColorCodes, elapsedSeconds })');
+    expect(patch).not.toContain('beadingSession.version');
+    expect(prepare).toContain('async ({ version })');
+    expect(prepare).toContain('JSON.stringify({ version })');
+    expect(prepare).not.toContain('beadingSession.version');
+    expect(resume).toContain('async ({ version })');
+    expect(resume).toContain('JSON.stringify({ version })');
+    expect(resume).not.toContain('beadingSession.version');
+
+    for (const action of [patch, prepare, complete, resume]) {
+      expect(action).toContain("throw new Error('拼豆会话已失效')");
+      expect(action).toContain('setBeadingSession(payload.session)');
+      expect(action).toContain('return payload.session');
+      expect(action).toContain('syncBeadingSessionFromError(error, beadingSession.id)');
+      expect(action).toContain('throw error');
+    }
+    expect(complete).toContain('async ({ deduct })');
+    expect(complete).toMatch(/idempotencyKey[^;]*deduct/);
+    expect(complete).toContain('deductInventory: deduct');
+    expect(complete).toContain("setScreen('canvas')");
+  });
+
+  it('syncs complete error sessions and keeps inventory sheet data in H5App', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+    const sessionFromError = getVariableInitializer(source, 'beadingSessionFromError');
+    const inventory = getVariableInitializer(source, 'openBeadingInventory');
+
+    expect(sessionFromError).toContain('error.body.session');
+    expect(sessionFromError).toContain('session.id === expectedSessionId');
+    expect(sessionFromError).toContain('isCompleteBeadingSession(session)');
+    expect(inventory).toContain('/inventory-check');
+    expect(inventory).toContain('setBeadingInventoryCheck(payload)');
+    expect(inventory).toContain("setStatus(error instanceof Error ? error.message : '库存检测失败')");
+    expect(inventory).toContain('throw error');
   });
 });
