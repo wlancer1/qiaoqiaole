@@ -28,39 +28,65 @@ const CURRENT_COLOR = '#18d8ff';
 const COMPLETED_CHECK_COLOR = 'rgba(255, 255, 255, 0.45)';
 const MARKED_CHECK_COLOR = '#ffffff';
 
+export type PreparedBeadingOverlay = H5CanvasOverlay & {
+  markedCellIndexSet: ReadonlySet<number>;
+  completedColorCodeSet: ReadonlySet<string>;
+};
+
+const markedCellIndexSets = new WeakMap<readonly number[], ReadonlySet<number>>();
+const completedColorCodeSets = new WeakMap<readonly string[], ReadonlySet<string>>();
+
+export function prepareBeadingOverlay(overlay: H5CanvasOverlay): PreparedBeadingOverlay {
+  let markedCellIndexSet = markedCellIndexSets.get(overlay.markedCellIndexes);
+  if (!markedCellIndexSet) {
+    markedCellIndexSet = new Set(overlay.markedCellIndexes);
+    markedCellIndexSets.set(overlay.markedCellIndexes, markedCellIndexSet);
+  }
+  let completedColorCodeSet = completedColorCodeSets.get(overlay.completedColorCodes);
+  if (!completedColorCodeSet) {
+    completedColorCodeSet = new Set(overlay.completedColorCodes);
+    completedColorCodeSets.set(overlay.completedColorCodes, completedColorCodeSet);
+  }
+  return { ...overlay, markedCellIndexSet, completedColorCodeSet };
+}
+
 export function drawViewportBeadingOverlay(
   context: CanvasRenderingContext2D,
   options: DrawViewportBeadingOverlayOptions,
 ): void {
   const { viewportWidth, viewportHeight, rows, cols } = options;
-  context.clearRect(0, 0, viewportWidth, viewportHeight);
+  context.save();
+  try {
+    context.clearRect(0, 0, viewportWidth, viewportHeight);
 
-  const range = visibleGridRange(options.artboard, viewportWidth, viewportHeight, rows, cols);
-  if (range.rowStart >= range.rowEnd || range.colStart >= range.colEnd) return;
+    const range = visibleGridRange(options.artboard, viewportWidth, viewportHeight, rows, cols);
+    if (range.rowStart >= range.rowEnd || range.colStart >= range.colEnd) return;
 
-  const marked = new Set(options.markedCellIndexes);
-  const completed = new Set(options.completedColorCodes);
-  const highlighting = options.highlightEnabled && options.currentColorCode !== null;
+    const prepared = prepareBeadingOverlay(options);
+    const highlighting = options.highlightEnabled && options.currentColorCode !== null;
 
-  for (let row = range.rowStart; row < range.rowEnd; row += 1) {
-    for (let col = range.colStart; col < range.colEnd; col += 1) {
-      const index = row * cols + col;
-      const cell = options.cells[index];
-      if (!cell || cell.transparent) continue;
+    for (let row = range.rowStart; row < range.rowEnd; row += 1) {
+      for (let col = range.colStart; col < range.colEnd; col += 1) {
+        const index = row * cols + col;
+        const cell = options.cells[index];
+        if (!cell || cell.transparent) continue;
 
-      const code = options.getCode(cell.color);
-      const bounds = cellBounds(col, row, options);
-      if (highlighting) {
-        if (code === options.currentColorCode) drawCurrentOutline(context, bounds);
-        else {
-          context.fillStyle = DIM_COLOR;
-          context.fillRect(bounds.left, bounds.top, bounds.width, bounds.height);
+        const code = options.getCode(cell.color);
+        const bounds = cellBounds(col, row, options);
+        if (highlighting) {
+          if (code === options.currentColorCode) drawCurrentOutline(context, bounds);
+          else {
+            context.fillStyle = DIM_COLOR;
+            context.fillRect(bounds.left, bounds.top, bounds.width, bounds.height);
+          }
         }
-      }
 
-      if (marked.has(index)) drawCheck(context, bounds, MARKED_CHECK_COLOR, 1.5);
-      else if (completed.has(code)) drawCheck(context, bounds, COMPLETED_CHECK_COLOR, 1);
+        if (prepared.markedCellIndexSet.has(index)) drawCheck(context, bounds, MARKED_CHECK_COLOR, 1.5);
+        else if (prepared.completedColorCodeSet.has(code)) drawCheck(context, bounds, COMPLETED_CHECK_COLOR, 1);
+      }
     }
+  } finally {
+    context.restore();
   }
 }
 

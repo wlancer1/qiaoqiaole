@@ -185,16 +185,7 @@ export function H5CanvasLayers({
     snapshotRef.current = nextSnapshot;
 
     if (dirty.configure || !metricsRef.current) {
-      const baseMetrics = canvasRenderMetrics(viewportWidth, viewportHeight, dpr, 1);
-      const metrics = {
-        ...baseMetrics,
-        backingWidth: baseMetrics.logicalWidth > 0
-          ? Math.max(1, Math.round(baseMetrics.logicalWidth * baseMetrics.renderScale))
-          : 0,
-        backingHeight: baseMetrics.logicalHeight > 0
-          ? Math.max(1, Math.round(baseMetrics.logicalHeight * baseMetrics.renderScale))
-          : 0,
-      };
+      const metrics = canvasRenderMetrics(viewportWidth, viewportHeight, dpr, 1);
       metricsRef.current = metrics;
       colorContextRef.current = configureCanvas(colorCanvas, metrics);
       codeContextRef.current = configureCanvas(codeCanvas, metrics);

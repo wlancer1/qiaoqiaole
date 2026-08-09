@@ -15,7 +15,10 @@ import {
   visibleGridRange,
   viewportGridBoundary,
 } from './H5CanvasRenderer';
-import { drawViewportBeadingOverlay } from './H5BeadingOverlay';
+import {
+  drawViewportBeadingOverlay,
+  prepareBeadingOverlay,
+} from './H5BeadingOverlay';
 
 type RecordedOperation = {
   name: string;
@@ -28,6 +31,7 @@ type RecordedOperation = {
 
 function recordingContext() {
   const operations: RecordedOperation[] = [];
+  const states: Array<{ fillStyle: string; strokeStyle: string; lineWidth: number }> = [];
   const context = {
     fillStyle: '#000000',
     strokeStyle: '#000000',
@@ -35,6 +39,14 @@ function recordingContext() {
     font: '',
     textAlign: 'start',
     textBaseline: 'alphabetic',
+    save(...args: unknown[]) {
+      states.push({ fillStyle: this.fillStyle, strokeStyle: this.strokeStyle, lineWidth: this.lineWidth });
+      operations.push({ name: 'save', args });
+    },
+    restore(...args: unknown[]) {
+      Object.assign(this, states.pop());
+      operations.push({ name: 'restore', args });
+    },
     clearRect(...args: unknown[]) { operations.push({ name: 'clearRect', args }); },
     fillRect(...args: unknown[]) { operations.push({ name: 'fillRect', args, fillStyle: this.fillStyle }); },
     fillText(...args: unknown[]) { operations.push({ name: 'fillText', args, fillStyle: this.fillStyle, font: this.font }); },
@@ -267,6 +279,9 @@ describe('drawViewportBeadingOverlay', () => {
 
   it('dims non-current opaque cells and outlines the current color in cyan', () => {
     const { context, operations } = recordingContext();
+    context.fillStyle = '#before-fill';
+    context.strokeStyle = '#before-stroke';
+    context.lineWidth = 7;
 
     drawViewportBeadingOverlay(context, {
       ...geometry,
@@ -278,7 +293,11 @@ describe('drawViewportBeadingOverlay', () => {
       completedColorCodes: [],
     });
 
-    expect(operations[0]).toEqual({ name: 'clearRect', args: [0, 0, 40, 20] });
+    expect(operations.slice(0, 2)).toEqual([
+      { name: 'save', args: [] },
+      { name: 'clearRect', args: [0, 0, 40, 20] },
+    ]);
+    expect(operations.at(-1)).toEqual({ name: 'restore', args: [] });
     expect(operations.filter((operation) => operation.name === 'fillRect')).toEqual([
       { name: 'fillRect', args: [10, 0, 10, 20], fillStyle: 'rgba(12, 18, 28, 0.66)' },
     ]);
@@ -288,6 +307,11 @@ describe('drawViewportBeadingOverlay', () => {
       strokeStyle: '#18d8ff',
       lineWidth: 1.5,
     });
+    expect({
+      fillStyle: context.fillStyle,
+      strokeStyle: context.strokeStyle,
+      lineWidth: context.lineWidth,
+    }).toEqual({ fillStyle: '#before-fill', strokeStyle: '#before-stroke', lineWidth: 7 });
   });
 
   it('draws weak completed checks and lets marked checks take priority', () => {
@@ -349,7 +373,64 @@ describe('drawViewportBeadingOverlay', () => {
       completedColorCodes: [],
     });
 
-    expect(operations).toEqual([{ name: 'clearRect', args: [0, 0, 40, 20] }]);
+    expect(operations).toEqual([
+      { name: 'save', args: [] },
+      { name: 'clearRect', args: [0, 0, 40, 20] },
+      { name: 'restore', args: [] },
+    ]);
+  });
+
+  it('restores canvas state when painting throws', () => {
+    const { context, operations } = recordingContext();
+    context.fillStyle = '#before-error';
+    context.fillRect = () => { throw new Error('paint failed'); };
+
+    expect(() => drawViewportBeadingOverlay(context, {
+      ...geometry,
+      cells,
+      getCode,
+      currentColorCode: 'A1',
+      highlightEnabled: true,
+      markedCellIndexes: [],
+      completedColorCodes: [],
+    })).toThrow('paint failed');
+
+    expect(operations.at(-1)).toEqual({ name: 'restore', args: [] });
+    expect(context.fillStyle).toBe('#before-error');
+  });
+});
+
+describe('prepareBeadingOverlay', () => {
+  it('reuses prepared sets while overlay array references stay unchanged', () => {
+    const markedCellIndexes = [1, 4];
+    const completedColorCodes = ['A1', 'B2'];
+    const value = {
+      currentColorCode: 'A1',
+      highlightEnabled: true,
+      markedCellIndexes,
+      completedColorCodes,
+    };
+
+    const first = prepareBeadingOverlay(value);
+    const second = prepareBeadingOverlay({ ...value });
+
+    expect(second.markedCellIndexSet).toBe(first.markedCellIndexSet);
+    expect(second.completedColorCodeSet).toBe(first.completedColorCodeSet);
+  });
+
+  it('rebuilds only the set whose source array reference changes', () => {
+    const value = {
+      currentColorCode: null,
+      highlightEnabled: false,
+      markedCellIndexes: [1],
+      completedColorCodes: ['A1'],
+    };
+    const first = prepareBeadingOverlay(value);
+    const second = prepareBeadingOverlay({ ...value, markedCellIndexes: [2] });
+
+    expect(second.markedCellIndexSet).not.toBe(first.markedCellIndexSet);
+    expect(second.markedCellIndexSet.has(2)).toBe(true);
+    expect(second.completedColorCodeSet).toBe(first.completedColorCodeSet);
   });
 });
 
