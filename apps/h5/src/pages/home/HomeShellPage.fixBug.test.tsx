@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { Children, createElement, isValidElement, type ReactElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
@@ -119,5 +121,16 @@ describe('home recent project actions', () => {
     expect(recentCard).toBeDefined();
     recentCard?.props.onClick?.();
     expect(onOpenRecentProject).toHaveBeenCalledWith(project);
+  });
+});
+
+describe('recent project stale action handling', () => {
+  it('preserves API status and closes only for invalid or stale project deletion', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+
+    expect(source).toContain('error.status = response.status;');
+    expect(source).toContain('error.code = payload.error || payload.code;');
+    expect(source).toContain("const invalidProjectError = requestError.status === 401 || requestError.status === 404 || requestError.code === 'NOT_FOUND';");
+    expect(source).toContain('if (invalidProjectError) setProjectActionTarget(null);');
   });
 });

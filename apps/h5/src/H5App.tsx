@@ -161,6 +161,7 @@ const CAPTCHA_APP_ID = String((import.meta as ImportMeta & { env?: Record<string
 const AUTH_STORAGE_KEY = 'qiaoqiaole.auth';
 const STATUS_VISIBLE_MS = 2800;
 const STICKY_STATUS_PREFIXES = ['正在'];
+type RequestApiError = Error & { status?: number; code?: string };
 
 const GRID_CONTROL_CELLS = 3;
 
@@ -672,7 +673,12 @@ function H5App() {
       },
     });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(response.status === 401 ? '登录状态已失效，请重新登录' : payload.message || '请求失败');
+    if (!response.ok) {
+      const error = new Error(response.status === 401 ? '登录状态已失效，请重新登录' : payload.message || '请求失败') as RequestApiError;
+      error.status = response.status;
+      error.code = payload.error || payload.code;
+      throw error;
+    }
     return payload as T;
   };
 
@@ -2441,6 +2447,9 @@ function H5App() {
           setProjectActionTarget(null);
           setStatus('作品已删除。');
         } catch (error) {
+          const requestError = error as RequestApiError;
+          const invalidProjectError = requestError.status === 401 || requestError.status === 404 || requestError.code === 'NOT_FOUND';
+          if (invalidProjectError) setProjectActionTarget(null);
           setStatus(error instanceof Error ? error.message : '删除作品失败');
         }
       }}
