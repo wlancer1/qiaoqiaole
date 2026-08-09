@@ -10,7 +10,7 @@ Keep the internal phone username unchanged and prevent it from appearing as the 
 
 ## Design
 
-Extract a small pure H5 display-name resolver so session restoration has one explicit safety boundary. It will trim candidate values, reject any candidate whose trimmed value starts with `phone_`, and resolve the visible account name in this order:
+Extract a small pure H5 session-restoration function named `resolveRestoredDisplayName` so the reload path has one explicit, testable safety boundary. `H5App.tsx` will call this function directly with the `/api/me` user and locally stored display name. The function will trim candidate values, reject any candidate whose trimmed value starts with `phone_`, and resolve the visible account name in this order:
 
 1. A non-empty, non-phone-generated `user.nickname` returned by `GET /api/me`.
 2. A non-empty, non-phone-generated `user.username` for legacy accounts without a nickname.
@@ -37,7 +37,7 @@ The API continues returning both fields from the legacy `/api/me` endpoint becau
 
 ## Testing
 
-Create the pure resolver under `apps/h5/src/utils/` and add a colocated focused regression test. It must fail before the resolver is wired into session restoration and prove these cases:
+Create `resolveRestoredDisplayName` under `apps/h5/src/utils/`, call it directly from the `H5App.tsx` reload restoration path, and add a colocated focused regression test for that restoration function. The test defines the behavior of the exact function imported by `H5App.tsx`, rather than testing a lower-level helper that could be bypassed. It must fail before the function exists and prove these cases:
 
 - A phone-shaped internal username plus a nickname resolves to the nickname.
 - A legacy user without a nickname resolves to the username.
