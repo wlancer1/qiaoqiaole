@@ -65,9 +65,11 @@ function defaultProps(overrides: Partial<UseBeadingSessionActionsInput> = {}): U
   };
 }
 
+const harnessCleanups = new Set<() => void>();
+
 function createHarness() {
   const control = { current: null as UseBeadingSessionActionsResult | null };
-  let renderer: ReactTestRenderer;
+  let renderer: ReactTestRenderer | null = null;
 
   function Harness(props: UseBeadingSessionActionsInput) {
     control.current = useBeadingSessionActions(props);
@@ -78,18 +80,23 @@ function createHarness() {
     <StrictMode><Harness {...props} /></StrictMode>
   );
 
-  return {
+  const harness = {
     control,
     async mount(props: UseBeadingSessionActionsInput) {
+      harnessCleanups.add(harness.unmount);
       await act(async () => { renderer = create(tree(props)); });
     },
     async update(props: UseBeadingSessionActionsInput) {
-      await act(async () => { renderer.update(tree(props)); });
+      await act(async () => { renderer!.update(tree(props)); });
     },
-    unmount() {
-      act(() => { renderer.unmount(); });
+    unmount: () => {
+      if (!renderer) return;
+      act(() => { renderer!.unmount(); });
+      renderer = null;
+      harnessCleanups.delete(harness.unmount);
     },
   };
+  return harness;
 }
 
 describe('useBeadingSessionActions', () => {
@@ -105,6 +112,7 @@ describe('useBeadingSessionActions', () => {
   });
 
   afterEach(() => {
+    for (const cleanup of [...harnessCleanups]) cleanup();
     consoleErrorSpy.mockRestore();
     delete (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
   });
@@ -264,12 +272,16 @@ describe('useBeadingSessionActions', () => {
     expect(onPrepared).toHaveBeenLastCalledWith(newer);
   });
 
-  it('reports a structured conflict with the server session and a retry message', async () => {
-    const latest = { id: 'session-1', version: 22 } as BeadingSession;
+  it('reports only a valid full version conflict for the action session', async () => {
+    const latest = session({ version: 22 });
     const onSessionConflict = vi.fn();
     const onStatus = vi.fn();
     const onPatch = vi.fn(async () => {
-      throw Object.assign(new Error('conflict'), { body: { session: latest } });
+      throw Object.assign(new Error('conflict'), {
+        status: 409,
+        code: 'BEADING_VERSION_CONFLICT',
+        body: { session: latest },
+      });
     });
     const harness = createHarness();
     await harness.mount(defaultProps({ onPatch, onSessionConflict, onStatus }));
@@ -281,6 +293,69 @@ describe('useBeadingSessionActions', () => {
     expect(onSessionConflict).toHaveBeenCalledWith(latest);
     expect(onStatus).toHaveBeenCalledWith('进度已更新，请重试');
     expect(harness.control.current!.pendingAction).toBeNull();
+  });
+
+  it.each([
+    {
+      name: 'non-409',
+      error: Object.assign(new Error('真实错误'), {
+        status: 400,
+        code: 'BEADING_VERSION_CONFLICT',
+        body: { session: session({ version: 22 }) },
+      }),
+    },
+    {
+      name: 'wrong code',
+      error: Object.assign(new Error('真实错误'), {
+        status: 409,
+        code: 'BEADING_INVALID_STATE',
+        body: { session: session({ version: 22 }) },
+      }),
+    },
+    {
+      name: 'wrong session id',
+      error: Object.assign(new Error('真实错误'), {
+        status: 409,
+        code: 'BEADING_VERSION_CONFLICT',
+        body: { session: session({ id: 'session-other', version: 22 }) },
+      }),
+    },
+    {
+      name: 'malformed session',
+      error: Object.assign(new Error('真实错误'), {
+        status: 409,
+        code: 'BEADING_VERSION_CONFLICT',
+        body: { session: { ...session({ version: 22 }), progress: { completed: 1 } } },
+      }),
+    },
+  ])('keeps the real message and ignores body.session for $name errors', async ({ error }) => {
+    const onSessionConflict = vi.fn();
+    const onStatus = vi.fn();
+    const harness = createHarness();
+    await harness.mount(defaultProps({
+      onPatch: vi.fn(async () => { throw error; }),
+      onSessionConflict,
+      onStatus,
+    }));
+
+    let result!: boolean;
+    await act(async () => { result = await harness.control.current!.save(); });
+
+    expect(result).toBe(false);
+    expect(onSessionConflict).not.toHaveBeenCalled();
+    expect(onStatus).toHaveBeenCalledWith('真实错误');
+  });
+
+  it.each(['abandoned', 'future_terminal'])('does not retry prepare from status %s', async (status) => {
+    const onPrepareCompletion = vi.fn(async () => session());
+    const harness = createHarness();
+    await harness.mount(defaultProps({
+      session: session({ status, completedColorCodes: ['A1', 'B2'] }),
+      onPrepareCompletion,
+    }));
+
+    expect(await harness.control.current!.retryPrepare()).toBe(false);
+    expect(onPrepareCompletion).not.toHaveBeenCalled();
   });
 
   it('lets an action reference from an old render use the latest props and callbacks', async () => {
@@ -305,11 +380,10 @@ describe('useBeadingSessionActions', () => {
     expect(latestPatch).toHaveBeenCalledWith({ completedColorCodes: ['B2'], elapsedSeconds: 77, version: 30 });
   });
 
-  it('uses the latest prepare and success callbacks after PATCH resolves', async () => {
+  it('freezes committed callbacks for an action that is already pending', async () => {
     const patch = deferred<BeadingSession>();
     const oldPrepare = vi.fn(async () => session({ status: 'pending_completion', version: 6 }));
-    const latestPreparedSession = session({ status: 'pending_completion', version: 7 });
-    const latestPrepare = vi.fn(async () => latestPreparedSession);
+    const latestPrepare = vi.fn(async () => session({ status: 'pending_completion', version: 7 }));
     const oldPrepared = vi.fn();
     const latestPrepared = vi.fn();
     const harness = createHarness();
@@ -328,10 +402,166 @@ describe('useBeadingSessionActions', () => {
     await act(async () => { patch.resolve(session({ completedColorCodes: ['A1', 'B2'], version: 6 })); });
 
     expect(await result).toBe(true);
-    expect(oldPrepare).not.toHaveBeenCalled();
-    expect(latestPrepare).toHaveBeenCalledWith({ version: 6 });
-    expect(oldPrepared).not.toHaveBeenCalled();
-    expect(latestPrepared).toHaveBeenCalledWith(latestPreparedSession);
+    expect(oldPrepare).toHaveBeenCalledWith({ version: 6 });
+    expect(latestPrepare).not.toHaveBeenCalled();
+    expect(oldPrepared).toHaveBeenCalledWith(session({ status: 'pending_completion', version: 6 }));
+    expect(latestPrepared).not.toHaveBeenCalled();
+  });
+
+  it('invalidates session A immediately on switching to B and ignores A response side effects', async () => {
+    const patchA = deferred<BeadingSession>();
+    const onPatchA = vi.fn(() => patchA.promise);
+    const onCurrentChangeA = vi.fn();
+    const onPrepareA = vi.fn(async () => session());
+    const onPreparedA = vi.fn();
+    const onStatusA = vi.fn();
+    const patchB = deferred<BeadingSession>();
+    const onPatchB = vi.fn(() => patchB.promise);
+    const harness = createHarness();
+    const propsA = defaultProps({
+      onPatch: onPatchA,
+      onCurrentChange: onCurrentChangeA,
+      onPrepareCompletion: onPrepareA,
+      onPrepared: onPreparedA,
+      onStatus: onStatusA,
+    });
+    await harness.mount(propsA);
+
+    let actionA!: Promise<boolean>;
+    act(() => { actionA = harness.control.current!.completeCurrent(); });
+    expect(harness.control.current!.pendingAction).toBe('patch');
+
+    await harness.update(defaultProps({
+      session: session({ id: 'session-B', version: 1 }),
+      onPatch: onPatchB,
+    }));
+    expect(harness.control.current!.pendingAction).toBeNull();
+    let actionB!: Promise<boolean>;
+    act(() => { actionB = harness.control.current!.save(); });
+    expect(onPatchB).toHaveBeenCalledTimes(1);
+    expect(harness.control.current!.pendingAction).toBe('save');
+
+    await act(async () => { patchA.resolve(session({ completedColorCodes: ['A1', 'B2'], version: 5 })); });
+    expect(await actionA).toBe(false);
+    expect(onCurrentChangeA).not.toHaveBeenCalled();
+    expect(onPrepareA).not.toHaveBeenCalled();
+    expect(onPreparedA).not.toHaveBeenCalled();
+    expect(onStatusA).not.toHaveBeenCalled();
+    expect(harness.control.current!.pendingAction).toBe('save');
+
+    await act(async () => { patchB.resolve(session({ id: 'session-B', version: 2 })); });
+    expect(await actionB).toBe(true);
+    expect(harness.control.current!.pendingAction).toBeNull();
+  });
+
+  it('silently invalidates a pending action on real unmount', async () => {
+    const patch = deferred<BeadingSession>();
+    const onPatch = vi.fn(() => patch.promise);
+    const onStatus = vi.fn();
+    const onCurrentChange = vi.fn();
+    const onPrepared = vi.fn();
+    const harness = createHarness();
+    await harness.mount(defaultProps({ onPatch, onStatus, onCurrentChange, onPrepared }));
+    consoleErrorSpy.mockClear();
+
+    let result!: Promise<boolean>;
+    act(() => { result = harness.control.current!.completeCurrent(); });
+    harness.unmount();
+    await act(async () => { patch.reject(new Error('late failure')); });
+
+    expect(await result).toBe(false);
+    expect(onStatus).not.toHaveBeenCalled();
+    expect(onCurrentChange).not.toHaveBeenCalled();
+    expect(onPrepared).not.toHaveBeenCalled();
+    expect(consoleErrorSpy.mock.calls.flat().join(' ')).not.toMatch(/state update|not wrapped in act/i);
+  });
+
+  it('continues prepare and returns true when onCurrentChange throws after PATCH succeeds', async () => {
+    const patched = session({ completedColorCodes: ['A1', 'B2'], version: 8 });
+    const prepared = session({ status: 'pending_completion', completedColorCodes: ['A1', 'B2'], version: 9 });
+    const onPatch = vi.fn(async () => patched);
+    const onCurrentChange = vi.fn(() => { throw new Error('render color failed'); });
+    const onPrepareCompletion = vi.fn(async () => prepared);
+    const onPrepared = vi.fn();
+    const onStatus = vi.fn();
+    const harness = createHarness();
+    await harness.mount(defaultProps({
+      session: session({ completedColorCodes: ['A1'], version: 7 }),
+      currentColor: 'B2',
+      onPatch,
+      onCurrentChange,
+      onPrepareCompletion,
+      onPrepared,
+      onStatus,
+    }));
+
+    let result!: boolean;
+    await act(async () => { result = await harness.control.current!.completeCurrent(); });
+
+    expect(result).toBe(true);
+    expect(onPrepareCompletion).toHaveBeenCalledWith({ version: 8 });
+    expect(onPrepared).toHaveBeenCalledWith(prepared);
+    expect(onStatus).toHaveBeenCalledWith('界面更新失败，请刷新');
+  });
+
+  it('returns true when onPrepared throws after prepare succeeds', async () => {
+    const prepared = session({ status: 'pending_completion', completedColorCodes: ['A1', 'B2'], version: 9 });
+    const onPrepared = vi.fn(() => { throw new Error('dialog failed'); });
+    const onStatus = vi.fn();
+    const harness = createHarness();
+    await harness.mount(defaultProps({
+      session: session({ completedColorCodes: ['A1'], version: 7 }),
+      currentColor: 'B2',
+      onPatch: vi.fn(async () => session({ completedColorCodes: ['A1', 'B2'], version: 8 })),
+      onPrepareCompletion: vi.fn(async () => prepared),
+      onPrepared,
+      onStatus,
+    }));
+
+    let result!: boolean;
+    await act(async () => { result = await harness.control.current!.completeCurrent(); });
+
+    expect(result).toBe(true);
+    expect(onPrepared).toHaveBeenCalledWith(prepared);
+    expect(onStatus).toHaveBeenCalledWith('界面更新失败，请刷新');
+  });
+
+  it('returns true without encouraging a remote retry when onCompleted throws', async () => {
+    const completed = session({ status: 'completed_deducted', version: 20 });
+    const onComplete = vi.fn(async () => completed);
+    const onCompleted = vi.fn(() => { throw new Error('clear failed'); });
+    const onStatus = vi.fn();
+    const harness = createHarness();
+    await harness.mount(defaultProps({ onComplete, onCompleted, onStatus }));
+
+    let result!: boolean;
+    await act(async () => { result = await harness.control.current!.complete(true); });
+
+    expect(result).toBe(true);
+    expect(onComplete).toHaveBeenCalledTimes(1);
+    expect(onCompleted).toHaveBeenCalledWith(completed);
+    expect(onStatus).toHaveBeenCalledWith('界面更新失败，请刷新');
+  });
+
+  it('isolates pending-completion restoration callback failures in StrictMode', async () => {
+    const onPrepared = vi.fn(() => { throw new Error('dialog failed'); });
+    const onStatus = vi.fn();
+    const onPatch = vi.fn(async () => session({ status: 'pending_completion', version: 12 }));
+    const harness = createHarness();
+
+    await expect(harness.mount(defaultProps({
+      session: session({ status: 'pending_completion', version: 11 }),
+      onPrepared,
+      onStatus,
+      onPatch,
+    }))).resolves.toBeUndefined();
+
+    expect(onPrepared).toHaveBeenCalledTimes(2);
+    expect(onStatus).toHaveBeenCalledTimes(2);
+    expect(onStatus).toHaveBeenCalledWith('界面更新失败，请刷新');
+    let saved!: boolean;
+    await act(async () => { saved = await harness.control.current!.save(); });
+    expect(saved).toBe(true);
   });
 
   it('saves the snapshot without changing page state and unlocks after failure', async () => {
@@ -413,7 +643,7 @@ describe('useBeadingSessionActions', () => {
     expect(onOpenInventory).toHaveBeenCalledTimes(2);
   });
 
-  it('resumes with the captured session version and reports success through latest onStatus', async () => {
+  it('uses committed callbacks for the current action and new callbacks for the next action', async () => {
     const resumed = session({ status: 'in_progress', version: 15 });
     const resumeRequest = deferred<BeadingSession>();
     const onResume = vi.fn(() => resumeRequest.promise);
@@ -430,7 +660,13 @@ describe('useBeadingSessionActions', () => {
 
     expect(await result).toBe(true);
     expect(onResume).toHaveBeenCalledWith({ version: 14 });
-    expect(oldStatus).not.toHaveBeenCalled();
+    expect(oldStatus).toHaveBeenCalledWith('已继续计时');
+    expect(latestStatus).not.toHaveBeenCalled();
+
+    let nextResult!: boolean;
+    await act(async () => { nextResult = await harness.control.current!.resume(); });
+    expect(nextResult).toBe(true);
+    expect(onResume).toHaveBeenLastCalledWith({ version: 99 });
     expect(latestStatus).toHaveBeenCalledWith('已继续计时');
   });
 
