@@ -17,6 +17,7 @@ type PointerGesture = {
   startY: number;
   moved: boolean;
   hadMultiTouch: boolean;
+  captureTarget: HTMLElement | null;
 };
 
 export type BeadingPointerHandlers<T extends HTMLElement = HTMLDivElement> = {
@@ -24,6 +25,7 @@ export type BeadingPointerHandlers<T extends HTMLElement = HTMLDivElement> = {
   onPointerMove: PointerEventHandler<T>;
   onPointerUp: PointerEventHandler<T>;
   onPointerCancel: PointerEventHandler<T>;
+  onLostPointerCapture: PointerEventHandler<T>;
 };
 
 function createGesture(): PointerGesture {
@@ -34,6 +36,7 @@ function createGesture(): PointerGesture {
     startY: 0,
     moved: false,
     hadMultiTouch: false,
+    captureTarget: null,
   };
 }
 
@@ -60,14 +63,19 @@ export function useBeadingPointer<T extends HTMLElement = HTMLDivElement>(
   const gestureRef = useRef<PointerGesture>(createGesture());
   optionsRef.current = options;
 
-  const reset = useCallback((element?: HTMLElement) => {
-    if (element) {
-      gestureRef.current.activePointerIds.forEach((pointerId) => safelyRelease(element, pointerId));
-    }
+  const reset = useCallback(() => {
+    const gesture = gestureRef.current;
     gestureRef.current = createGesture();
+    const captureTarget = gesture.captureTarget;
+    if (captureTarget) {
+      gesture.activePointerIds.forEach((pointerId) => safelyRelease(captureTarget, pointerId));
+    }
   }, []);
 
   useEffect(() => () => reset(), [reset]);
+  useEffect(() => {
+    if (options.locked || options.interactionMode === 'pan') reset();
+  }, [options.locked, options.interactionMode, reset]);
 
   const onPointerDown = useCallback<PointerEventHandler<T>>((event) => {
     const { interactionMode } = optionsRef.current;
@@ -75,6 +83,7 @@ export function useBeadingPointer<T extends HTMLElement = HTMLDivElement>(
 
     const gesture = gestureRef.current;
     gesture.activePointerIds.add(event.pointerId);
+    gesture.captureTarget ??= event.currentTarget;
     safelyCapture(event.currentTarget, event.pointerId);
     if (gesture.primaryPointerId === null) {
       gesture.primaryPointerId = event.pointerId;
@@ -113,16 +122,19 @@ export function useBeadingPointer<T extends HTMLElement = HTMLDivElement>(
     }
 
     gesture.activePointerIds.delete(event.pointerId);
-    safelyRelease(event.currentTarget, event.pointerId);
+    safelyRelease(gesture.captureTarget ?? event.currentTarget, event.pointerId);
     if (isPrimary || gesture.hadMultiTouch && gesture.activePointerIds.size < 2) {
-      reset(event.currentTarget);
+      reset();
     }
   }, [reset]);
 
-  const onPointerCancel = useCallback<PointerEventHandler<T>>((event) => {
-    safelyRelease(event.currentTarget, event.pointerId);
-    reset(event.currentTarget);
+  const onPointerCancel = useCallback<PointerEventHandler<T>>(() => {
+    reset();
   }, [reset]);
 
-  return { onPointerDown, onPointerMove, onPointerUp, onPointerCancel };
+  const onLostPointerCapture = useCallback<PointerEventHandler<T>>(() => {
+    reset();
+  }, [reset]);
+
+  return { onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onLostPointerCapture };
 }

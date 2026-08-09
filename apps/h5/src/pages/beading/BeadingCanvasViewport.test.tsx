@@ -39,6 +39,10 @@ type ResizeCallback = ResizeObserverCallback;
 let resizeCallback: ResizeCallback | undefined;
 const observe = vi.fn();
 const disconnect = vi.fn();
+const requestAnimationFrameMock = vi.fn<(callback: FrameRequestCallback) => number>();
+const cancelAnimationFrameMock = vi.fn<(handle: number) => void>();
+let animationFrameId = 0;
+let animationFrames = new Map<number, FrameRequestCallback>();
 
 class ResizeObserverMock {
   constructor(callback: ResizeCallback) {
@@ -70,13 +74,34 @@ function renderViewport(
       createNodeMock: (element) => element.type === 'section' ? stageNode : {},
     });
   });
+  flushAnimationFrames();
   return renderer;
+}
+
+function flushAnimationFrames() {
+  act(() => {
+    const pending = animationFrames;
+    animationFrames = new Map();
+    pending.forEach((callback) => callback(0));
+  });
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   resizeCallback = undefined;
+  animationFrameId = 0;
+  animationFrames = new Map();
+  requestAnimationFrameMock.mockImplementation((callback) => {
+    animationFrameId += 1;
+    animationFrames.set(animationFrameId, callback);
+    return animationFrameId;
+  });
+  cancelAnimationFrameMock.mockImplementation((handle) => {
+    animationFrames.delete(handle);
+  });
   vi.stubGlobal('ResizeObserver', ResizeObserverMock);
+  vi.stubGlobal('requestAnimationFrame', requestAnimationFrameMock);
+  vi.stubGlobal('cancelAnimationFrame', cancelAnimationFrameMock);
 });
 
 describe('calculateViewportFit', () => {
@@ -110,11 +135,27 @@ describe('calculateViewportFit', () => {
 describe('BeadingCanvasViewport', () => {
   it('sizes the artboard from rows/cols and fits it with setTransform', () => {
     const onPointerDown = vi.fn();
-    const renderer = renderViewport({ artboardProps: { onPointerDown } });
-    const artboard = renderer.root.findByProps({ className: 'beading-canvas-artboard' });
+    const renderer = renderViewport({
+      artboardProps: {
+        onPointerDown,
+        className: 'pointer-surface',
+        style: { opacity: 0.5, maxWidth: 12 },
+      },
+    });
+    const artboard = renderer.root.find(
+      (node) => node.type === 'div' && String(node.props.className).includes('beading-canvas-artboard'),
+    );
 
     expect(CELL_SIZE).toBe(18);
-    expect(artboard.props.style).toMatchObject({ width: 180, height: 90 });
+    expect(artboard.props.className).toBe('beading-canvas-artboard pointer-surface');
+    expect(artboard.props.style).toMatchObject({
+      width: 180,
+      height: 90,
+      maxWidth: 'none',
+      maxHeight: 'none',
+      flex: 'none',
+      opacity: 0.5,
+    });
     expect(artboard.props.onPointerDown).toBe(onPointerDown);
     expect(zoomMocks.setTransform).toHaveBeenLastCalledWith(16, 58, 368 / 180, 180);
   });
@@ -131,6 +172,8 @@ describe('BeadingCanvasViewport', () => {
     });
 
     expect(observe).toHaveBeenCalledWith(stageNode);
+    expect(zoomMocks.setTransform).not.toHaveBeenCalled();
+    flushAnimationFrames();
     expect(zoomMocks.setTransform).toHaveBeenLastCalledWith(16, 83, 468 / 180, 180);
     act(() => renderer.unmount());
     expect(disconnect).toHaveBeenCalledTimes(1);
@@ -160,12 +203,29 @@ describe('BeadingCanvasViewport', () => {
     expect(zoomMocks.setTransform).toHaveBeenCalledTimes(1);
   });
 
-  it('exposes one stable fit callback without repeating for callback identity changes', () => {
+  it('notifies replacement fit callbacks without triggering a fit animation', () => {
     const firstReady = vi.fn();
     const secondReady = vi.fn();
-    const renderer = renderViewport({ onFitReady: firstReady });
+    const renderer = renderViewport();
+    zoomMocks.setTransform.mockClear();
+
+    act(() => {
+      renderer.update(
+        <BeadingCanvasViewport
+          rows={5}
+          cols={10}
+          locked={false}
+          focusMode={false}
+          interactionMode="mark"
+          onFitReady={firstReady}
+        >
+          cells
+        </BeadingCanvasViewport>,
+      );
+    });
     const fit = firstReady.mock.calls[0]?.[0] as (() => void) | undefined;
     expect(fit).toBeTypeOf('function');
+    expect(zoomMocks.setTransform).not.toHaveBeenCalled();
 
     act(() => {
       renderer.update(
@@ -181,22 +241,53 @@ describe('BeadingCanvasViewport', () => {
         </BeadingCanvasViewport>,
       );
     });
-    expect(secondReady).not.toHaveBeenCalled();
+    expect(secondReady).toHaveBeenCalledTimes(1);
+    expect(secondReady).toHaveBeenCalledWith(fit);
+    expect(zoomMocks.setTransform).not.toHaveBeenCalled();
 
-    zoomMocks.setTransform.mockClear();
     act(() => fit?.());
     expect(zoomMocks.setTransform).toHaveBeenCalledWith(16, 58, 368 / 180, 180);
   });
 
-  it('disables transforms when locked and disables one-pointer panning in mark mode', () => {
-    const renderer = renderViewport({ locked: true });
+  it('defers automatic and manual fit while locked, then fits immediately on unlock', () => {
+    const onFitReady = vi.fn();
+    const renderer = renderViewport({ locked: true, onFitReady });
+    const fit = onFitReady.mock.calls[0]?.[0] as () => void;
     expect(zoomMocks.wrapperProps).toMatchObject({
       disabled: true,
       minScale: 0.25,
       maxScale: 8,
-      panning: { disabled: true },
-      pinch: { disabled: false },
     });
+    expect(zoomMocks.setTransform).not.toHaveBeenCalled();
+    act(() => fit());
+    expect(zoomMocks.setTransform).not.toHaveBeenCalled();
+    act(() => {
+      resizeCallback?.([{
+        contentBoxSize: [{ inlineSize: 500, blockSize: 400 }],
+      } as unknown as ResizeObserverEntry], {} as ResizeObserver);
+    });
+    flushAnimationFrames();
+    expect(zoomMocks.setTransform).not.toHaveBeenCalled();
+
+    act(() => {
+      renderer.update(
+        <BeadingCanvasViewport rows={10} cols={20} locked={false} focusMode={false} interactionMode="mark">
+          cells
+        </BeadingCanvasViewport>,
+      );
+    });
+    expect(zoomMocks.setTransform).toHaveBeenCalledTimes(1);
+    expect(zoomMocks.setTransform).toHaveBeenCalledWith(16, 83, 468 / 360, 180);
+  });
+
+  it('excludes artboard single-pointer panning in mark mode while preserving pinch panning', () => {
+    const renderer = renderViewport({ interactionMode: 'mark' });
+    expect(zoomMocks.wrapperProps).toMatchObject({
+      disabled: false,
+      panning: { excluded: ['beading-canvas-artboard'] },
+      pinch: { disabled: false, allowPanning: true },
+    });
+    expect(zoomMocks.wrapperProps?.panning).not.toMatchObject({ disabled: true });
 
     act(() => {
       renderer.update(
@@ -205,7 +296,46 @@ describe('BeadingCanvasViewport', () => {
         </BeadingCanvasViewport>,
       );
     });
-    expect(zoomMocks.wrapperProps).toMatchObject({ disabled: false, panning: { disabled: false } });
+    expect(zoomMocks.wrapperProps).toMatchObject({ panning: { excluded: [] } });
+  });
+
+  it('deduplicates unchanged observations and coalesces resize bursts into one frame', () => {
+    renderViewport();
+    zoomMocks.setTransform.mockClear();
+    requestAnimationFrameMock.mockClear();
+
+    act(() => {
+      resizeCallback?.([{
+        contentBoxSize: [{ inlineSize: 400, blockSize: 300 }],
+      } as unknown as ResizeObserverEntry], {} as ResizeObserver);
+      resizeCallback?.([{
+        contentBoxSize: [{ inlineSize: 500, blockSize: 400 }],
+      } as unknown as ResizeObserverEntry], {} as ResizeObserver);
+      resizeCallback?.([{
+        contentBoxSize: [{ inlineSize: 520, blockSize: 400 }],
+      } as unknown as ResizeObserverEntry], {} as ResizeObserver);
+    });
+
+    expect(requestAnimationFrameMock).toHaveBeenCalledTimes(1);
+    expect(zoomMocks.setTransform).not.toHaveBeenCalled();
+    flushAnimationFrames();
+    expect(zoomMocks.setTransform).toHaveBeenCalledTimes(1);
+    expect(zoomMocks.setTransform).toHaveBeenCalledWith(16, 78, 488 / 180, 180);
+  });
+
+  it('cancels a pending resize frame on unmount', () => {
+    const renderer = renderViewport();
+    zoomMocks.setTransform.mockClear();
+    act(() => {
+      resizeCallback?.([{
+        contentBoxSize: [{ inlineSize: 500, blockSize: 400 }],
+      } as unknown as ResizeObserverEntry], {} as ResizeObserver);
+      renderer.unmount();
+    });
+
+    expect(cancelAnimationFrameMock).toHaveBeenCalledTimes(1);
+    flushAnimationFrames();
+    expect(zoomMocks.setTransform).not.toHaveBeenCalled();
   });
 
   it('supports render children with natural artboard dimensions', () => {

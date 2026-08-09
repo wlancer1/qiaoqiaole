@@ -48,6 +48,7 @@ function handlers(renderer: ReactTestRenderer) {
     onPointerMove: PointerEventHandler<HTMLDivElement>;
     onPointerUp: PointerEventHandler<HTMLDivElement>;
     onPointerCancel: PointerEventHandler<HTMLDivElement>;
+    onLostPointerCapture: PointerEventHandler<HTMLDivElement>;
   };
   return props;
 }
@@ -192,5 +193,51 @@ describe('useBeadingPointer', () => {
     expect(() => events.onPointerDown(pointer(1, 20, 30, artboard))).not.toThrow();
     expect(() => events.onPointerCancel(pointer(1, 20, 30, artboard))).not.toThrow();
     expect(() => act(() => renderer.unmount())).not.toThrow();
+  });
+
+  it('releases an active capture on unmount', () => {
+    const artboard = makeArtboard();
+    const renderer = renderHarness({ artboard, onCell: vi.fn() });
+    handlers(renderer).onPointerDown(pointer(7, 20, 30, artboard));
+
+    act(() => renderer.unmount());
+
+    expect(artboard.releasePointerCapture).toHaveBeenCalledWith(7);
+  });
+
+  it.each([
+    { locked: true, interactionMode: 'mark' as const },
+    { locked: false, interactionMode: 'pan' as const },
+  ])('releases and resets when options stop business tracking: %o', ({ locked, interactionMode }) => {
+    const artboard = makeArtboard();
+    const onCell = vi.fn();
+    const renderer = renderHarness({ artboard, onCell });
+    handlers(renderer).onPointerDown(pointer(8, 20, 30, artboard));
+
+    act(() => {
+      renderer.update(
+        <Harness artboard={artboard} onCell={onCell} locked={locked} interactionMode={interactionMode} />,
+      );
+    });
+
+    expect(artboard.releasePointerCapture).toHaveBeenCalledWith(8);
+    handlers(renderer).onPointerUp(pointer(8, 20, 30, artboard));
+    expect(onCell).not.toHaveBeenCalled();
+  });
+
+  it('resets on lost capture and permits the next gesture to mark', () => {
+    const artboard = makeArtboard();
+    const onCell = vi.fn();
+    const renderer = renderHarness({ artboard, onCell });
+    const events = handlers(renderer);
+
+    events.onPointerDown(pointer(9, 20, 30, artboard));
+    events.onLostPointerCapture(pointer(9, 20, 30, artboard));
+    events.onPointerUp(pointer(9, 20, 30, artboard));
+    events.onPointerDown(pointer(10, 20, 30, artboard));
+    events.onPointerUp(pointer(10, 20, 30, artboard));
+
+    expect(onCell).toHaveBeenCalledTimes(1);
+    expect(onCell).toHaveBeenCalledWith(0);
   });
 });

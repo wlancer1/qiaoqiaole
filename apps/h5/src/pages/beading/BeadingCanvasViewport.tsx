@@ -73,7 +73,10 @@ export function BeadingCanvasViewport({
 }: BeadingCanvasViewportProps) {
   const stageRef = useRef<HTMLElement | null>(null);
   const transformRef = useRef<ReactZoomPanPinchContentRef | null>(null);
-  const onFitReadyRef = useRef(onFitReady);
+  const lockedRef = useRef(locked);
+  const pendingFitRef = useRef(false);
+  const resizeFrameRef = useRef<number | null>(null);
+  const lastObservedSizeRef = useRef<{ width: number; height: number } | null>(null);
   const dimensions = { width: cols * CELL_SIZE, height: rows * CELL_SIZE };
   const sizeRef = useRef({
     viewportWidth: 0,
@@ -81,48 +84,75 @@ export function BeadingCanvasViewport({
     artboardWidth: dimensions.width,
     artboardHeight: dimensions.height,
   });
-  onFitReadyRef.current = onFitReady;
+  lockedRef.current = locked;
   sizeRef.current.artboardWidth = dimensions.width;
   sizeRef.current.artboardHeight = dimensions.height;
 
   const fit = useCallback(() => {
+    if (lockedRef.current) {
+      pendingFitRef.current = true;
+      return;
+    }
     const { viewportWidth, viewportHeight, artboardWidth, artboardHeight } = sizeRef.current;
     const next = calculateViewportFit(viewportWidth, viewportHeight, artboardWidth, artboardHeight);
     if (next && transformRef.current) {
+      pendingFitRef.current = false;
       transformRef.current.setTransform(next.x, next.y, next.scale, 180);
     }
   }, []);
 
   useEffect(() => {
-    onFitReadyRef.current?.(fit);
-  }, [fit]);
+    onFitReady?.(fit);
+  }, [onFitReady, fit]);
 
   useEffect(() => {
     fit();
-  }, [rows, cols, focusMode, fit]);
+  }, [rows, cols, focusMode, locked, fit]);
 
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return undefined;
 
-    const updateSize = ({ width, height }: { width: number; height: number }) => {
+    const scheduleSize = ({ width, height }: { width: number; height: number }) => {
+      const previous = lastObservedSizeRef.current;
+      if (previous?.width === width && previous.height === height) return;
+      lastObservedSizeRef.current = { width, height };
       sizeRef.current.viewportWidth = width;
       sizeRef.current.viewportHeight = height;
-      fit();
+      if (resizeFrameRef.current !== null) return;
+      resizeFrameRef.current = requestAnimationFrame(() => {
+        resizeFrameRef.current = null;
+        fit();
+      });
     };
     const rect = stage.getBoundingClientRect();
-    updateSize({ width: rect.width, height: rect.height });
+    scheduleSize({ width: rect.width, height: rect.height });
 
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
-      if (entry) updateSize(sizeFromEntry(entry));
+      if (entry) scheduleSize(sizeFromEntry(entry));
     });
     observer.observe(stage);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (resizeFrameRef.current !== null) {
+        cancelAnimationFrame(resizeFrameRef.current);
+        resizeFrameRef.current = null;
+      }
+    };
   }, [fit]);
 
   const content = typeof children === 'function' ? children(dimensions) : children;
   const stageClassName = focusMode ? 'beading-canvas-stage is-focus-mode' : 'beading-canvas-stage';
+  const {
+    className: artboardClassName,
+    style: artboardStyle,
+    ...restArtboardProps
+  } = artboardProps ?? {};
+  const mergedArtboardClassName = [
+    'beading-canvas-artboard',
+    artboardClassName,
+  ].filter(Boolean).join(' ');
 
   return (
     <section ref={stageRef} className={stageClassName}>
@@ -134,16 +164,23 @@ export function BeadingCanvasViewport({
         initialScale={1}
         limitToBounds={false}
         centerOnInit={false}
-        panning={{ disabled: interactionMode !== 'pan' }}
-        pinch={{ disabled: false }}
+        panning={{ excluded: interactionMode === 'pan' ? [] : ['beading-canvas-artboard'] }}
+        pinch={{ disabled: false, allowPanning: true }}
         doubleClick={{ disabled: true }}
       >
         <TransformComponent wrapperClass="beading-canvas-viewport">
           <div
-            {...artboardProps}
+            {...restArtboardProps}
             ref={artboardRef}
-            className="beading-canvas-artboard"
-            style={{ width: dimensions.width, height: dimensions.height }}
+            className={mergedArtboardClassName}
+            style={{
+              ...artboardStyle,
+              width: dimensions.width,
+              height: dimensions.height,
+              maxWidth: 'none',
+              maxHeight: 'none',
+              flex: 'none',
+            }}
           >
             {content}
           </div>
