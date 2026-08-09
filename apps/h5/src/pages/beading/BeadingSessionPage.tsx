@@ -1,34 +1,363 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { TransformComponent, TransformWrapper } from 'react-zoom-pan-pinch';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from 'react';
 import type { Cell } from '@qiaoqiaole/core';
 import { H5CanvasLayers } from '../../canvas/H5CanvasLayers';
 import { CanvasRulers } from '../../canvas/H5CanvasPreview';
 import { colorCodeTextColor } from '../../utils/h5AppUtils';
-import { BeadingToolbar } from './BeadingToolbar';
-import { BeadingColorRail } from './BeadingColorRail';
-import { BeadingExitDialog } from './BeadingExitDialog';
-import { BeadingCompletionDialog } from './BeadingCompletionDialog';
+import {
+  beadingToolReducer,
+  createBeadingToolState,
+  reviseMarkedCell,
+  sortBeadingRequirements,
+  toggleMarkedCell,
+  type SortMode,
+} from '../../beading/beadingToolState';
+import { useBeadingDraft } from '../../beading/useBeadingDraft';
 import type { BeadingSession } from '../../beading/beadingSessionClient';
 import { completionProgress, nextIncompleteColor } from '../../beading/beadingSessionUtils';
+import { BeadingToolbar } from './BeadingToolbar';
+import { BeadingColorRail } from './BeadingColorRail';
+import { BeadingToolRow } from './BeadingToolRow';
+import { BeadingToolPanels } from './BeadingToolPanels';
+import { BeadingCanvasViewport } from './BeadingCanvasViewport';
+import { BeadingExitDialog } from './BeadingExitDialog';
+import { BeadingCompletionDialog } from './BeadingCompletionDialog';
+import { useBeadingPointer } from './useBeadingPointer';
+import {
+  useBeadingSessionActions,
+  type Complete,
+  type Prepare,
+  type Resume,
+  type SessionMutation,
+} from './useBeadingSessionActions';
 
-export function BeadingSessionPage({ session, cells, rows, cols, getCode, onPatch, onPrepareCompletion, onComplete, onExit, onResume, status = '' }: { session: BeadingSession; cells: Cell[]; rows: number; cols: number; getCode: (color: string) => string; onPatch: (completedColorCodes: string[], elapsedSeconds: number) => void; onPrepareCompletion: () => void; onComplete: (deduct: boolean) => void; onExit: () => void; onResume?: () => void; status?: string }) {
+export type BeadingSessionPageProps = {
+  session: BeadingSession;
+  cells: Cell[];
+  rows: number;
+  cols: number;
+  getCode: (color: string) => string;
+  onPatch: SessionMutation;
+  onPrepareCompletion: Prepare;
+  onComplete: Complete;
+  onResume: Resume;
+  onOpenInventory: () => Promise<void>;
+  onExit: (input: { mode: 'saved' | 'abandon' }) => void;
+  onSessionConflict: (session: BeadingSession) => void;
+  draftOwnerId?: string;
+  onStatus: (message: string) => void;
+  status?: string;
+};
+
+const sortCycle: Record<SortMode, SortMode> = {
+  canvas: 'remaining',
+  remaining: 'code',
+  code: 'canvas',
+};
+
+function pausedFromSession(session: BeadingSession): boolean {
+  return session.status === 'paused' || session.status === 'pending_completion';
+}
+
+function isTerminalStatus(status: string): boolean {
+  return status === 'pending_completion' || status.startsWith('completed');
+}
+
+export function BeadingSessionPage({
+  session,
+  cells,
+  rows,
+  cols,
+  getCode,
+  onPatch,
+  onPrepareCompletion,
+  onComplete,
+  onResume,
+  onOpenInventory,
+  onExit,
+  onSessionConflict,
+  draftOwnerId,
+  onStatus,
+  status = '',
+}: BeadingSessionPageProps) {
   const artboardRef = useRef<HTMLDivElement>(null);
-  const [paused, setPaused] = useState(session.status === 'paused' || session.status === 'pending_completion');
+  const fitRef = useRef<() => void>(() => undefined);
+  const previousSessionIdRef = useRef(session.id);
+  const [toolState, dispatch] = useReducer(beadingToolReducer, undefined, createBeadingToolState);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [paused, setPaused] = useState(() => pausedFromSession(session));
   const [showExit, setShowExit] = useState(false);
   const [showCompletion, setShowCompletion] = useState(session.status === 'pending_completion');
   const [elapsed, setElapsed] = useState(session.elapsedSeconds);
-  const [current, setCurrent] = useState<string | null>(nextIncompleteColor(session.requirements, session.completedColorCodes));
+  const [current, setCurrent] = useState<string | null>(() => (
+    nextIncompleteColor(session.requirements, session.completedColorCodes)
+  ));
+  const cellCount = Math.max(0, rows * cols);
   const progress = completionProgress(session.requirements, session.completedColorCodes);
-  useEffect(() => { if (paused) return undefined; const timer = window.setInterval(() => setElapsed((value) => value + 1), 1000); return () => window.clearInterval(timer); }, [paused]);
-  const elapsedText = useMemo(() => `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`, [elapsed]);
-  const completeCurrent = () => {
-    if (!current) return;
-    const next = [...new Set([...session.completedColorCodes, current])];
-    onPatch(next, elapsed);
-    const nextColor = nextIncompleteColor(session.requirements, next, current);
-    setCurrent(nextColor);
-    if (next.length === session.requirements.length) { onPrepareCompletion(); setPaused(true); setShowCompletion(true); }
-  };
-  const finish = (deduct: boolean) => { setShowCompletion(false); onComplete(deduct); };
-  return <main className="beading-session-page" aria-label="开始拼豆"><BeadingToolbar title={session.projectName} elapsed={elapsedText} paused={paused} progress={progress} onExit={() => setShowExit(true)} onTogglePause={() => { setPaused((value) => !value); onPatch(session.completedColorCodes, elapsed); }} onSave={() => onPatch(session.completedColorCodes, elapsed)} /><section className="beading-canvas-stage"><CanvasRulers rows={rows} cols={cols} /><TransformWrapper minScale={0.25} maxScale={8} initialScale={1} centerOnInit><TransformComponent wrapperClass="beading-canvas-viewport"><div ref={artboardRef} className="beading-canvas-artboard" style={{ width: `${Math.min(82, 720 / cols * cols)}px`, aspectRatio: `${cols}/${rows}` }}><H5CanvasLayers artboardRef={artboardRef} cells={cells} rows={rows} cols={cols} codesVisible getCode={getCode} getTextColor={colorCodeTextColor} /></div></TransformComponent></TransformWrapper></section><section className="beading-tool-row" aria-label="拼豆工具"><button type="button">搜色</button><button type="button">标记</button><button type="button" className="is-active">高亮</button><button type="button">锁定</button><button type="button">更多</button><button type="button">适应</button></section><BeadingColorRail requirements={session.requirements} completed={session.completedColorCodes} current={current} onSelect={setCurrent} onCompleteColor={completeCurrent} />{status ? <p className="beading-status" role="status">{status}</p> : null}{showExit ? <BeadingExitDialog onContinue={() => setShowExit(false)} onSaveExit={() => { onPatch(session.completedColorCodes, elapsed); setShowExit(false); onExit(); }} onAbandon={onExit} /> : null}{showCompletion ? <BeadingCompletionDialog onReturn={() => { setShowCompletion(false); setPaused(true); }} onNoDeduct={() => finish(false)} onDeduct={() => finish(true)} /> : null}{onResume && paused && !showCompletion ? <button type="button" className="beading-resume-fab" onClick={() => { setPaused(false); onResume(); }}>继续计时</button> : null}</main>;
+
+  const { clearDraft } = useBeadingDraft({
+    ownerId: draftOwnerId,
+    sessionId: session.id,
+    cellCount,
+    state: toolState,
+    dispatch,
+    onWarning: onStatus,
+  });
+
+  const actions = useBeadingSessionActions({
+    session,
+    elapsedSeconds: elapsed,
+    currentColor: current,
+    onPatch,
+    onPrepareCompletion,
+    onComplete,
+    onResume,
+    onOpenInventory,
+    onSessionConflict,
+    onStatus,
+    onCurrentChange: setCurrent,
+    onPrepared: () => {
+      setPaused(true);
+      setShowCompletion(true);
+    },
+    onCompleted: clearDraft,
+  });
+
+  useEffect(() => {
+    if (previousSessionIdRef.current === session.id) return;
+    previousSessionIdRef.current = session.id;
+    setElapsed(session.elapsedSeconds);
+    setPaused(pausedFromSession(session));
+    setCurrent(nextIncompleteColor(session.requirements, session.completedColorCodes));
+    setSearchQuery('');
+    setShowExit(false);
+    setShowCompletion(session.status === 'pending_completion');
+  }, [session.id, session.elapsedSeconds, session.requirements, session.completedColorCodes, session.status]);
+
+  useEffect(() => {
+    setCurrent((selected) => {
+      if (selected && session.requirements.some(({ colorCode }) => colorCode === selected)) return selected;
+      return nextIncompleteColor(session.requirements, session.completedColorCodes);
+    });
+  }, [session.requirements, session.completedColorCodes]);
+
+  useEffect(() => {
+    dispatch({ type: 'set-marks', indexes: toolState.markedCellIndexes, cellCount });
+  }, [cellCount]);
+
+  useEffect(() => {
+    if (paused) return undefined;
+    const timer = window.setInterval(() => setElapsed((value) => value + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [paused, session.id]);
+
+  const elapsedText = useMemo(
+    () => `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`,
+    [elapsed],
+  );
+
+  const colorByCode = useMemo(() => {
+    const result = new Map<string, string>();
+    cells.forEach((cell) => {
+      if (!cell.transparent) {
+        const code = getCode(cell.color);
+        if (!result.has(code)) result.set(code, cell.color);
+      }
+    });
+    return result;
+  }, [cells, getCode]);
+  const resolveColor = useCallback((colorCode: string) => colorByCode.get(colorCode) ?? '#eef2f7', [colorByCode]);
+
+  const sortedRequirements = useMemo(() => sortBeadingRequirements(
+    session.requirements,
+    cells,
+    getCode,
+    session.completedColorCodes,
+    toolState.sortMode,
+  ), [cells, getCode, session.completedColorCodes, session.requirements, toolState.sortMode]);
+
+  const selectColor = useCallback((colorCode: string) => {
+    setCurrent(colorCode);
+    if (!toolState.highlightEnabled) dispatch({ type: 'toggle-highlight' });
+  }, [toolState.highlightEnabled]);
+
+  const onCell = useCallback((index: number) => {
+    const cell = cells[index];
+    if (toolState.locked || !current || !cell || cell.transparent || getCode(cell.color) !== current) return;
+    const indexes = toolState.interactionMode === 'mark'
+      ? toggleMarkedCell(toolState.markedCellIndexes, index, cellCount)
+      : reviseMarkedCell(toolState.markedCellIndexes, index, cellCount);
+    dispatch({ type: 'set-marks', indexes, cellCount });
+  }, [cellCount, cells, current, getCode, toolState.interactionMode, toolState.locked, toolState.markedCellIndexes]);
+
+  const pointerHandlers = useBeadingPointer({
+    artboardRef,
+    rows,
+    cols,
+    locked: toolState.locked,
+    interactionMode: toolState.interactionMode,
+    onCell,
+  });
+
+  const allCompleted = nextIncompleteColor(session.requirements, session.completedColorCodes) === null;
+  const terminalPrepare = allCompleted && !isTerminalStatus(session.status);
+  const hasPendingAction = actions.pendingAction !== null;
+
+  const togglePause = useCallback(async () => {
+    if (!paused) {
+      setPaused(true);
+      await actions.save();
+      return;
+    }
+    if (await actions.resume()) setPaused(false);
+  }, [actions, paused]);
+
+  const saveAndExit = useCallback(async () => {
+    if (!await actions.save()) return;
+    setShowExit(false);
+    onExit({ mode: 'saved' });
+  }, [actions, onExit]);
+
+  const abandon = useCallback(() => {
+    clearDraft();
+    setShowExit(false);
+    onExit({ mode: 'abandon' });
+  }, [clearDraft, onExit]);
+
+  const finish = useCallback(async (deduct: boolean) => {
+    if (await actions.complete(deduct)) setShowCompletion(false);
+  }, [actions]);
+
+  const mainClassName = `beading-session-page${toolState.focusMode ? ' is-focus' : ''}`;
+  return (
+    <main className={mainClassName} aria-label="开始拼豆">
+      <BeadingToolbar
+        elapsed={elapsedText}
+        paused={paused}
+        progress={progress}
+        pendingAction={actions.pendingAction}
+        focusMode={toolState.focusMode}
+        onExit={() => setShowExit(true)}
+        onInventory={() => { void actions.openInventory(); }}
+        onTogglePause={() => { void togglePause(); }}
+        onSave={() => { void actions.save(); }}
+        onSettings={() => dispatch({ type: 'set-panel', panel: 'more' })}
+      />
+      <BeadingCanvasViewport
+        rows={rows}
+        cols={cols}
+        locked={toolState.locked}
+        focusMode={toolState.focusMode}
+        interactionMode={toolState.interactionMode}
+        artboardRef={artboardRef}
+        artboardProps={pointerHandlers}
+        onFitReady={(fit) => { fitRef.current = fit; }}
+      >
+        <CanvasRulers rows={rows} cols={cols} />
+        <H5CanvasLayers
+          artboardRef={artboardRef}
+          cells={cells}
+          rows={rows}
+          cols={cols}
+          codesVisible={toolState.codesVisible}
+          gridVisible={toolState.gridVisible}
+          getCode={getCode}
+          getTextColor={colorCodeTextColor}
+          overlay={{
+            currentColorCode: current,
+            highlightEnabled: toolState.highlightEnabled,
+            markedCellIndexes: toolState.markedCellIndexes,
+            completedColorCodes: session.completedColorCodes,
+          }}
+        />
+      </BeadingCanvasViewport>
+      <button
+        type="button"
+        className="beading-focus-toggle"
+        aria-label={toolState.focusMode ? '退出专注模式' : '进入专注模式'}
+        onClick={() => dispatch({ type: 'toggle-focus' })}
+      >
+        {toolState.focusMode ? '退出专注' : '专注'}
+      </button>
+      {!toolState.focusMode ? <>
+        <BeadingToolRow
+          interactionMode={toolState.interactionMode}
+          activePanel={toolState.activePanel}
+          highlightEnabled={toolState.highlightEnabled}
+          locked={toolState.locked}
+          currentColor={current}
+          pending={hasPendingAction}
+          onSearch={() => dispatch({ type: 'set-panel', panel: toolState.activePanel === 'search' ? null : 'search' })}
+          onToggleMark={() => dispatch({ type: 'toggle-mode', mode: 'mark' })}
+          onToggleHighlight={() => dispatch({ type: 'toggle-highlight' })}
+          onToggleLock={() => dispatch({ type: 'toggle-lock' })}
+          onMore={() => dispatch({ type: 'set-panel', panel: toolState.activePanel === 'more' ? null : 'more' })}
+          onFit={() => fitRef.current()}
+        />
+        <BeadingColorRail
+          requirements={sortedRequirements}
+          completed={session.completedColorCodes}
+          current={current}
+          sortMode={toolState.sortMode}
+          resolveColor={resolveColor}
+          resolveTextColor={colorCodeTextColor}
+          pending={hasPendingAction}
+          terminalPrepare={terminalPrepare}
+          revisionActive={toolState.interactionMode === 'revise'}
+          onSelect={selectColor}
+          onSort={() => dispatch({ type: 'set-sort', sortMode: sortCycle[toolState.sortMode] })}
+          onRevise={() => dispatch({ type: 'toggle-mode', mode: 'revise' })}
+          onComplete={() => { void (terminalPrepare ? actions.retryPrepare() : actions.completeCurrent()); }}
+        />
+      </> : null}
+      {status ? <p className="beading-status" role="status">{status}</p> : null}
+      <BeadingToolPanels
+        {...(toolState.activePanel === 'search' ? {
+          activePanel: 'search' as const,
+          query: searchQuery,
+          onQueryChange: setSearchQuery,
+          requirements: sortedRequirements,
+          completed: session.completedColorCodes,
+          current,
+          resolveColor,
+          onSelect: selectColor,
+          onClose: () => dispatch({ type: 'set-panel', panel: null }),
+        } : toolState.activePanel === 'more' ? {
+          activePanel: 'more' as const,
+          codesVisible: toolState.codesVisible,
+          gridVisible: toolState.gridVisible,
+          hasMarks: toolState.markedCellIndexes.length > 0,
+          onToggleCodes: () => dispatch({ type: 'toggle-codes' }),
+          onToggleGrid: () => dispatch({ type: 'toggle-grid' }),
+          onClearMarks: () => {
+            if (window.confirm('清除全部单格标记？')) dispatch({ type: 'set-marks', indexes: [], cellCount });
+          },
+          onReset: () => {
+            if (window.confirm('恢复默认工具设置？')) dispatch({ type: 'reset' });
+          },
+          onClose: () => dispatch({ type: 'set-panel', panel: null }),
+        } : { activePanel: null as null })}
+      />
+      {showExit ? <BeadingExitDialog
+        onContinue={() => setShowExit(false)}
+        onSaveExit={() => { void saveAndExit(); }}
+        onAbandon={abandon}
+      /> : null}
+      {showCompletion ? <BeadingCompletionDialog
+        pending={actions.pendingAction === 'complete'}
+        onReturn={() => {
+          setShowCompletion(false);
+          setPaused(true);
+        }}
+        onNoDeduct={() => { void finish(false); }}
+        onDeduct={() => { void finish(true); }}
+      /> : null}
+    </main>
+  );
 }

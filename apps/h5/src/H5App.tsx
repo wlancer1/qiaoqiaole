@@ -2668,11 +2668,15 @@ function H5App() {
         rows={rows}
         cols={cols}
         getCode={colorCodeOf}
-        onPatch={(completedColorCodes, elapsedSeconds) => { void patchBeadingProgress({ completedColorCodes, elapsedSeconds, version: beadingSession.version }); }}
-        onPrepareCompletion={() => { void prepareBeadingCompletion({ version: beadingSession.version }); }}
-        onComplete={(deduct) => { void completeBeading({ deduct }); }}
+        onPatch={patchBeadingProgress}
+        onPrepareCompletion={prepareBeadingCompletion}
+        onComplete={completeBeading}
+        onResume={resumeBeading}
+        onOpenInventory={openBeadingInventory}
+        onSessionConflict={(latest) => setBeadingSession(latest)}
+        draftOwnerId={loginName.trim() || undefined}
+        onStatus={setStatus}
         onExit={() => setScreen('canvas')}
-        onResume={() => { void resumeBeading({ version: beadingSession.version }); }}
         status={status}
       />
       {beadingInventoryCheck ? <InventoryCheckSheet result={beadingInventoryCheck} warehouseId={beadingInventoryCheck.warehouseId || ''} warehouseOptions={warehouses} onWarehouseChange={(warehouseId) => { if (!beadingSession) return; void requestApi<any>(`/v1/beading-sessions/${beadingSession.id}/inventory-check`, { method: 'POST', body: JSON.stringify({ warehouseId: warehouseId || undefined }) }).then(setBeadingInventoryCheck).catch((error) => setStatus(error instanceof Error ? error.message : '库存检测失败')); }} onClose={() => setBeadingInventoryCheck(null)} onStart={enterBeadingSession} /> : null}

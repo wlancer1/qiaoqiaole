@@ -420,4 +420,25 @@ describe('H5 flow presentation components', () => {
     expect(inventory).toContain("setStatus(error instanceof Error ? error.message : '库存检测失败')");
     expect(inventory).toContain('throw error');
   });
+
+  it('wires the beading page to Promise actions and owner/status props without void adapters', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+    const pageStart = source.indexOf('<BeadingSessionPage');
+    const pageEnd = source.indexOf('/>', pageStart);
+    const page = source.slice(pageStart, pageEnd);
+
+    expect(page).toContain('onPatch={patchBeadingProgress}');
+    expect(page).toContain('onPrepareCompletion={prepareBeadingCompletion}');
+    expect(page).toContain('onComplete={completeBeading}');
+    expect(page).toContain('onResume={resumeBeading}');
+    expect(page).toContain('onOpenInventory={openBeadingInventory}');
+    expect(page).toContain('onSessionConflict={(latest) => setBeadingSession(latest)}');
+    expect(page).toContain('draftOwnerId={loginName.trim() || undefined}');
+    expect(page).toContain('onStatus={setStatus}');
+    expect(page).toContain("onExit={() => setScreen('canvas')}");
+    expect(page).not.toContain('void patchBeadingProgress');
+    expect(page).not.toContain('void prepareBeadingCompletion');
+    expect(page).not.toContain('void completeBeading');
+    expect(page).not.toContain('void resumeBeading');
+  });
 });
