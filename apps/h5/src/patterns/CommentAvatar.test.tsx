@@ -8,8 +8,9 @@ describe('CommentAvatar', () => {
 
     expect(markup).toContain('data-comment-avatar-fallback="true"');
     expect(markup).toContain('aria-hidden="true"');
+    expect(markup).toContain('lucide-user-round');
     expect(markup).not.toContain('<img');
-    expect(markup).not.toContain('>用<');
+    expect(markup.replace(/<[^>]+>/g, '').trim()).toBe('');
   });
 
   it('renders a decorative image for a non-empty avatar URL', () => {

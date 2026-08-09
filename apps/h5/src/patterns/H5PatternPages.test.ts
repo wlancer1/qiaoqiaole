@@ -42,11 +42,20 @@ describe('PatternDetailPage layout contract', () => {
     const styles = fs.readFileSync(path.resolve('apps/h5/src/styles.css'), 'utf8');
     const avatarRule = styles.match(/\.detail-comment-avatar\s*\{([^}]*)\}/)?.[1] ?? '';
     const imageRule = styles.match(/\.detail-comment-avatar-image\s*\{([^}]*)\}/)?.[1] ?? '';
+    const fallbackRule = styles.match(/\.detail-comment-avatar\s*>\s*svg\s*\{([^}]*)\}/)?.[1] ?? '';
 
     expect(avatarRule).toContain('width: 0.635rem');
     expect(avatarRule).toContain('height: 0.635rem');
     expect(avatarRule).toContain('overflow: hidden');
+    expect(avatarRule).toContain('border-radius: 50%');
+    expect(avatarRule).toContain('background: #eef2f7');
+    expect(avatarRule).toContain('color: #64748b');
+    expect(imageRule).toContain('display: block');
+    expect(imageRule).toContain('width: 100%');
+    expect(imageRule).toContain('height: 100%');
     expect(imageRule).toContain('object-fit: cover');
+    expect(fallbackRule).toContain('width: 0.349rem');
+    expect(fallbackRule).toContain('height: 0.349rem');
   });
 });
 
