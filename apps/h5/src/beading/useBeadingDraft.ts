@@ -144,12 +144,14 @@ export function useBeadingDraft({
   }, [dispatch, ownerId, resolvedStorage, sessionId]);
 
   useEffect(() => {
+    const active = activeRef.current;
+    if (!active?.hydrated || !sameIdentity(active.identity, currentIdentity)) return;
     const normalizedMarks = normalizeBeadingDraft(state, cellCount).markedCellIndexes;
     if (normalizedMarks.length !== state.markedCellIndexes.length
       || normalizedMarks.some((index, position) => index !== state.markedCellIndexes[position])) {
       dispatch({ type: 'set-marks', indexes: normalizedMarks, cellCount });
     }
-  }, [cellCount, dispatch, state.markedCellIndexes]);
+  }, [cellCount, dispatch, ownerId, resolvedStorage, sessionId, state.markedCellIndexes]);
 
   useEffect(() => {
     const active = activeRef.current;

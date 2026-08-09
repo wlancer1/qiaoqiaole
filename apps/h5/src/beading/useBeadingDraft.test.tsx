@@ -185,6 +185,33 @@ describe('useBeadingDraft with real React lifecycle', () => {
     });
   });
 
+  it('preserves B marks when identity and cellCount change together and keeps B persistable', async () => {
+    const keyB = beadingDraftKey('owner-b', 'session-b');
+    const storage = createStorage({ [keyB]: draft({ markedCellIndexes: [4, 2, 0] }) });
+    const harness = createHarness();
+    await harness.mount({ ownerId: 'owner-a', sessionId: 'session-a', cellCount: 6, storage });
+    harness.dispatch({ type: 'set-marks', indexes: [1, 5], cellCount: 6 });
+
+    await harness.update({ ownerId: 'owner-b', sessionId: 'session-b', cellCount: 3, storage });
+
+    expect(harness.control.current!.state.markedCellIndexes).toEqual([0, 2]);
+    act(() => { vi.advanceTimersByTime(150); });
+    const debouncedB = storage.setItem.mock.calls.find(([key]) => key === keyB);
+    expect(JSON.parse(debouncedB![1]).markedCellIndexes).toEqual([0, 2]);
+
+    storage.setItem.mockClear();
+    harness.dispatch({ type: 'toggle-lock' });
+    harness.unmount();
+    await flushMicrotasks();
+
+    expect(storage.setItem).toHaveBeenCalledTimes(1);
+    expect(storage.setItem.mock.calls[0][0]).toBe(keyB);
+    expect(JSON.parse(storage.setItem.mock.calls[0][1])).toMatchObject({
+      markedCellIndexes: [0, 2],
+      locked: true,
+    });
+  });
+
   it('resets to defaults when B has no draft', async () => {
     const storage = createStorage();
     const harness = createHarness();
