@@ -2446,12 +2446,12 @@ function H5App() {
         try {
           await requestApi(`/projects/${target.id}`, { method: 'DELETE' });
           setRecentProjects((projects) => projects.filter((project) => project.id !== target.id));
-          setProjectActionTarget(null);
+          setProjectActionTarget((current) => current?.id === target.id ? null : current);
           setStatus('作品已删除。');
         } catch (error) {
           const requestError = error as RequestApiError;
           const invalidProjectError = requestError.status === 401 || requestError.status === 404 || requestError.code === 'NOT_FOUND';
-          if (invalidProjectError) setProjectActionTarget(null);
+          if (invalidProjectError) setProjectActionTarget((current) => current?.id === target.id ? null : current);
           setStatus(error instanceof Error ? error.message : '删除作品失败');
         }
       }}

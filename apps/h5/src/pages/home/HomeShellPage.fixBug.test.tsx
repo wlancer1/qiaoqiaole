@@ -131,6 +131,7 @@ describe('recent project stale action handling', () => {
     expect(source).toContain('error.status = response.status;');
     expect(source).toContain('error.code = payload.error || payload.code;');
     expect(source).toContain("const invalidProjectError = requestError.status === 401 || requestError.status === 404 || requestError.code === 'NOT_FOUND';");
-    expect(source).toContain('if (invalidProjectError) setProjectActionTarget(null);');
+    expect(source).toContain('if (invalidProjectError) setProjectActionTarget((current) => current?.id === target.id ? null : current);');
+    expect(source.match(/setProjectActionTarget\(\(current\) => current\?\.id === target\.id \? null : current\)/g) ?? []).toHaveLength(2);
   });
 });
