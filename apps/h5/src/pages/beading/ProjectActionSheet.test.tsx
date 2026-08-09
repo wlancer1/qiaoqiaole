@@ -22,14 +22,15 @@ function childElements(node: ReactNode): TestElement[] {
 
 function collectElements(node: ReactNode): TestElement[] {
   if (!isValidElement(node)) return [];
-  return [node as TestElement, ...childElements(node.props.children).flatMap(collectElements)];
+  const element = node as TestElement;
+  return [element, ...childElements(element.props.children).flatMap(collectElements)];
 }
 
 function textContent(node: ReactNode): string {
   if (node == null || typeof node === 'boolean') return '';
   if (typeof node === 'string' || typeof node === 'number') return String(node);
   if (Array.isArray(node)) return node.map((child) => textContent(child)).join('');
-  if (isValidElement(node)) return textContent(node.props.children);
+  if (isValidElement(node)) return textContent((node as TestElement).props.children);
   return Children.toArray(node).map((child) => textContent(child)).join('');
 }
 

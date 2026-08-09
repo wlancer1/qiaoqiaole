@@ -2417,6 +2417,35 @@ function H5App() {
       {loginModalFallback}
     </>
   );
+  const projectActionSheet = projectActionTarget ? (() => {
+    const target = projectActionTarget;
+    const hasSession = Boolean(beadingSession?.projectId === target.id && beadingSession != null && ['in_progress', 'paused', 'pending_completion'].includes(beadingSession.status));
+    return <ProjectActionSheet
+      project={target}
+      hasSession={hasSession}
+      onClose={() => setProjectActionTarget(null)}
+      onStart={() => { void startBeadingProject(target); }}
+      onEdit={() => {
+        setProjectActionTarget(null);
+        openSavedProject(target);
+      }}
+      onShare={() => {
+        void shareSavedProject(target);
+        setProjectActionTarget(null);
+      }}
+      onDelete={async () => {
+        if (!window.confirm('删除后将同时放弃未完成的拼豆会话，确定删除吗？')) return;
+        try {
+          await requestApi(`/projects/${target.id}`, { method: 'DELETE' });
+          setRecentProjects((projects) => projects.filter((project) => project.id !== target.id));
+          setProjectActionTarget(null);
+          setStatus('作品已删除。');
+        } catch (error) {
+          setStatus(error instanceof Error ? error.message : '删除作品失败');
+        }
+      }}
+    />;
+  })() : null;
 
   if (screen === 'split' && uploadedSplitImage) {
     return <SplitSettingsPage
@@ -2701,14 +2730,14 @@ function H5App() {
         onShare={shareSavedProject}
         sharingProjectId={sharingProjectId}
         shareFailedProjectIds={shareFailedProjectIds}
-        actionSheet={projectActionTarget ? <ProjectActionSheet project={projectActionTarget} hasSession={Boolean(beadingSession?.projectId === projectActionTarget.id && ['in_progress', 'paused', 'pending_completion'].includes(beadingSession.status))} onClose={() => setProjectActionTarget(null)} onStart={() => { void startBeadingProject(projectActionTarget); }} onEdit={() => { setProjectActionTarget(null); openSavedProject(projectActionTarget); }} onShare={() => { void shareSavedProject(projectActionTarget); setProjectActionTarget(null); }} onDelete={async () => { if (!window.confirm('删除后将同时放弃未完成的拼豆会话，确定删除吗？')) return; try { await requestApi(`/projects/${projectActionTarget.id}`, { method: 'DELETE' }); setRecentProjects((projects) => projects.filter((project) => project.id !== projectActionTarget.id)); setProjectActionTarget(null); setStatus('作品已删除。'); } catch (error) { setStatus(error instanceof Error ? error.message : '删除作品失败'); } }} /> : null}
+        actionSheet={projectActionSheet}
       />
     );
   }
 
   return withLoginModalFallback(<HomeShellPage
     fileInputRef={fileInputRef} handleUpload={handleUpload} status={status} activeTab={activeTab}
-    recentProjects={sortedRecentProjects} homeTemplateCards={homeTemplateCards} onOpenRecentProject={openSavedProject}
+    recentProjects={sortedRecentProjects} homeTemplateCards={homeTemplateCards} onOpenRecentProject={(project: RecentProject) => setProjectActionTarget(project)} actionSheet={projectActionSheet}
     openUpload={openUpload} isLoggedIn={isLoggedIn}
     loginName={loginName} setLoginName={setLoginName} loginPassword={loginPassword} setLoginPassword={setLoginPassword} submitLogin={submitLogin}
     isAuthenticating={isAuthenticating} showLoginModal={showLoginModal} setShowLoginModal={setShowLoginModal}

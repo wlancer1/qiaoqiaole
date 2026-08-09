@@ -2,9 +2,10 @@ import { HomeUploadHero } from '../../flow/H5FlowComponents';
 import { AuthorProfilePage, PatternDetailPage, PatternDiscoverPage, PatternMessagesPage } from '../../patterns/H5PatternPages';
 import { Icon } from '../../shared/h5Icons';
 import { Heart, LogOut, MessageCircle } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { passwordValidationMessage } from '../../utils/passwordValidation';
 
-type HomeShellPageProps = Record<string, any>;
+type HomeShellPageProps = Record<string, any> & { actionSheet?: ReactNode };
 
 export function PhoneLoginModal(props: Record<string, any>) {
   const {
@@ -85,7 +86,7 @@ function LogoutConfirmModal({ onCancel, onConfirm }: { onCancel: () => void; onC
 
 export function HomeShellPage(props: HomeShellPageProps) {
   const {
-    fileInputRef, handleUpload, status, activeTab, recentProjects, onOpenRecentProject,
+    fileInputRef, handleUpload, status, activeTab, recentProjects, onOpenRecentProject, actionSheet,
     openUpload, isLoggedIn, loginName, setLoginName, loginPassword, setLoginPassword, submitLogin, isAuthenticating, showLoginModal,
     setShowLoginModal, showUploadModal, showBlankCanvasOption, closeUploadModal, showXhsInput, setShowXhsInput, xhsLink, setXhsLink,
     xhsExtractedImages, isExtractingXhs, chooseLocalDrawing, extractXiaohongshuImage, importXhsImage,
@@ -448,6 +449,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
           <span>我的</span>
         </button>
       </nav>
+      {actionSheet}
     </main>
   );
 }

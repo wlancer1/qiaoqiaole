@@ -24,7 +24,8 @@ function childElements(node: ReactNode): TestElement[] {
 
 function collectElements(node: ReactNode): TestElement[] {
   if (!isValidElement(node)) return [];
-  return [node as TestElement, ...childElements(node.props.children).flatMap(collectElements)];
+  const element = node as TestElement;
+  return [element, ...childElements(element.props.children).flatMap(collectElements)];
 }
 
 describe('home recent project actions', () => {
