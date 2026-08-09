@@ -724,6 +724,8 @@ describe('BeadingSessionPage static contracts', () => {
     expect(pageButtons).not.toMatch(/(?:^|;)\s*font\s*:/);
     expectDeclaration(cssBlock(styles, '.beading-toolbar > button'), 'width', '1.1429rem');
     expectDeclaration(cssBlock(styles, '.beading-toolbar-actions button'), 'min-height', '44px');
+    expectDeclaration(cssBlock(styles, '.beading-toolbar-actions button::before'), 'inset', '0.1905rem 0');
+    expectDeclaration(cssBlock(styles, '.beading-toolbar-actions button::before'), 'background', '#f7f9fc');
     expectDeclaration(cssBlock(styles, '.beading-progress-track'), 'height', /[78]px/);
     expectDeclaration(cssBlock(styles, '.beading-progress-fill'), 'background', /linear-gradient\([^;]*#(?:1268d7|146cff)[^;]*#[0-9a-f]{6}[^;]*\)/i);
     expectDeclaration(cssBlock(styles, '.beading-tool-row'), 'height', '1.7778rem');
@@ -797,7 +799,7 @@ describe('BeadingSessionPage static contracts', () => {
     expect(contrastRatio('#1859b8', '#eef5ff')).toBeGreaterThanOrEqual(4.5);
 
     const actualPairs = [
-      ['.beading-toolbar-actions .beading-toolbar-save', '.beading-toolbar-actions .beading-toolbar-save'],
+      ['.beading-toolbar-actions .beading-toolbar-save', '.beading-toolbar-actions .beading-toolbar-save::before'],
       ['.beading-toolbar-actions .beading-timer svg', '.beading-toolbar-actions .beading-timer svg'],
       ['.beading-tool-button.is-active,\n.beading-tool-button[aria-pressed="true"]', '.beading-tool-button.is-active,\n.beading-tool-button[aria-pressed="true"]'],
       ['.beading-search-input svg', '.beading-search-input'],

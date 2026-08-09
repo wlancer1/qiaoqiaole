@@ -79,6 +79,7 @@
 }
 
 .beading-toolbar-actions button {
+  position: relative;
   display: inline-flex;
   min-width: 44px;
   min-height: 44px;
@@ -86,11 +87,27 @@
   justify-content: center;
   gap: 0.1587rem;
   padding: 0 0.3175rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #52657f;
+  white-space: nowrap;
+}
+
+.beading-toolbar-actions button::before {
+  position: absolute;
+  inset: 0.1905rem 0;
+  z-index: 0;
   border: 1px solid #dce4ef;
   border-radius: 999px;
   background: #f7f9fc;
-  color: #52657f;
-  white-space: nowrap;
+  content: "";
+  pointer-events: none;
+}
+
+.beading-toolbar-actions button > * {
+  position: relative;
+  z-index: 1;
 }
 
 .beading-toolbar-actions button:last-child {
@@ -102,15 +119,28 @@
   border-radius: 0.1905rem;
 }
 
+.beading-toolbar-actions button:last-child::before {
+  inset: 0.1905rem 0;
+  border-radius: 0.1905rem;
+}
+
 .beading-toolbar-actions button:hover:not(:disabled),
 .beading-toolbar-actions button:active:not(:disabled) {
+  background: transparent;
+}
+
+.beading-toolbar-actions button:hover:not(:disabled)::before,
+.beading-toolbar-actions button:active:not(:disabled)::before {
   background: #edf3fb;
 }
 
 .beading-toolbar-actions .beading-toolbar-save {
+  color: #087058;
+}
+
+.beading-toolbar-actions .beading-toolbar-save::before {
   border-color: #9fe3d4;
   background: #edfbf7;
-  color: #087058;
 }
 
 .beading-toolbar svg {
