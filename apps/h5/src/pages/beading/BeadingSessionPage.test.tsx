@@ -429,8 +429,11 @@ describe('BeadingSessionPage integration', () => {
     expect(textButton(renderer, '返回检查').props.disabled).toBe(true);
     act(() => { textButton(renderer, '返回检查').props.onClick(); });
     expect(onReturnToProgress).toHaveBeenCalledTimes(2);
-    await act(async () => resolveReturn(session({ status: 'in_progress', version: 5 })));
+    await act(async () => resolveReturn(session({ status: 'paused', version: 5 })));
     expect(renderer.root.findAllByProps({ 'aria-label': '完成拼豆' })).toHaveLength(0);
+    expect(button(renderer, '继续计时')).toBeTruthy();
+    await click(renderer, '继续计时');
+    expect(props.onResume).toHaveBeenCalledWith({ version: 4 });
     expect(button(renderer, '暂停计时')).toBeTruthy();
   });
 

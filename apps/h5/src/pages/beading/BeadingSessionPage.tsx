@@ -279,7 +279,7 @@ export function BeadingSessionPage({
   const returnToProgress = useCallback(async () => {
     if (!await actions.returnToProgress()) return;
     setShowCompletion(false);
-    setPaused(false);
+    setPaused(true);
   }, [actions]);
 
   const finish = useCallback(async (deduct: boolean) => {
