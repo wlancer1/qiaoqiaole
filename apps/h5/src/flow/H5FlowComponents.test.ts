@@ -476,7 +476,7 @@ describe('H5 flow presentation components', () => {
     expect(page).toContain('onOpenInventory={openBeadingInventory}');
     expect(page).toContain('onSessionConflict={(latest) => setBeadingSession(latest)}');
     expect(page).toContain('draftOwnerId={authUserId || undefined}');
-    expect(page).toContain('legacyDraftOwnerId={loginName.trim() || undefined}');
+    expect(page).toContain('legacyDraftOwnerId={legacyDraftOwnerId || undefined}');
     expect(page).toContain('onStatus={setStatus}');
     expect(page).toContain("onExit={() => setScreen('canvas')}");
     expect(page).not.toContain('void patchBeadingProgress');
@@ -488,11 +488,23 @@ describe('H5 flow presentation components', () => {
   it('keys beading drafts with the stable authenticated user id across login flows and reloads', () => {
     const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
     expect(source).toContain("const [authUserId, setAuthUserId] = useState('')");
+    expect(source).toContain("const [legacyDraftOwnerId, setLegacyDraftOwnerId] = useState('')");
     expect(source).toContain('setAuthUserId(payload.user.id)');
     expect(source).toContain('setAuthUserId(data.user.id)');
     expect(source).toContain("setAuthUserId('')");
     expect(source).toMatch(/setAuthUserId\(payload\.user\.id \|\| stored\.userId \|\| ''\)/);
     expect(source).toContain('userId: payload.user.id');
     expect(source).toContain('userId: data.user.id');
+    expect(source).toContain("setLegacyDraftOwnerId((stored.username || '').trim())");
+    expect(source).toContain("setLegacyDraftOwnerId((data.user.nickname || '我的创作').trim())");
+    expect(source).toContain("setLegacyDraftOwnerId('')");
+  });
+
+  it('isolates Playwright frontends and their API proxy unless reuse is explicitly requested', () => {
+    const source = fs.readFileSync(path.resolve('playwright.config.ts'), 'utf8');
+    expect(source).toContain("validPort('WEB_E2E_PORT', process.env.WEB_E2E_PORT, 5183)");
+    expect(source).toContain("validPort('H5_E2E_PORT', process.env.H5_E2E_PORT, 5184)");
+    expect(source).toContain("reuseExistingServer: process.env.PLAYWRIGHT_REUSE_FRONTENDS === '1'");
+    expect(source).not.toContain('reuseExistingServer: !process.env.CI');
   });
 });

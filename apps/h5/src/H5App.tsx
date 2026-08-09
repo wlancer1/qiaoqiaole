@@ -218,6 +218,7 @@ function H5App() {
   const [paletteQuery, setPaletteQuery] = useState('');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [authUserId, setAuthUserId] = useState('');
+  const [legacyDraftOwnerId, setLegacyDraftOwnerId] = useState('');
   const [loginName, setLoginName] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -466,6 +467,7 @@ function H5App() {
         if (cancelled) return;
         setAuthToken(stored.token);
         setAuthUserId(payload.user.id || stored.userId || '');
+        setLegacyDraftOwnerId((stored.username || '').trim());
         setLoginName(payload.user.username || payload.user.nickname || stored.username || '');
         setIsLoggedIn(true);
         await loadRecentProjects(stored.token);
@@ -1281,6 +1283,7 @@ function H5App() {
       if (authRequestSeqRef.current !== requestSeq || !showLoginModal) return;
       setAuthToken(payload.token);
       setAuthUserId(payload.user.id);
+      setLegacyDraftOwnerId(payload.user.username.trim());
       setLoginName(payload.user.username);
       setIsLoggedIn(true);
       window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token: payload.token, username: payload.user.username, userId: payload.user.id }));
@@ -1389,6 +1392,7 @@ function H5App() {
       const data = payload.data as { accessToken: string; user: { nickname?: string; id: string } };
       setAuthToken(data.accessToken);
       setAuthUserId(data.user.id);
+      setLegacyDraftOwnerId((data.user.nickname || '我的创作').trim());
       setLoginName(data.user.nickname || '我的创作');
       setIsLoggedIn(true);
       window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token: data.accessToken, username: data.user.nickname || '我的创作', userId: data.user.id }));
@@ -1424,6 +1428,7 @@ function H5App() {
     }
     setAuthToken('');
     setAuthUserId('');
+    setLegacyDraftOwnerId('');
     setIsLoggedIn(false);
     setLoginName('');
     setRecentProjects([]);
@@ -2732,7 +2737,7 @@ function H5App() {
         onOpenInventory={openBeadingInventory}
         onSessionConflict={(latest) => setBeadingSession(latest)}
         draftOwnerId={authUserId || undefined}
-        legacyDraftOwnerId={loginName.trim() || undefined}
+        legacyDraftOwnerId={legacyDraftOwnerId || undefined}
         onStatus={setStatus}
         onExit={() => setScreen('canvas')}
         status={status}

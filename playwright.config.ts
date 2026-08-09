@@ -9,8 +9,10 @@ function validPort(name: string, value: string | undefined, fallback: number): n
 }
 
 const apiPort = validPort('API_E2E_PORT', process.env.API_E2E_PORT, 3100);
-const h5Port = validPort('H5_E2E_PORT', process.env.H5_E2E_PORT, 5174);
+const webPort = validPort('WEB_E2E_PORT', process.env.WEB_E2E_PORT, 5183);
+const h5Port = validPort('H5_E2E_PORT', process.env.H5_E2E_PORT, 5184);
 const apiBaseUrl = `http://127.0.0.1:${apiPort}`;
+const webBaseUrl = `http://127.0.0.1:${webPort}`;
 const h5BaseUrl = `http://127.0.0.1:${h5Port}`;
 
 export default defineConfig({
@@ -25,14 +27,14 @@ export default defineConfig({
       reuseExistingServer: process.env.PLAYWRIGHT_REUSE_API === '1',
     },
     {
-      command: `QIAOQIAOLE_API_URL=${apiBaseUrl} npm run dev:web -- --port 5173 --strictPort`,
-      url: 'http://127.0.0.1:5173',
-      reuseExistingServer: !process.env.CI,
+      command: `QIAOQIAOLE_API_URL=${apiBaseUrl} npm run dev:web -- --port ${webPort} --strictPort`,
+      url: webBaseUrl,
+      reuseExistingServer: process.env.PLAYWRIGHT_REUSE_FRONTENDS === '1',
     },
     {
       command: `QIAOQIAOLE_API_URL=${apiBaseUrl} npm run dev:h5 -- --port ${h5Port} --strictPort`,
       url: h5BaseUrl,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: process.env.PLAYWRIGHT_REUSE_FRONTENDS === '1',
     },
   ],
   projects: [
@@ -41,7 +43,7 @@ export default defineConfig({
       testMatch: /app\.spec\.ts/,
       use: {
         ...devices['Desktop Chrome'],
-        baseURL: 'http://127.0.0.1:5173',
+        baseURL: webBaseUrl,
       },
     },
     {
