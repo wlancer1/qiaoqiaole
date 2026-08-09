@@ -42,11 +42,12 @@ describe('restored authentication display name', () => {
     expect(resolveRestoredDisplayName({ username: ' ', nickname: '\n' }, ' 本地昵称 ')).toBe('本地昵称');
   });
 
-  it('rejects generated phone identifiers from every candidate', () => {
-    expect(resolveRestoredDisplayName(
-      { username: 'phone_0123456789abcdef', nickname: ' phone_legacy ' },
-      'phone_cached',
-    )).toBe('我的创作');
+  it.each([
+    [{ nickname: 'phone_legacy' }, ''],
+    [{ username: 'phone_0123456789abcdef' }, ''],
+    [{}, 'phone_cached'],
+  ])('rejects a generated phone identifier from any candidate', (user, stored) => {
+    expect(resolveRestoredDisplayName(user, stored)).toBe('我的创作');
   });
 
   it('uses a neutral fallback when all candidates are exhausted', () => {
@@ -97,7 +98,7 @@ Run:
 npx vitest run --config vitest.config.ts apps/h5/src/utils/authDisplayName.test.ts
 ```
 
-Expected: 1 test file and 5 tests pass.
+Expected: 1 test file and 7 tests pass.
 
 ### Task 2: Wire the resolver into H5 session restoration
 
@@ -107,7 +108,7 @@ Expected: 1 test file and 5 tests pass.
 
 - [ ] **Step 1: Import the resolver**
 
-Add this import beside the other `./utils/` imports:
+Before editing, run `git diff -- apps/h5/src/H5App.tsx` and retain the output in the session as the baseline for the existing user-owned changes. Then use a surgical patch to add this import beside the other `./utils/` imports:
 
 ```ts
 import { resolveRestoredDisplayName } from './utils/authDisplayName';
@@ -115,23 +116,25 @@ import { resolveRestoredDisplayName } from './utils/authDisplayName';
 
 - [ ] **Step 2: Replace the unsafe username-first selection**
 
-Change only the display-name assignment inside `restoreSession`:
+Preserve the existing malformed-response failure boundary by validating `payload.user` before changing login state. Then change only the display-name assignment inside `restoreSession`:
 
 ```ts
-setLoginName(resolveRestoredDisplayName(payload.user || {}, stored.username));
+if (!payload.user || typeof payload.user !== 'object') throw new Error('登录状态响应无效');
+setLoginName(resolveRestoredDisplayName(payload.user, stored.username));
 ```
 
 Keep token validation, login state, data loading, and expired-session cleanup unchanged.
 
-- [ ] **Step 3: Run focused and adjacent H5 unit tests**
+- [ ] **Step 3: Run focused tests, then all H5 unit tests**
 
 Run:
 
 ```bash
 npx vitest run --config vitest.config.ts apps/h5/src/utils/authDisplayName.test.ts apps/h5/src/pages/home/HomeShellPage.fixBug.test.tsx
+npx vitest run --config vitest.config.ts apps/h5/src
 ```
 
-Expected: both test files pass.
+Expected: focused tests pass, followed by the complete H5 unit-test set passing.
 
 - [ ] **Step 4: Run H5 build verification**
 
@@ -152,4 +155,4 @@ git diff --check
 git diff -- apps/h5/src/utils/authDisplayName.ts apps/h5/src/utils/authDisplayName.test.ts apps/h5/src/H5App.tsx
 ```
 
-Because `apps/h5/src/H5App.tsx` already contains unrelated user-owned working-tree edits and the user did not request a code commit, leave the implementation changes unstaged. Do not revert, rewrite, or accidentally include the existing edits in a commit.
+Compare the final `H5App.tsx` diff to the Step 1 baseline and confirm the only additions are the resolver import, malformed-response guard, and resolver call; the existing `beadList` changes must be byte-for-byte preserved. Because the file already contains unrelated user-owned working-tree edits and the user did not request a code commit, leave the implementation changes unstaged. Do not revert, rewrite, or accidentally include the existing edits in a commit.
