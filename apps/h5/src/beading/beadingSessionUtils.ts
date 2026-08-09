@@ -1,3 +1,5 @@
+import { createBeadingToolState, type BeadingToolState, type SortMode } from './beadingToolState';
+
 export type BeadingRequirement = { colorCode: string; required: number };
 export type BeadingProgress = { completed: number; total: number; percent: number };
 
@@ -20,15 +22,60 @@ export function beadingDraftKey(userId: string, sessionId: string): string {
   return `qiaoqiaole.beading-draft:${userId}:${sessionId}`;
 }
 
-export type BeadingDraft = { completedColorCodes: string[]; elapsedSeconds: number; updatedAt: string };
+export type BeadingDraft = {
+  completedColorCodes: string[];
+  elapsedSeconds: number;
+  updatedAt: string;
+  markedCellIndexes?: number[];
+  highlightEnabled?: boolean;
+  locked?: boolean;
+  codesVisible?: boolean;
+  gridVisible?: boolean;
+  sortMode?: SortMode;
+};
 
-export function readBeadingDraft(storage: Pick<Storage, 'getItem'>, userId: string, sessionId: string): BeadingDraft | null {
+export type PersistedBeadingToolState = Pick<
+  BeadingToolState,
+  'markedCellIndexes' | 'highlightEnabled' | 'locked' | 'codesVisible' | 'gridVisible' | 'sortMode'
+>;
+
+export function normalizeBeadingDraft(raw: unknown, cellCount: number): PersistedBeadingToolState {
+  const defaults = createBeadingToolState();
+  const draft = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+  const markedCellIndexes = Array.isArray(draft.markedCellIndexes)
+    ? [...new Set(draft.markedCellIndexes.filter(
+      (index): index is number => Number.isInteger(index) && Number(index) >= 0 && Number(index) < cellCount,
+    ) as number[])].sort((left, right) => left - right)
+    : defaults.markedCellIndexes;
+  const sortMode = draft.sortMode === 'canvas' || draft.sortMode === 'remaining' || draft.sortMode === 'code'
+    ? draft.sortMode
+    : defaults.sortMode;
+
+  return {
+    markedCellIndexes,
+    highlightEnabled: typeof draft.highlightEnabled === 'boolean' ? draft.highlightEnabled : defaults.highlightEnabled,
+    locked: typeof draft.locked === 'boolean' ? draft.locked : defaults.locked,
+    codesVisible: typeof draft.codesVisible === 'boolean' ? draft.codesVisible : defaults.codesVisible,
+    gridVisible: typeof draft.gridVisible === 'boolean' ? draft.gridVisible : defaults.gridVisible,
+    sortMode,
+  };
+}
+
+export function readBeadingDraft(
+  storage: Pick<Storage, 'getItem'>,
+  userId: string,
+  sessionId: string,
+  onError?: (error: unknown) => void,
+): BeadingDraft | null {
   try {
     const raw = storage.getItem(beadingDraftKey(userId, sessionId));
     if (!raw) return null;
     const draft = JSON.parse(raw) as BeadingDraft;
     return Array.isArray(draft.completedColorCodes) ? draft : null;
-  } catch { return null; }
+  } catch (error) {
+    onError?.(error);
+    return null;
+  }
 }
 
 export function writeBeadingDraft(storage: Pick<Storage, 'setItem'>, userId: string, sessionId: string, draft: BeadingDraft): void {
