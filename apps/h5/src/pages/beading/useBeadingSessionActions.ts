@@ -160,7 +160,8 @@ export function useBeadingSessionActions(input: UseBeadingSessionActionsInput): 
     if (input.session.status !== 'pending_completion') return;
     const key = `${input.session.id}:${input.session.version}`;
     if (restoredPendingKeysRef.current.has(key)) return;
-    if (safeNotify(input, input.onPrepared, input.session)) restoredPendingKeysRef.current.add(key);
+    restoredPendingKeysRef.current.add(key);
+    safeNotify(input, input.onPrepared, input.session);
   }, [input.session.id, input.session.status, input.session.version]);
 
   const begin = useCallback((action: Action): Operation | null => {

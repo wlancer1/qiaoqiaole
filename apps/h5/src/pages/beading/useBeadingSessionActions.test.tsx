@@ -556,8 +556,8 @@ describe('useBeadingSessionActions', () => {
       onPatch,
     }))).resolves.toBeUndefined();
 
-    expect(onPrepared).toHaveBeenCalledTimes(2);
-    expect(onStatus).toHaveBeenCalledTimes(2);
+    expect(onPrepared).toHaveBeenCalledTimes(1);
+    expect(onStatus).toHaveBeenCalledTimes(1);
     expect(onStatus).toHaveBeenCalledWith('界面更新失败，请刷新');
     let saved!: boolean;
     await act(async () => { saved = await harness.control.current!.save(); });
