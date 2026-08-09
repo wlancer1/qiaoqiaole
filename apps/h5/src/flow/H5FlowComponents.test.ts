@@ -476,6 +476,7 @@ describe('H5 flow presentation components', () => {
     expect(page).toContain('onOpenInventory={openBeadingInventory}');
     expect(page).toContain('onSessionConflict={(latest) => setBeadingSession(latest)}');
     expect(page).toContain('draftOwnerId={authUserId || undefined}');
+    expect(page).toContain('legacyDraftOwnerId={loginName.trim() || undefined}');
     expect(page).toContain('onStatus={setStatus}');
     expect(page).toContain("onExit={() => setScreen('canvas')}");
     expect(page).not.toContain('void patchBeadingProgress');
