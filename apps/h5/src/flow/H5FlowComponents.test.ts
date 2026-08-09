@@ -71,6 +71,7 @@ describe('H5 flow presentation components', () => {
     const styles = fs.readFileSync(path.resolve('apps/h5/src/styles.css'), 'utf8');
     const app = fs.readFileSync(path.resolve('apps/h5/src/pages/editor/CanvasPage.tsx'), 'utf8');
     const layers = fs.readFileSync(path.resolve('apps/h5/src/canvas/H5CanvasLayers.tsx'), 'utf8');
+    const editorLayers = fs.readFileSync(path.resolve('apps/h5/src/canvas/EditorCanvasLayers.tsx'), 'utf8');
     const artboardStyles = styles.match(/\.h5-artboard\s*\{([^}]*)\}/s)?.[1] ?? '';
     const canvasStyles = styles.match(/\.h5-canvas-layers canvas\s*\{([^}]*)\}/s)?.[1] ?? '';
     const stackStyles = styles.match(/\.h5-canvas-layers\s*\{([^}]*)\}/s)?.[1] ?? '';
@@ -80,7 +81,7 @@ describe('H5 flow presentation components', () => {
     const editorStart = app.indexOf('<main className="h5-canvas-page cell-codes-visible"');
     const editorEnd = app.indexOf('<main className="warehouse-page"', editorStart);
     const editorSource = app.slice(editorStart, editorEnd);
-    const stackIndex = editorSource.indexOf('<H5CanvasLayers');
+    const stackIndex = editorSource.indexOf('<EditorCanvasLayers');
     const transformIndex = editorSource.indexOf('<TransformComponent');
     const zIndex = (rule: string) => Number(rule.match(/z-index:\s*(-?\d+(?:\.\d+)?)\s*;/)?.[1] ?? Number.NaN);
     const stackZ = zIndex(stackStyles);
@@ -103,6 +104,8 @@ describe('H5 flow presentation components', () => {
     expect(`${stackStyles}\n${canvasStyles}`).not.toContain('image-rendering: pixelated');
     expect(layers.match(/aria-hidden="true"/g)).toHaveLength(4);
     expect(layers).toContain('className="h5-overlay-canvas"');
+    expect(editorLayers).toContain('getBoundingClientRect');
+    expect(editorLayers).toContain('editorCanvasGeometry');
   });
 
   it('keeps artwork semantics and input handlers on a div inside the transformed artboard', () => {
@@ -115,7 +118,7 @@ describe('H5 flow presentation components', () => {
     );
     const interactionTag = artboardSubtree.match(/<div[\s\S]*?className="h5-canvas-interaction canvas-artwork"[\s\S]*?>/)?.[0] ?? '';
 
-    expect(source).toContain('<H5CanvasLayers');
+    expect(source).toContain('<EditorCanvasLayers');
     expect(source).toContain('<main className="h5-canvas-page cell-codes-visible"');
     expect(layers).toContain('className="h5-color-canvas"');
     expect(layers).toContain('className="h5-code-canvas"');
@@ -141,7 +144,7 @@ describe('H5 flow presentation components', () => {
 
     expect(source).not.toContain("setCanvasKind('image')");
     expect(source).not.toContain("canvasKind === 'image'");
-    expect(source).toContain('<H5CanvasLayers');
+    expect(source).toContain('<EditorCanvasLayers');
     expect(source).toContain('codesVisible={canvasScale >= 1.5}');
     expect(source).not.toContain('h5-' + 'vector-canvas');
     expect(source).not.toContain('h5-' + 'vector-grid-lines');

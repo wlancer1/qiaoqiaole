@@ -1,6 +1,6 @@
 import { FileDown, Layers3, List, Redo2, Save, SlidersHorizontal, Undo2, X } from 'lucide-react';
 import { TransformComponent, TransformWrapper } from 'react-zoom-pan-pinch';
-import { H5CanvasLayers } from '../../canvas/H5CanvasLayers';
+import { EditorCanvasLayers } from '../../canvas/EditorCanvasLayers';
 import { CanvasRulers, CanvasScaleObserver } from '../../canvas/H5CanvasPreview';
 import { BeadListDrawer } from '../../flow/H5FlowComponents';
 import { Icon } from '../../shared/h5Icons';
@@ -203,7 +203,7 @@ return (
           {({ zoomIn, zoomOut, resetTransform }) => (
             <>
               <CanvasScaleObserver onScaleChange={setCanvasScale} />
-              <H5CanvasLayers
+              <EditorCanvasLayers
                 artboardRef={canvasArtboardRef}
                 cells={cells}
                 cols={cols}

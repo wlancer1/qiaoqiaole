@@ -8,7 +8,7 @@ import {
   useState,
 } from 'react';
 import type { Cell } from '@qiaoqiaole/core';
-import { H5CanvasLayers } from '../../canvas/H5CanvasLayers';
+import { BeadingCanvasLayers } from '../../canvas/BeadingCanvasLayers';
 import { CanvasRulers } from '../../canvas/H5CanvasPreview';
 import { colorCodeTextColor } from '../../utils/h5AppUtils';
 import {
@@ -322,7 +322,7 @@ export function BeadingSessionPage({
         onFitReady={(fit) => { fitRef.current = fit; }}
       >
         <CanvasRulers rows={rows} cols={cols} />
-        <H5CanvasLayers
+        <BeadingCanvasLayers
           artboardRef={artboardRef}
           cells={cells}
           rows={rows}

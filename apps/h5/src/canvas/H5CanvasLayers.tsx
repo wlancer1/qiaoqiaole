@@ -8,6 +8,10 @@ import {
 import { useTransformEffect } from 'react-zoom-pan-pinch';
 import type { Cell } from '@qiaoqiaole/core';
 import {
+  beadingCanvasGeometry,
+  type CanvasLayerGeometry,
+} from './CanvasLayerGeometry';
+import {
   drawViewportBeadingOverlay,
   type H5CanvasOverlay,
 } from './H5BeadingOverlay';
@@ -21,7 +25,7 @@ import {
   type ViewportArtboard,
 } from './H5CanvasRenderer';
 
-type H5CanvasLayersProps = {
+export type H5CanvasLayersProps = {
   artboardRef: RefObject<HTMLElement | null>;
   cells: readonly Cell[];
   rows: number;
@@ -31,6 +35,7 @@ type H5CanvasLayersProps = {
   getTextColor: (color: string) => string;
   overlay?: H5CanvasOverlay;
   gridVisible?: boolean;
+  measureGeometry?: (stack: HTMLElement, artboard: HTMLElement) => CanvasLayerGeometry;
 };
 
 export type CanvasLayerSnapshot = {
@@ -71,18 +76,6 @@ const EMPTY_OVERLAY: H5CanvasOverlay = {
   markedCellIndexes: [],
   completedColorCodes: [],
 };
-
-function untransformedDimension(
-  element: HTMLElement,
-  axis: 'width' | 'height',
-): number {
-  const clientSize = axis === 'width' ? element.clientWidth : element.clientHeight;
-  if (Number.isFinite(clientSize) && clientSize > 0) return clientSize;
-  const offsetSize = axis === 'width' ? element.offsetWidth : element.offsetHeight;
-  if (Number.isFinite(offsetSize) && offsetSize > 0) return offsetSize;
-  const inlineSize = Number.parseFloat(element.style?.[axis] ?? '');
-  return Number.isFinite(inlineSize) && inlineSize > 0 ? inlineSize : 0;
-}
 
 export function canvasLayerInvalidation(
   previous: CanvasLayerSnapshot | null,
@@ -134,6 +127,7 @@ export function H5CanvasLayers({
   getTextColor,
   overlay = EMPTY_OVERLAY,
   gridVisible = true,
+  measureGeometry = beadingCanvasGeometry,
 }: H5CanvasLayersProps) {
   const stackRef = useRef<HTMLDivElement>(null);
   const colorRef = useRef<HTMLCanvasElement>(null);
@@ -173,17 +167,9 @@ export function H5CanvasLayers({
     const overlayCanvas = overlayRef.current;
     if (!stack || !artboardElement || !colorCanvas || !codeCanvas || !gridCanvas || !overlayCanvas) return;
 
-    const artboardWidth = untransformedDimension(artboardElement, 'width');
-    const artboardHeight = untransformedDimension(artboardElement, 'height');
-    const viewportWidth = untransformedDimension(stack, 'width') || artboardWidth;
-    const viewportHeight = untransformedDimension(stack, 'height') || artboardHeight;
+    const measuredGeometry = measureGeometry(stack, artboardElement);
+    const { viewportWidth, viewportHeight, artboard } = measuredGeometry;
     const dpr = window.devicePixelRatio || 1;
-    const artboard = {
-      left: 0,
-      top: 0,
-      width: artboardWidth,
-      height: artboardHeight,
-    };
     const current = latestRef.current;
     const nextSnapshot: CanvasLayerSnapshot = {
       ...current,
@@ -258,7 +244,7 @@ export function H5CanvasLayers({
 
   useLayoutEffect(() => {
     scheduleDraw();
-  }, [cells, rows, cols, codesVisible, getCode, getTextColor, overlay, gridVisible, scheduleDraw]);
+  }, [cells, rows, cols, codesVisible, getCode, getTextColor, overlay, gridVisible, measureGeometry, scheduleDraw]);
 
   useLayoutEffect(() => {
     const stack = stackRef.current;
