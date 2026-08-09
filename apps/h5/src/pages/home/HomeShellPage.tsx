@@ -345,7 +345,10 @@ export function HomeShellPage(props: HomeShellPageProps) {
             setActivePattern(pattern);
             setScreen('pattern-detail');
           }}
-          onOpenAuthor={() => setScreen('author-profile')}
+          onOpenAuthor={(pattern: any) => {
+            setActivePattern(pattern);
+            setScreen('author-profile');
+          }}
         />
       ) : activeTab === 'messages' ? (
         <PatternMessagesPage

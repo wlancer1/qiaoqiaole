@@ -66,7 +66,7 @@ function passwordDigest(password, salt) { return scryptSync(password, salt, 32).
 function validPassword(password) { return password.length >= 8 && password.length <= 128; }
 function canonicalNickname(user) {
   const nickname = String(user?.nickname || '').trim();
-  if (nickname && !nickname.startsWith('phone_') && [...nickname].length <= 32) return nickname;
+  if (nickname && !nickname.startsWith('phone_')) return [...nickname].slice(0, 32).join('');
   if (user?.phoneLast4) return `用户${user.phoneLast4}`;
   const username = String(user?.username || '').trim();
   return [...username].slice(0, 24).join('') || '用户';
@@ -74,7 +74,7 @@ function canonicalNickname(user) {
 
 function isLegacyGeneratedNickname(user) {
   const nickname = String(user?.nickname || '').trim();
-  return nickname.startsWith('phone_') || [...nickname].length > 32;
+  return nickname.startsWith('phone_');
 }
 
 function jsonResponse(status, data, requestId, extra = {}) {

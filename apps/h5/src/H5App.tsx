@@ -764,16 +764,18 @@ function H5App() {
   };
 
   const openNotification = async (notification: CommunityNotification) => {
+    let opened = !notification.projectId;
     if (notification.projectId) {
       try {
         const payload = await requestApi<{ post: CommunityPost }>(`/community/posts/${notification.projectId}`);
         setActivePattern(toPatternListCard(payload.post));
         setScreen('pattern-detail');
+        opened = true;
       } catch (error) {
         setStatus(error instanceof Error ? error.message : '作品读取失败');
       }
     }
-    if (!notification.isRead) {
+    if (opened && !notification.isRead) {
       try {
         await requestApi(`/notifications/${notification.id}/read`, { method: 'PATCH' });
         setNotifications((items) => items.map((item) => item.id === notification.id ? { ...item, isRead: true, readAt: new Date().toISOString() } : item));
@@ -877,6 +879,51 @@ function H5App() {
     setShowSaveProjectModal(true);
   };
 
+  const shareCommunityPost = async (projectId: string, token = authToken) => {
+    if (!token) {
+      requireLogin((nextToken) => void shareCommunityPost(projectId, nextToken));
+      return;
+    }
+    const shareUrl = window.location.origin + window.location.pathname + '?project=' + encodeURIComponent(projectId);
+    try {
+      const shareApi = navigator as Navigator & { share?: (data: { title: string; url: string }) => Promise<void>; clipboard?: { writeText: (value: string) => Promise<void> } };
+      if (shareApi.share) {
+        await shareApi.share({ title: activePattern?.title || '拼豆图纸', url: shareUrl });
+        setStatus('分享面板已打开。');
+      } else if (shareApi.clipboard) {
+        await shareApi.clipboard.writeText(shareUrl);
+        setStatus('分享链接已复制。');
+      } else {
+        setStatus('当前浏览器不支持分享，请复制页面地址。');
+      }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        setStatus('已取消分享。');
+      } else {
+        setStatus(error instanceof Error ? error.message : '分享失败，请稍后重试。');
+      }
+    }
+  };
+
+  const downloadCommunityPattern = (projectId: string, token = authToken) => {
+    if (!token) {
+      requireLogin((nextToken) => downloadCommunityPattern(projectId, nextToken));
+      return;
+    }
+    const pattern = activePattern?.id === projectId ? activePattern : communityCards.find((item) => item.id === projectId);
+    const image = pattern?.detailImage || pattern?.image;
+    if (!image) {
+      setStatus('该图纸暂无可下载的预览图。');
+      return;
+    }
+    const link = document.createElement('a');
+    link.href = image;
+    link.download = (pattern?.title || '拼豆图纸') + '.png';
+    link.rel = 'noopener';
+    link.click();
+    setStatus('图纸下载已开始。');
+  };
+
   const openSavedProject = (project: RecentProject) => {
     const nextRows = Math.max(1, Math.round(project.rows));
     const nextCols = Math.max(1, Math.round(project.cols));
@@ -973,7 +1020,10 @@ function H5App() {
         }),
       });
       const saved = await saveRecentProject(name, rows, cols, uploadedSplitImage ? 'recent-dog' : 'recent-flower', imagePayload);
-      if (!saved) return;
+      if (!saved) {
+        saveAndStartRef.current = false;
+        return;
+      }
       const shouldStartBeading = saveAndStartRef.current;
       saveAndStartRef.current = false;
       if (shareToCommunity && !saved.sharedToCommunity) {
@@ -989,8 +1039,9 @@ function H5App() {
       setShowSaveProjectModal(false);
       if (!shareToCommunity || saved.sharedToCommunity) setStatus(saved.sharedToCommunity ? '已保存，社区分享状态保持不变。' : '已保存到我的作品。');
       if (shouldStartBeading) await startBeadingProject(saved);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : '作品保存失败，请稍后重试。');
+   } catch (error) {
+      saveAndStartRef.current = false;
+     setStatus(error instanceof Error ? error.message : '作品保存失败，请稍后重试。');
     } finally {
       saveProjectInFlightRef.current = false;
       setIsSavingProject(false);
@@ -2334,7 +2385,12 @@ function H5App() {
     authRequestSeqRef.current += 1;
     setIsAuthenticating(false);
     pendingAuthActionRef.current = null;
+    saveAndStartRef.current = false;
     setShowLoginModal(false);
+  };
+  const dismissSaveLoginPrompt = () => {
+    saveAndStartRef.current = false;
+    setShowSaveLoginPrompt(false);
   };
   const loginModalFallback = showLoginModal && !(screen === 'home' && (activeTab === 'home' || activeTab === 'profile')) ? (
     <PhoneLoginModal
@@ -2461,7 +2517,7 @@ function H5App() {
       showSaveProjectModal={showSaveProjectModal}
       setShowSaveProjectModal={setShowSaveProjectModal}
       showSaveLoginPrompt={showSaveLoginPrompt}
-      setShowSaveLoginPrompt={setShowSaveLoginPrompt}
+      setShowSaveLoginPrompt={dismissSaveLoginPrompt}
       onLoginForSave={() => {
         setShowSaveLoginPrompt(false);
         requireLogin((nextToken) => void saveCurrentProject(nextToken));
@@ -2600,6 +2656,8 @@ function H5App() {
         onLoadComments={() => activePattern && void loadCommunityComments(activePattern.id)}
         onLike={() => activePattern && void likeCommunityPost(activePattern.id)}
         onFollow={() => activePattern?.authorId && void toggleCommunityFollow(activePattern.authorId, Boolean(activePattern.isFollowing))}
+        onShare={() => activePattern && void shareCommunityPost(activePattern.id)}
+        onDownload={() => activePattern && downloadCommunityPattern(activePattern.id)}
         onComment={(content) => activePattern && void addCommunityComment(activePattern.id, content)}
         onLogin={() => setShowLoginModal(true)}
         onBack={() => {
@@ -2614,6 +2672,7 @@ function H5App() {
     return (
       <AuthorProfilePage
         patterns={communityCards}
+        authorPattern={activePattern ?? communityCards[0]}
         onBack={() => {
           setScreen('home');
           setActiveTab('discover');
@@ -2622,6 +2681,7 @@ function H5App() {
           setActivePattern(pattern);
           setScreen('pattern-detail');
         }}
+        onFollow={() => activePattern?.authorId && void toggleCommunityFollow(activePattern.authorId, Boolean(activePattern.isFollowing))}
       />
     );
   }

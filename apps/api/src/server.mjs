@@ -371,7 +371,7 @@ function initSchema() {
   const legacyPhoneNames = getAll(
     `SELECT u.id, i.identifier_last4 AS phoneLast4
      FROM users u JOIN user_identities i ON i.user_id = u.id AND i.provider = 'PHONE'
-     WHERE u.nickname IS NULL OR trim(u.nickname) = '' OR u.nickname LIKE 'phone_%' OR length(u.nickname) > 32`,
+     WHERE u.nickname IS NULL OR trim(u.nickname) = '' OR u.nickname LIKE 'phone_%'`,
   );
   for (const user of legacyPhoneNames) {
     if (user.phoneLast4) db.run('UPDATE users SET nickname = ?, updated_at = ? WHERE id = ?', [`用户${user.phoneLast4}`, new Date().toISOString(), user.id]);
@@ -1347,6 +1347,7 @@ async function deleteProject(response, userId, projectId) {
     const now = new Date().toISOString();
     db.run("UPDATE beading_sessions SET status = 'abandoned', project_id = NULL, active_key = NULL, abandoned_at = COALESCE(abandoned_at, ?), version = version + 1, updated_at = ? WHERE project_id = ? AND user_id = ? AND status IN ('in_progress', 'paused', 'pending_completion')", [now, now, projectId, userId]);
     db.run('DELETE FROM project_likes WHERE project_id = ?', [projectId]);
+    db.run('DELETE FROM notifications WHERE project_id = ?', [projectId]);
     db.run('DELETE FROM project_comments WHERE project_id = ?', [projectId]);
     db.run('DELETE FROM projects WHERE id = ? AND user_id = ?', [projectId, userId]);
   });
@@ -1379,6 +1380,13 @@ function parseStoredBeadList(value) {
   } catch {
     return [];
   }
+}
+
+function safeDisplayName(user) {
+  const nickname = String(user?.nickname || '').trim();
+  if (nickname && !nickname.startsWith('phone_')) return [...nickname].slice(0, 32).join('');
+  if (user?.phoneLast4) return '用户' + user.phoneLast4;
+  return [...String(user?.username || '').trim()].slice(0, 24).join('') || '用户';
 }
 
 function getCommunityPost(userId, projectId) {
@@ -1493,8 +1501,13 @@ async function createProjectComment(request, response, userId, projectId) {
   const body = await readJson(request);
   const content = String(body.content || '').trim();
   if (!content || [...content].length > 300) return sendJson(response, 400, { error: 'INVALID_INPUT', message: '评论内容不能为空且不能超过 300 个字' });
-  const author = getOne('SELECT id, username, nickname FROM users WHERE id = ?', [userId]);
-  const comment = { id: randomUUID(), projectId, authorId: userId, author: author ? (author.nickname || author.username) : '用户', content, createdAt: new Date().toISOString() };
+  const author = getOne(
+    `SELECT u.id, u.username, u.nickname, i.identifier_last4 AS phoneLast4
+     FROM users u LEFT JOIN user_identities i ON i.user_id = u.id AND i.provider = 'PHONE'
+     WHERE u.id = ?`,
+    [userId],
+  );
+  const comment = { id: randomUUID(), projectId, authorId: userId, author: safeDisplayName(author), content, createdAt: new Date().toISOString() };
   await withTransaction(async () => {
     db.run('INSERT INTO project_comments (id, project_id, user_id, content, created_at) VALUES (?, ?, ?, ?, ?)', [comment.id, projectId, userId, comment.content, comment.createdAt]);
     if (post.authorId !== userId) {

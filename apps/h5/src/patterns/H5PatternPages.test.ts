@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { limitCommentContent, MyWorksPage, PatternDetailPage, PatternDiscoverPage } from './H5PatternPages';
+import { limitCommentContent, MyWorksPage, PatternDetailPage, PatternDiscoverPage, PatternMessagesPage } from './H5PatternPages';
 
 describe('PatternDiscoverPage', () => {
   it('marks the selected community sort tab as active', () => {
@@ -88,6 +88,24 @@ describe('PatternDetailPage', () => {
     expect(markup).not.toContain('作品信息');
     expect(markup).not.toContain('detail-stat-cards');
     expect(markup).not.toContain('待生成');
+  });
+});
+
+describe('PatternMessagesPage', () => {
+  it('renders comment notifications and keeps the unread state visible', () => {
+    const markup = renderToStaticMarkup(createElement(PatternMessagesPage, {
+      isLoggedIn: true,
+      notifications: [{
+        id: 'notification-1', type: 'comment', projectId: 'project-1', commentId: 'comment-1',
+        content: '晴 评论了你的作品「小猫」', createdAt: '2026-08-09T12:00:00.000Z', isRead: false,
+        senderId: 'user-2', senderName: '晴',
+      }],
+      onHome: vi.fn(), onDiscover: vi.fn(), onUpload: vi.fn(), onProfile: vi.fn(), onLogin: vi.fn(), onOpenNotification: vi.fn(),
+    }));
+
+    expect(markup).toContain('晴 评论了你的作品');
+    expect(markup).toContain('未读');
+    expect(markup).toContain('消息');
   });
 });
 
