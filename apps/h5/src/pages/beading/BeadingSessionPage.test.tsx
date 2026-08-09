@@ -201,6 +201,28 @@ function contrastRatio(foreground: string, background: string): number {
   return (values[0] + 0.05) / (values[1] + 0.05);
 }
 
+function cssSource(file: 'session' | 'global' = 'session'): string {
+  const relativePath = file === 'session'
+    ? 'apps/h5/src/pages/beading/beadingSession.css'
+    : 'apps/h5/src/styles.css';
+  return fs.readFileSync(path.resolve(relativePath), 'utf8');
+}
+
+function cssBlock(source: string, selector: string): string {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = source.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`, 's'));
+  if (!match) throw new Error(`CSS selector not found: ${selector}`);
+  return match[1];
+}
+
+function expectDeclaration(block: string, property: string, value: RegExp | string) {
+  const escapedProperty = property.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const valuePattern = typeof value === 'string'
+    ? value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    : value.source;
+  expect(block).toMatch(new RegExp(`(?:^|;)\\s*${escapedProperty}\\s*:\\s*${valuePattern}\\s*(?:;|$)`, 's'));
+}
+
 beforeEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -629,31 +651,101 @@ describe('BeadingSessionPage static contracts', () => {
     expect(markup).toContain('aria-valuenow="0"');
   });
 
-  it('ships minimum styles for the split session control DOM', () => {
-    const styles = fs.readFileSync(path.resolve('apps/h5/src/styles.css'), 'utf8');
-    expect(styles).toMatch(/\.beading-toolbar-capsule\s*\{[^}]*min-height:\s*44px/s);
-    expect(styles).toContain('.beading-toolbar-actions button.beading-toolbar-capsule');
-    expect(styles).toMatch(/\.beading-progress-fill\s*\{[^}]*display:\s*block/s);
-    expect(styles).toMatch(/\.beading-color-chip\s*\{[^}]*min-width:\s*64px;[^}]*min-height:\s*68px/s);
-    expect(styles).toContain('.beading-tool-panel-backdrop');
-    expect(styles).toContain('.beading-color-actions');
-    expect(styles).toContain('.beading-color-complete-badge');
+  it('imports isolated session styles and leaves no legacy session rules in global CSS', () => {
+    const page = fs.readFileSync(path.resolve('apps/h5/src/pages/beading/BeadingSessionPage.tsx'), 'utf8');
+    const globalStyles = cssSource('global');
+    expect(page).toMatch(/import ['"]\.\/beadingSession\.css['"];?/);
+    expect(globalStyles).not.toMatch(/\.beading-(?:session-page|toolbar|progress|canvas|tool-row|color-(?:section|rail|chip|actions|sort|revise|complete)|dialog|status|resume)/);
+    expect(globalStyles).not.toMatch(/Temporary Task 5|Task 9 migrates/i);
+    expect(globalStyles).toContain('.beading-sheet');
+    expect(globalStyles).toContain('.project-action-list');
+  });
+
+  it('makes the session a safe-area-aware fixed viewport with a flexible stage', () => {
+    const styles = cssSource();
+    const page = cssBlock(styles, '.beading-session-page');
+    expectDeclaration(page, 'position', 'fixed');
+    expectDeclaration(page, 'height', '100dvh');
+    expectDeclaration(page, 'overflow', 'hidden');
+    expectDeclaration(page, 'display', 'flex');
+    expectDeclaration(page, 'background', '#f2f5fd');
+    expectDeclaration(page, 'color', '#1e3048');
+
+    const toolbar = cssBlock(styles, '.beading-toolbar');
+    expectDeclaration(toolbar, 'padding-top', /env\(safe-area-inset-top\)/);
+    expectDeclaration(toolbar, 'min-height', '64px');
+    expectDeclaration(toolbar, 'height', /max\(64px, calc\(44px \+ env\(safe-area-inset-top\)\)\)/);
+    const stage = cssBlock(styles, '.beading-canvas-stage');
+    expectDeclaration(stage, 'flex', /1(?: 1 auto)?/);
+    expectDeclaration(stage, 'min-height', '0');
+    expectDeclaration(stage, 'overflow', 'hidden');
+  });
+
+  it('sizes the header controls, progress, tool row, and color dock to the mobile reference', () => {
+    const styles = cssSource();
+    expectDeclaration(cssBlock(styles, '.beading-toolbar > button'), 'min-width', '44px');
+    expectDeclaration(cssBlock(styles, '.beading-toolbar-actions button'), 'min-height', '44px');
+    expectDeclaration(cssBlock(styles, '.beading-progress-track'), 'height', /[78]px/);
+    expectDeclaration(cssBlock(styles, '.beading-progress-fill'), 'background', /linear-gradient\([^;]*#(?:1268d7|146cff)[^;]*#[0-9a-f]{6}[^;]*\)/i);
+    expectDeclaration(cssBlock(styles, '.beading-tool-row'), 'height', /6[24]px/);
+    expectDeclaration(cssBlock(styles, '.beading-tool-button'), 'font-size', '12px');
+    const chip = cssBlock(styles, '.beading-color-chip');
+    expectDeclaration(chip, 'width', '64px');
+    expectDeclaration(chip, 'height', '68px');
+    expectDeclaration(cssBlock(styles, '.beading-color-chip.is-current'), 'box-shadow', /0 0 0 2px #fff[^,;]*,\s*0 0 0 4px #f0a517/);
+    expectDeclaration(cssBlock(styles, '.beading-color-complete-badge'), 'background', /#(?:1268d7|146cff)/i);
+    expectDeclaration(cssBlock(styles, '.beading-complete-color'), 'min-width', /(?:8[0-9]|9[0-2])px/);
+    expectDeclaration(cssBlock(styles, '.beading-color-section'), 'padding-bottom', /calc\([^;]*env\(safe-area-inset-bottom\)\)/);
+  });
+
+  it('keeps all four Canvas layers aligned and the overlay on top', () => {
+    const styles = cssSource();
+    const stack = cssBlock(styles, '.beading-canvas-artboard .h5-canvas-layers');
+    expectDeclaration(stack, 'position', 'absolute');
+    expectDeclaration(stack, 'inset', '0');
+    const canvases = cssBlock(styles, '.beading-canvas-artboard .h5-canvas-layers canvas');
+    expectDeclaration(canvases, 'position', 'absolute');
+    expectDeclaration(canvases, 'inset', '0');
+    expectDeclaration(canvases, 'width', '100%');
+    expectDeclaration(canvases, 'height', '100%');
+    expectDeclaration(canvases, 'pointer-events', 'none');
+    expectDeclaration(cssBlock(styles, '.beading-canvas-artboard .h5-overlay-canvas'), 'z-index', '4');
+    expectDeclaration(cssBlock(styles, '.beading-canvas-viewport'), 'width', '100%');
+    expectDeclaration(cssBlock(styles, '.beading-canvas-viewport'), 'height', '100%');
+    expect(styles).not.toMatch(/Math\.min\([^)]*82|82px/);
+  });
+
+  it('expands the stage in focus mode while preserving the exit control', () => {
+    const styles = cssSource();
+    expectDeclaration(cssBlock(styles, '.beading-focus-toggle'), 'position', 'absolute');
+    expectDeclaration(cssBlock(styles, '.beading-focus-toggle'), 'min-height', '44px');
+    expectDeclaration(cssBlock(styles, '.beading-session-page.is-focus .beading-toolbar'), 'display', 'none');
+    expectDeclaration(cssBlock(styles, '.beading-session-page.is-focus .beading-progress-bar'), 'display', 'none');
+    expectDeclaration(cssBlock(styles, '.beading-session-page.is-focus .beading-canvas-stage'), 'margin', /0/);
+    expect(styles).not.toMatch(/\.beading-session-page\.is-focus[^{}]*\.beading-focus-toggle\s*\{[^}]*display:\s*none/s);
   });
 
   it('fits fixed toolbar controls inside a 320px viewport without hiding essential controls', () => {
-    const styles = fs.readFileSync(path.resolve('apps/h5/src/styles.css'), 'utf8');
-    expect(styles).toMatch(/@media \(max-width: 360px\)[\s\S]*?\.beading-toolbar\s*\{[^}]*padding:\s*env\(safe-area-inset-top\) 8px 0;[^}]*gap:\s*4px;/);
-    expect(styles).toMatch(/@media \(max-width: 360px\)[\s\S]*?\.beading-toolbar-actions\s*\{[^}]*min-width:\s*0;[^}]*gap:\s*2px;/);
-    expect(styles).toMatch(/@media \(max-width: 360px\)[\s\S]*?button\.beading-toolbar-capsule\s*\{[^}]*padding-inline:\s*6px;/);
+    const styles = cssSource();
+    const narrow = styles.match(/@media\s*\(max-width:\s*360px\)\s*\{([\s\S]*)\}\s*@media/s)?.[1];
+    expect(narrow).toBeTruthy();
+    expect(narrow).toMatch(/\.beading-toolbar-label\s*\{[^}]*display:\s*none/);
+    expect(narrow).toMatch(/\.beading-toolbar\s*\{[^}]*padding-inline:\s*8px/);
+    expect(narrow).toMatch(/\.beading-tool-button\s*\{[^}]*font-size:\s*11px/);
     const contentWidth = 320 - 2 * 8;
     const fixedControlWidth = 44 + 4 + 44 + 76 + 44 + 44 + 3 * 2;
     expect(fixedControlWidth).toBeLessThanOrEqual(contentWidth);
+    expect(styles).toMatch(/@media\s*\(min-width:\s*600px\)[\s\S]*?\.beading-session-page\s*\{[^}]*max-width:\s*430px/);
   });
 
-  it('keeps active control text at WCAG AA contrast', () => {
-    const styles = fs.readFileSync(path.resolve('apps/h5/src/styles.css'), 'utf8');
+  it('keeps active control text at WCAG AA contrast and honors reduced motion', () => {
+    const styles = cssSource();
     expect(styles).toMatch(/\.beading-color-revise\.is-active\s*\{[^}]*color:\s*#8a5700;/);
     expect(styles).toMatch(/\.beading-more-actions button\[aria-pressed="true"\]\s*\{[^}]*color:\s*#1859b8;/);
+    expect(styles).toMatch(/\.beading-dialog h2\s*\{[^}]*font-size:\s*(?:18|19|20)px/);
+    expect(styles).toMatch(/\.beading-dialog p\s*\{[^}]*font-size:\s*(?:12|13|14|15|16)px/);
+    expect(styles).toMatch(/\.beading-dialog-actions button\s*\{[^}]*font-size:\s*(?:15|16|17)px/);
+    expect(styles).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?transition(?:-duration)?:\s*(?:none|0\.01ms)/);
     expect(contrastRatio('#8a5700', '#f7f9fc')).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio('#1859b8', '#eef5ff')).toBeGreaterThanOrEqual(4.5);
   });

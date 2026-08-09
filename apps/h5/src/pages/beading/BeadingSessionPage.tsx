@@ -39,6 +39,7 @@ import {
   type SessionTransition,
 } from './useBeadingSessionActions';
 import { useBeadingElapsedTimer } from './useBeadingElapsedTimer';
+import './beadingSession.css';
 
 export type BeadingSessionPageProps = {
   session: BeadingSession;
