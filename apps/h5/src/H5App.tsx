@@ -118,6 +118,7 @@ import { InventoryCheckSheet } from './pages/beading/InventoryCheckSheet';
 import { ProjectActionSheet } from './pages/beading/ProjectActionSheet';
 import type { BeadingSession } from './beading/beadingSessionClient';
 import { HomeShellPage, PhoneLoginModal } from './pages/home/HomeShellPage';
+import { resolveRestoredDisplayName } from './utils/authDisplayName';
 import { createNonce, createRequestId, getPhoneDeviceId, normalizePhone, showTencentCaptcha, signWebSmsRequest } from './utils/phoneAuthClient';
 import { passwordValidationMessage, validatePasswordLength } from './utils/passwordValidation';
 import type {
@@ -436,8 +437,9 @@ function H5App() {
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(payload.message || '登录状态已失效');
         if (cancelled) return;
+        if (!payload.user || typeof payload.user !== 'object') throw new Error('登录状态响应无效');
         setAuthToken(stored.token);
-        setLoginName(payload.user.username || payload.user.nickname || stored.username || '');
+        setLoginName(resolveRestoredDisplayName(payload.user, stored.username));
         setIsLoggedIn(true);
         await loadRecentProjects(stored.token);
         await loadCommunityPosts('hot', stored.token);
