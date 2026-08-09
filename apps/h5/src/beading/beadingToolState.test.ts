@@ -97,6 +97,24 @@ describe('cellIndexFromPoint', () => {
     expect(cellIndexFromPoint(rect, 10, 20, 2, -1)).toBeNull();
     expect(cellIndexFromPoint(rect, 10, 20, 1.5, 4)).toBeNull();
   });
+
+  it('rejects NaN rectangle values and client coordinates', () => {
+    for (const key of ['left', 'top', 'width', 'height'] as const) {
+      expect(cellIndexFromPoint({ ...rect, [key]: Number.NaN }, 10, 20, 2, 4)).toBeNull();
+    }
+    expect(cellIndexFromPoint(rect, Number.NaN, 20, 2, 4)).toBeNull();
+    expect(cellIndexFromPoint(rect, 10, Number.NaN, 2, 4)).toBeNull();
+  });
+
+  it('rejects infinite rectangle values and client coordinates', () => {
+    for (const value of [Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      for (const key of ['left', 'top', 'width', 'height'] as const) {
+        expect(cellIndexFromPoint({ ...rect, [key]: value }, 10, 20, 2, 4)).toBeNull();
+      }
+      expect(cellIndexFromPoint(rect, value, 20, 2, 4)).toBeNull();
+      expect(cellIndexFromPoint(rect, 10, value, 2, 4)).toBeNull();
+    }
+  });
 });
 
 describe('marked cells', () => {

@@ -57,6 +57,7 @@ export function cellIndexFromPoint(
   rows: number,
   cols: number,
 ): number | null {
+  if (![rect.left, rect.top, rect.width, rect.height, clientX, clientY].every(Number.isFinite)) return null;
   if (rect.width <= 0 || rect.height <= 0 || !Number.isInteger(rows) || rows <= 0 || !Number.isInteger(cols) || cols <= 0) {
     return null;
   }
