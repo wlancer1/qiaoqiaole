@@ -1392,6 +1392,10 @@ function safeDisplayName(user) {
   return [...String(user?.username || '').trim()].slice(0, 24).join('') || '用户';
 }
 
+function safeAvatarUrl(value) {
+  return String(value || '').trim() || null;
+}
+
 function getCommunityPost(userId, projectId) {
   return getOne(
     `SELECT p.id, p.name, p.rows, p.cols, p.tone,
@@ -1489,12 +1493,12 @@ function listProjectComments(response, userId, projectId, pagination = { page: 1
   if (!assertSharedProject(response, userId, projectId)) return;
   const comments = getAll(
     `SELECT c.id, c.project_id AS projectId, c.content, c.created_at AS createdAt, u.id AS authorId,
-            COALESCE(NULLIF(u.nickname, ''), u.username) AS author
+            COALESCE(NULLIF(u.nickname, ''), u.username) AS author, u.avatar_url AS authorAvatar
      FROM project_comments c JOIN users u ON u.id = c.user_id
      WHERE c.project_id = ? ORDER BY c.created_at DESC, c.id DESC
      LIMIT ? OFFSET ?`,
     [projectId, pagination.pageSize, pagination.offset],
-  );
+  ).map((comment) => ({ ...comment, authorAvatar: safeAvatarUrl(comment.authorAvatar) }));
   sendJson(response, 200, { comments, page: pagination.page, pageSize: pagination.pageSize });
 }
 
@@ -1505,12 +1509,12 @@ async function createProjectComment(request, response, userId, projectId) {
   const content = String(body.content || '').trim();
   if (!content || [...content].length > 300) return sendJson(response, 400, { error: 'INVALID_INPUT', message: '评论内容不能为空且不能超过 300 个字' });
   const author = getOne(
-    `SELECT u.id, u.username, u.nickname, i.identifier_last4 AS phoneLast4
+    `SELECT u.id, u.username, u.nickname, u.avatar_url AS avatarUrl, i.identifier_last4 AS phoneLast4
      FROM users u LEFT JOIN user_identities i ON i.user_id = u.id AND i.provider = 'PHONE'
      WHERE u.id = ?`,
     [userId],
   );
-  const comment = { id: randomUUID(), projectId, authorId: userId, author: safeDisplayName(author), content, createdAt: new Date().toISOString() };
+  const comment = { id: randomUUID(), projectId, authorId: userId, author: safeDisplayName(author), authorAvatar: safeAvatarUrl(author?.avatarUrl), content, createdAt: new Date().toISOString() };
   await withTransaction(async () => {
     db.run('INSERT INTO project_comments (id, project_id, user_id, content, created_at) VALUES (?, ?, ?, ?, ?)', [comment.id, projectId, userId, comment.content, comment.createdAt]);
     if (post.authorId !== userId) {

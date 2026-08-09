@@ -76,6 +76,7 @@ describe('community API', () => {
     const post = posts.body.posts.find((item) => item.id === projectId);
 
     expect(comment.body.comment.content).toBe('真实评论');
+    expect(comment.body.comment.authorAvatar).toBeNull();
     expect(post.likesCount).toBe(1);
     expect(post.commentsCount).toBe(1);
     expect(post.likedByMe).toBe(true);
@@ -100,7 +101,9 @@ describe('community API', () => {
     expect(posts.status).toBe(200);
     expect(comments.status).toBe(200);
     expect(post.likedByMe).toBe(false);
-    expect(comments.body.comments.some((comment) => comment.content === '匿名可见评论')).toBe(true);
+    const anonymousVisibleComment = comments.body.comments.find((comment) => comment.content === '匿名可见评论');
+    expect(anonymousVisibleComment).toBeTruthy();
+    expect(anonymousVisibleComment.authorAvatar).toBeNull();
   });
 
   it('accepts project image uploads when COS is disabled', async () => {
