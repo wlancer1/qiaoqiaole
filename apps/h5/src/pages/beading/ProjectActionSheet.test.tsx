@@ -26,8 +26,11 @@ function collectElements(node: ReactNode): TestElement[] {
 }
 
 function textContent(node: ReactNode): string {
+  if (node == null || typeof node === 'boolean') return '';
   if (typeof node === 'string' || typeof node === 'number') return String(node);
-  return childElements(node).map((child) => textContent(child)).join('');
+  if (Array.isArray(node)) return node.map((child) => textContent(child)).join('');
+  if (isValidElement(node)) return textContent(node.props.children);
+  return Children.toArray(node).map((child) => textContent(child)).join('');
 }
 
 function findButton(root: ReactNode, label: string): TestElement {
@@ -50,8 +53,10 @@ describe('ProjectActionSheet', () => {
     expect(markup).toContain('编辑作品');
     expect(markup).toContain('分享作品');
     expect(markup).toContain('删除作品');
-    for (const iconClass of ['lucide-play-circle', 'lucide-pencil', 'lucide-share-2', 'lucide-trash-2']) {
-      expect(markup).toMatch(new RegExp(`<svg(?=[^>]*class="[^"]*${iconClass}[^"]*")(?=[^>]*aria-hidden="true")[^>]*>`));
+    const expectedIconClasses = ['lucide-circle-play', 'lucide-pencil', 'lucide-share-2', 'lucide-trash-2'];
+    for (const iconClass of expectedIconClasses) {
+      const iconMarkup = markup.match(new RegExp(`<svg(?=[^>]*class="[^"]*\\b${iconClass}\\b[^"]*")(?=[^>]*aria-hidden="true")[^>]*>`, 'g')) ?? [];
+      expect(iconMarkup).toHaveLength(1);
     }
 
     const startButton = findButton(sheet, '开始拼豆');
