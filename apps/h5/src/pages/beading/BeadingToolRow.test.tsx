@@ -56,11 +56,12 @@ describe('BeadingToolRow', () => {
     expect(locked.renderer.root.findByProps({ 'aria-label': '解除画布锁定' }).props.disabled).toBe(false);
   });
 
-  it('disables all tools while pending and forwards callbacks otherwise', () => {
+  it('keeps local tools available while pending and forwards callbacks', () => {
     const pending = renderRow({ pending: true });
-    expect(pending.renderer.root.findAllByType('button').every((button) => button.props.disabled)).toBe(true);
+    const pendingLabels = ['搜色', '标记', '高亮', '锁定画布', '更多工具', '适应画布'];
+    pendingLabels.forEach((label) => expect(pending.renderer.root.findByProps({ 'aria-label': label }).props.disabled).toBe(false));
 
-    const { renderer, callbacks } = renderRow({ activePanel: null, interactionMode: 'pan', highlightEnabled: false });
+    const { renderer, callbacks } = renderRow({ pending: true, activePanel: null, interactionMode: 'pan', highlightEnabled: false });
     const labels = ['搜色', '标记', '高亮', '锁定画布', '更多工具', '适应画布'];
     labels.forEach((label) => act(() => renderer.root.findByProps({ 'aria-label': label }).props.onClick()));
     Object.values(callbacks).forEach((callback) => expect(callback).toHaveBeenCalledTimes(1));

@@ -30,7 +30,8 @@ export function BeadingToolbar({
   onSettings,
 }: BeadingToolbarProps) {
   const isPending = (action: Exclude<BeadingPendingAction, null>) => pendingAction === action;
-  const percent = Math.max(0, Math.min(100, progress.percent));
+  const percent = Number.isFinite(progress.percent) ? Math.max(0, Math.min(100, progress.percent)) : 0;
+  const hasPendingAction = pendingAction !== null && pendingAction !== undefined;
 
   return <>
     <header className={`beading-toolbar${focusMode ? ' is-focus-mode' : ''}`}>
@@ -60,7 +61,7 @@ export function BeadingToolbar({
           type="button"
           className="beading-toolbar-capsule beading-toolbar-secondary"
           aria-label="保存"
-          disabled={isPending('save')}
+          disabled={hasPendingAction}
           onClick={onSave}
         >
           <Save /><span>保存</span>
@@ -76,11 +77,18 @@ export function BeadingToolbar({
         </button>
       </div>
     </header>
-    <div className="beading-progress-bar" aria-label={`完成 ${progress.completed}/${progress.total}，进度 ${progress.percent}%`}>
+    <div
+      className="beading-progress-bar"
+      role="progressbar"
+      aria-label={`完成 ${progress.completed}/${progress.total}`}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={percent}
+    >
       <div className="beading-progress-track" aria-hidden="true">
         <span className="beading-progress-fill" style={{ width: `${percent}%` }} />
       </div>
-      <strong>{progress.percent}%</strong>
+      <strong>{percent}%</strong>
     </div>
   </>;
 }

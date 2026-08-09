@@ -36,6 +36,8 @@ describe('BeadingColorRail', () => {
     expect(markup).toContain('>A1<');
     expect(markup).toContain('beading-color-complete-badge');
     expect(markup).toContain('is-current');
+    expect(markup).toContain('aria-current="true"');
+    expect(markup).toContain('选择色号 A1，当前，已完成');
     expect(markup).toContain('is-complete');
     expect(markup.indexOf('A1')).toBeLessThan(markup.indexOf('B2'));
   });
@@ -65,14 +67,17 @@ describe('BeadingColorRail', () => {
     expect(renderer.root.findByProps({ 'aria-label': '完成当前色' }).props.disabled).toBe(true);
   });
 
-  it('disables rail actions while pending and forwards all callbacks otherwise', () => {
+  it('only disables the network completion action while pending and forwards local callbacks', () => {
     let renderer!: ReturnType<typeof create>;
     act(() => { renderer = create(<BeadingColorRail {...baseProps()} pending />); });
-    expect(renderer.root.findAllByType('button').every((button) => button.props.disabled)).toBe(true);
+    expect(renderer.root.findByProps({ 'aria-label': '选择色号 A1，当前，已完成' }).props.disabled).toBe(false);
+    expect(renderer.root.findByProps({ 'aria-label': '切换排序，当前作品顺序' }).props.disabled).toBe(false);
+    expect(renderer.root.findByProps({ 'aria-label': '修订当前色' }).props.disabled).toBe(false);
+    expect(renderer.root.findByProps({ 'aria-label': '完成当前色' }).props.disabled).toBe(true);
 
     const props = { ...baseProps(), current: 'B2' };
     act(() => { renderer.update(<BeadingColorRail {...props} />); });
-    act(() => renderer.root.findByProps({ 'aria-label': '选择色号 B2' }).props.onClick());
+    act(() => renderer.root.findByProps({ 'aria-label': '选择色号 B2，当前' }).props.onClick());
     act(() => renderer.root.findByProps({ 'aria-label': '切换排序，当前作品顺序' }).props.onClick());
     act(() => renderer.root.findByProps({ 'aria-label': '修订当前色' }).props.onClick());
     act(() => renderer.root.findByProps({ 'aria-label': '完成当前色' }).props.onClick());

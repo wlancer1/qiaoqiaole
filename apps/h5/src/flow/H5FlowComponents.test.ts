@@ -69,7 +69,8 @@ describe('H5 flow presentation components', () => {
     expect(canvasStyles).toMatch(/pointer-events:\s*none\s*;/);
     expect(artboardStyles).not.toContain('background-image');
     expect(`${stackStyles}\n${canvasStyles}`).not.toContain('image-rendering: pixelated');
-    expect(layers.match(/aria-hidden="true"/g)).toHaveLength(3);
+    expect(layers.match(/aria-hidden="true"/g)).toHaveLength(4);
+    expect(layers).toContain('className="h5-overlay-canvas"');
   });
 
   it('keeps artwork semantics and input handlers on a div inside the transformed artboard', () => {

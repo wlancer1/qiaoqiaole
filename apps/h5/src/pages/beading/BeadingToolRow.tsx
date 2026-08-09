@@ -44,7 +44,6 @@ export function BeadingToolRow({
   highlightEnabled,
   locked,
   currentColor,
-  pending = false,
   onSearch,
   onToggleMark,
   onToggleHighlight,
@@ -54,11 +53,11 @@ export function BeadingToolRow({
 }: BeadingToolRowProps) {
   const markActive = interactionMode === 'mark';
   return <section className="beading-tool-row" aria-label="拼豆工具">
-    <ToolButton label="搜色" active={activePanel === 'search'} pressed={activePanel === 'search'} disabled={pending} onClick={onSearch}><Search /></ToolButton>
-    <ToolButton label="标记" active={markActive} pressed={markActive} disabled={pending || locked || currentColor === null} onClick={onToggleMark}><Flag /></ToolButton>
-    <ToolButton label="高亮" active={highlightEnabled} pressed={highlightEnabled} disabled={pending} onClick={onToggleHighlight}><Lightbulb /></ToolButton>
-    <ToolButton label={locked ? '解除画布锁定' : '锁定画布'} active={locked} pressed={locked} disabled={pending} onClick={onToggleLock}><Lock /></ToolButton>
-    <ToolButton label="更多工具" active={activePanel === 'more'} pressed={activePanel === 'more'} disabled={pending} onClick={onMore}><MoreHorizontal /></ToolButton>
-    <ToolButton label="适应画布" disabled={pending} onClick={onFit}><Maximize /></ToolButton>
+    <ToolButton label="搜色" active={activePanel === 'search'} pressed={activePanel === 'search'} onClick={onSearch}><Search /></ToolButton>
+    <ToolButton label="标记" active={markActive} pressed={markActive} disabled={locked || currentColor === null} onClick={onToggleMark}><Flag /></ToolButton>
+    <ToolButton label="高亮" active={highlightEnabled} pressed={highlightEnabled} onClick={onToggleHighlight}><Lightbulb /></ToolButton>
+    <ToolButton label={locked ? '解除画布锁定' : '锁定画布'} active={locked} pressed={locked} onClick={onToggleLock}><Lock /></ToolButton>
+    <ToolButton label="更多工具" active={activePanel === 'more'} pressed={activePanel === 'more'} onClick={onMore}><MoreHorizontal /></ToolButton>
+    <ToolButton label="适应画布" onClick={onFit}><Maximize /></ToolButton>
   </section>;
 }

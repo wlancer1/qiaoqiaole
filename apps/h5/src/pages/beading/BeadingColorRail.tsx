@@ -53,13 +53,15 @@ export function BeadingColorRail({
       {requirements.map((item) => {
         const done = completedCodes.has(item.colorCode);
         const color = resolveColor(item.colorCode);
+        const isCurrent = current === item.colorCode;
         return <button
           type="button"
           key={item.colorCode}
-          className={`beading-color-chip${current === item.colorCode ? ' is-current' : ''}${done ? ' is-complete' : ''}`}
+          className={`beading-color-chip${isCurrent ? ' is-current' : ''}${done ? ' is-complete' : ''}`}
           style={{ backgroundColor: color, color: resolveTextColor(color) }}
-          aria-label={`选择色号 ${item.colorCode}${done ? '，已完成' : ''}`}
-          disabled={pending}
+          aria-label={`选择色号 ${item.colorCode}${isCurrent ? '，当前' : ''}${done ? '，已完成' : ''}`}
+          aria-current={isCurrent ? 'true' : undefined}
+          disabled={false}
           onClick={() => onSelect(item.colorCode)}
         >
           {done ? <span className="beading-color-complete-badge" aria-label="已完成"><Check /></span> : null}
@@ -73,7 +75,7 @@ export function BeadingColorRail({
         type="button"
         className="beading-color-sort"
         aria-label={`切换排序，当前${sortLabels[sortMode].accessible}`}
-        disabled={pending || !onSort}
+        disabled={!onSort}
         onClick={onSort}
       >
         <SlidersHorizontal /><span>{sortLabels[sortMode].short}</span>
@@ -83,7 +85,7 @@ export function BeadingColorRail({
         className={`beading-color-revise${revisionActive ? ' is-active' : ''}`}
         aria-label="修订当前色"
         aria-pressed={revisionActive}
-        disabled={pending || current === null || !onRevise}
+        disabled={current === null || !onRevise}
         onClick={onRevise}
       >
         <RotateCcw /><span>修订</span>

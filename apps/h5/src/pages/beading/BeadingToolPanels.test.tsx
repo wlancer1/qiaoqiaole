@@ -1,3 +1,4 @@
+import type { ReactElement } from 'react';
 import { act, create } from 'react-test-renderer';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BeadingToolPanels } from './BeadingToolPanels';
@@ -22,6 +23,53 @@ const searchProps = () => ({
 });
 
 beforeEach(() => vi.clearAllMocks());
+
+function modalHarness() {
+  const listeners = new Map<string, EventListener>();
+  const documentMock = { activeElement: null as unknown };
+  const focusNode = () => {
+    const node = {
+      focus: vi.fn(() => { documentMock.activeElement = node; }),
+      tabIndex: 0,
+      disabled: false,
+      isConnected: true,
+    };
+    return node;
+  };
+  const trigger = focusNode();
+  const close = focusNode();
+  const input = focusNode();
+  const lastAction = focusNode();
+  const attributes = new Map<string, string>();
+  const sibling = {
+    inert: false,
+    getAttribute: vi.fn((name: string) => attributes.get(name) ?? null),
+    setAttribute: vi.fn((name: string, value: string) => attributes.set(name, value)),
+    removeAttribute: vi.fn((name: string) => attributes.delete(name)),
+  };
+  const backdrop = { parentElement: null as unknown };
+  const parent = { children: [sibling, backdrop] };
+  backdrop.parentElement = parent;
+  const dialog = {
+    querySelectorAll: vi.fn(() => [close, input, lastAction]),
+    contains: vi.fn((node: unknown) => [close, input, lastAction].includes(node as typeof close)),
+  };
+  documentMock.activeElement = trigger;
+  vi.stubGlobal('document', documentMock);
+  vi.stubGlobal('window', {
+    addEventListener: vi.fn((type: string, listener: EventListener) => listeners.set(type, listener)),
+    removeEventListener: vi.fn((type: string) => listeners.delete(type)),
+  });
+  const createNodeMock = (element: ReactElement<unknown>) => {
+    const elementProps = element.props as Record<string, unknown>;
+    if (element.type === 'section') return dialog;
+    if (element.type === 'input') return input;
+    if (element.type === 'div' && elementProps.className === 'beading-tool-panel-backdrop') return backdrop;
+    if (element.type === 'button' && String(elementProps['aria-label']).startsWith('关闭')) return close;
+    return {};
+  };
+  return { listeners, documentMock, trigger, close, input, lastAction, sibling, createNodeMock };
+}
 
 describe('BeadingToolPanels search sheet', () => {
   it('renders only matching artwork colors with swatch, required, remaining, and empty state', () => {
@@ -70,9 +118,44 @@ describe('BeadingToolPanels search sheet', () => {
     expect(removeEventListener).toHaveBeenCalledWith('keydown', expect.any(Function));
     vi.unstubAllGlobals();
   });
+
+  it('focuses search, traps Tab, isolates background siblings, and restores the trigger', () => {
+    const harness = modalHarness();
+    let renderer!: ReturnType<typeof create>;
+    act(() => { renderer = create(<BeadingToolPanels {...searchProps()} />, { createNodeMock: harness.createNodeMock }); });
+
+    expect(harness.input.focus).toHaveBeenCalledTimes(1);
+    expect(harness.sibling.inert).toBe(true);
+    expect(harness.sibling.setAttribute).toHaveBeenCalledWith('aria-hidden', 'true');
+
+    const preventDefault = vi.fn();
+    harness.documentMock.activeElement = harness.lastAction;
+    act(() => harness.listeners.get('keydown')?.({ key: 'Tab', shiftKey: false, preventDefault } as unknown as KeyboardEvent));
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(harness.close.focus).toHaveBeenCalledTimes(1);
+
+    harness.documentMock.activeElement = harness.close;
+    act(() => harness.listeners.get('keydown')?.({ key: 'Tab', shiftKey: true, preventDefault } as unknown as KeyboardEvent));
+    expect(harness.lastAction.focus).toHaveBeenCalledTimes(1);
+
+    act(() => renderer.unmount());
+    expect(harness.trigger.focus).toHaveBeenCalledTimes(1);
+    expect(harness.sibling.inert).toBe(false);
+    expect(harness.sibling.removeAttribute).toHaveBeenCalledWith('aria-hidden');
+    vi.unstubAllGlobals();
+  });
 });
 
 describe('BeadingToolPanels more sheet', () => {
+  it('focuses the close control when opened', () => {
+    const harness = modalHarness();
+    let renderer!: ReturnType<typeof create>;
+    act(() => { renderer = create(<BeadingToolPanels activePanel="more" codesVisible gridVisible hasMarks onToggleCodes={vi.fn()} onToggleGrid={vi.fn()} onClearMarks={vi.fn()} onReset={vi.fn()} onClose={vi.fn()} />, { createNodeMock: harness.createNodeMock }); });
+    expect(harness.close.focus).toHaveBeenCalledTimes(1);
+    act(() => renderer.unmount());
+    vi.unstubAllGlobals();
+  });
+
   it('renders semantic switches, disables clear without marks, and forwards actions', () => {
     const props = {
       activePanel: 'more' as const,
