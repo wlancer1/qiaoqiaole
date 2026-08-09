@@ -8,6 +8,10 @@ import {
 import { useTransformEffect } from 'react-zoom-pan-pinch';
 import type { Cell } from '@qiaoqiaole/core';
 import {
+  drawViewportBeadingOverlay,
+  type H5CanvasOverlay,
+} from './H5BeadingOverlay';
+import {
   canvasRenderMetrics,
   configureCanvas,
   drawViewportCodeLayer,
@@ -25,6 +29,8 @@ type H5CanvasLayersProps = {
   codesVisible: boolean;
   getCode: (color: string) => string;
   getTextColor: (color: string) => string;
+  overlay?: H5CanvasOverlay;
+  gridVisible?: boolean;
 };
 
 export type CanvasLayerSnapshot = {
@@ -34,6 +40,8 @@ export type CanvasLayerSnapshot = {
   codesVisible: boolean;
   getCode: (color: string) => string;
   getTextColor: (color: string) => string;
+  overlay: H5CanvasOverlay;
+  gridVisible: boolean;
   viewportWidth: number;
   viewportHeight: number;
   artboard: ViewportArtboard;
@@ -46,6 +54,7 @@ export type CanvasLayerInvalidation = {
   color: boolean;
   code: boolean;
   grid: boolean;
+  overlay: boolean;
 };
 
 const ALL_LAYERS_DIRTY: CanvasLayerInvalidation = {
@@ -53,7 +62,27 @@ const ALL_LAYERS_DIRTY: CanvasLayerInvalidation = {
   color: true,
   code: true,
   grid: true,
+  overlay: true,
 };
+
+const EMPTY_OVERLAY: H5CanvasOverlay = {
+  currentColorCode: null,
+  highlightEnabled: false,
+  markedCellIndexes: [],
+  completedColorCodes: [],
+};
+
+function untransformedDimension(
+  element: HTMLElement,
+  axis: 'width' | 'height',
+): number {
+  const clientSize = axis === 'width' ? element.clientWidth : element.clientHeight;
+  if (Number.isFinite(clientSize) && clientSize > 0) return clientSize;
+  const offsetSize = axis === 'width' ? element.offsetWidth : element.offsetHeight;
+  if (Number.isFinite(offsetSize) && offsetSize > 0) return offsetSize;
+  const inlineSize = Number.parseFloat(element.style?.[axis] ?? '');
+  return Number.isFinite(inlineSize) && inlineSize > 0 ? inlineSize : 0;
+}
 
 export function canvasLayerInvalidation(
   previous: CanvasLayerSnapshot | null,
@@ -68,7 +97,7 @@ export function canvasLayerInvalidation(
 
   const dimensionsChanged = previous.rows !== next.rows || previous.cols !== next.cols;
   if (dimensionsChanged) {
-    return { configure: false, color: true, code: true, grid: true };
+    return { configure: false, color: true, code: true, grid: true, overlay: true };
   }
 
   const cameraChanged = previous.artboard.left !== next.artboard.left
@@ -76,20 +105,22 @@ export function canvasLayerInvalidation(
     || previous.artboard.width !== next.artboard.width
     || previous.artboard.height !== next.artboard.height;
   if (cameraChanged) {
-    return { configure: false, color: true, code: true, grid: true };
+    return { configure: false, color: true, code: true, grid: true, overlay: true };
   }
 
-  const contentChanged = previous.cells !== next.cells
-    || previous.getCode !== next.getCode
-    || previous.getTextColor !== next.getTextColor;
-  const codeChanged = contentChanged
+  const cellsChanged = previous.cells !== next.cells;
+  const getCodeChanged = previous.getCode !== next.getCode;
+  const codeChanged = cellsChanged
+    || getCodeChanged
+    || previous.getTextColor !== next.getTextColor
     || previous.codesVisible !== next.codesVisible
     || previous.fontRevision !== next.fontRevision;
   return {
     configure: false,
-    color: contentChanged,
+    color: cellsChanged,
     code: codeChanged,
-    grid: false,
+    grid: previous.gridVisible !== next.gridVisible,
+    overlay: cellsChanged || getCodeChanged || previous.overlay !== next.overlay,
   };
 }
 
@@ -101,21 +132,29 @@ export function H5CanvasLayers({
   codesVisible,
   getCode,
   getTextColor,
+  overlay = EMPTY_OVERLAY,
+  gridVisible = true,
 }: H5CanvasLayersProps) {
   const stackRef = useRef<HTMLDivElement>(null);
   const colorRef = useRef<HTMLCanvasElement>(null);
   const codeRef = useRef<HTMLCanvasElement>(null);
   const gridRef = useRef<HTMLCanvasElement>(null);
+  const overlayRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<number | null>(null);
   const metricsRef = useRef<CanvasRenderMetrics | null>(null);
   const colorContextRef = useRef<CanvasRenderingContext2D | null>(null);
   const codeContextRef = useRef<CanvasRenderingContext2D | null>(null);
   const gridContextRef = useRef<CanvasRenderingContext2D | null>(null);
+  const overlayContextRef = useRef<CanvasRenderingContext2D | null>(null);
   const snapshotRef = useRef<CanvasLayerSnapshot | null>(null);
   const fontRevisionRef = useRef(0);
-  const latestRef = useRef({ cells, rows, cols, codesVisible, getCode, getTextColor });
+  const latestRef = useRef({
+    cells, rows, cols, codesVisible, getCode, getTextColor, overlay, gridVisible,
+  });
   const drawFrameRef = useRef<() => void>(() => undefined);
-  latestRef.current = { cells, rows, cols, codesVisible, getCode, getTextColor };
+  latestRef.current = {
+    cells, rows, cols, codesVisible, getCode, getTextColor, overlay, gridVisible,
+  };
 
   const scheduleDraw = useCallback(() => {
     if (frameRef.current !== null) return;
@@ -131,18 +170,19 @@ export function H5CanvasLayers({
     const colorCanvas = colorRef.current;
     const codeCanvas = codeRef.current;
     const gridCanvas = gridRef.current;
-    if (!stack || !artboardElement || !colorCanvas || !codeCanvas || !gridCanvas) return;
+    const overlayCanvas = overlayRef.current;
+    if (!stack || !artboardElement || !colorCanvas || !codeCanvas || !gridCanvas || !overlayCanvas) return;
 
-    const viewportRect = stack.getBoundingClientRect();
-    const artboardRect = artboardElement.getBoundingClientRect();
-    const viewportWidth = viewportRect.width;
-    const viewportHeight = viewportRect.height;
+    const artboardWidth = untransformedDimension(artboardElement, 'width');
+    const artboardHeight = untransformedDimension(artboardElement, 'height');
+    const viewportWidth = untransformedDimension(stack, 'width') || artboardWidth;
+    const viewportHeight = untransformedDimension(stack, 'height') || artboardHeight;
     const dpr = window.devicePixelRatio || 1;
     const artboard = {
-      left: artboardRect.left - viewportRect.left,
-      top: artboardRect.top - viewportRect.top,
-      width: artboardRect.width,
-      height: artboardRect.height,
+      left: 0,
+      top: 0,
+      width: artboardWidth,
+      height: artboardHeight,
     };
     const current = latestRef.current;
     const nextSnapshot: CanvasLayerSnapshot = {
@@ -157,20 +197,12 @@ export function H5CanvasLayers({
     snapshotRef.current = nextSnapshot;
 
     if (dirty.configure || !metricsRef.current) {
-      const baseMetrics = canvasRenderMetrics(viewportWidth, viewportHeight, dpr, 1);
-      const metrics = {
-        ...baseMetrics,
-        backingWidth: baseMetrics.logicalWidth > 0
-          ? Math.max(1, Math.round(baseMetrics.logicalWidth * baseMetrics.renderScale))
-          : 0,
-        backingHeight: baseMetrics.logicalHeight > 0
-          ? Math.max(1, Math.round(baseMetrics.logicalHeight * baseMetrics.renderScale))
-          : 0,
-      };
+      const metrics = canvasRenderMetrics(viewportWidth, viewportHeight, dpr, 1);
       metricsRef.current = metrics;
       colorContextRef.current = configureCanvas(colorCanvas, metrics);
       codeContextRef.current = configureCanvas(codeCanvas, metrics);
       gridContextRef.current = configureCanvas(gridCanvas, metrics);
+      overlayContextRef.current = configureCanvas(overlayCanvas, metrics);
       stack.dataset.rasterWidth = String(metrics.backingWidth);
       stack.dataset.rasterHeight = String(metrics.backingHeight);
       stack.dataset.renderScale = String(metrics.renderScale);
@@ -180,7 +212,8 @@ export function H5CanvasLayers({
     const colorContext = colorContextRef.current;
     const codeContext = codeContextRef.current;
     const gridContext = gridContextRef.current;
-    if (!metrics || !colorContext || !codeContext || !gridContext) return;
+    const overlayContext = overlayContextRef.current;
+    if (!metrics || !colorContext || !codeContext || !gridContext || !overlayContext) return;
 
     const geometry = {
       viewportWidth: metrics.logicalWidth,
@@ -202,7 +235,17 @@ export function H5CanvasLayers({
         getTextColor: current.getTextColor,
       });
     }
-    if (dirty.grid) drawViewportGridLayer(gridContext, geometry);
+    if (dirty.grid) {
+      drawViewportGridLayer(gridContext, { ...geometry, visible: current.gridVisible });
+    }
+    if (dirty.overlay) {
+      drawViewportBeadingOverlay(overlayContext, {
+        ...geometry,
+        cells: current.cells,
+        getCode: current.getCode,
+        ...current.overlay,
+      });
+    }
   };
 
   const handleTransform = useCallback(() => {
@@ -215,7 +258,7 @@ export function H5CanvasLayers({
 
   useLayoutEffect(() => {
     scheduleDraw();
-  }, [cells, rows, cols, codesVisible, getCode, getTextColor, scheduleDraw]);
+  }, [cells, rows, cols, codesVisible, getCode, getTextColor, overlay, gridVisible, scheduleDraw]);
 
   useLayoutEffect(() => {
     const stack = stackRef.current;
@@ -292,6 +335,12 @@ export function H5CanvasLayers({
       <canvas ref={colorRef} className="h5-color-canvas" aria-hidden="true" />
       <canvas ref={codeRef} className="h5-code-canvas" aria-hidden="true" />
       <canvas ref={gridRef} className="h5-grid-canvas" aria-hidden="true" />
+      <canvas
+        ref={overlayRef}
+        className="h5-overlay-canvas"
+        style={{ zIndex: 4 }}
+        aria-hidden="true"
+      />
     </div>
   );
 }

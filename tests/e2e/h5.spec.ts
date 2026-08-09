@@ -3,8 +3,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
 
-test.use({ baseURL: 'http://127.0.0.1:5174' });
-
 const uploadFixture = path.resolve('image.png');
 const testUsername = 'admin';
 const testPassword = 'qiaoqiaole123';

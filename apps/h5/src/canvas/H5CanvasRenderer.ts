@@ -1,6 +1,6 @@
 export const MAX_CANVAS_BACKING_DIMENSION = 4096;
 export const MAX_CANVAS_BACKING_AREA = 16_777_216;
-export const CANVAS_LAYER_COUNT = 3;
+export const CANVAS_LAYER_COUNT = 4;
 
 export type CanvasRenderMetrics = {
   logicalWidth: number;
@@ -116,6 +116,7 @@ export type DrawViewportCodeLayerOptions = ViewportCellLayerOptions & {
 };
 
 export type DrawViewportGridLayerOptions = ViewportLayerGeometry & {
+  visible: boolean;
   strokeStyle?: string;
 };
 
@@ -250,6 +251,7 @@ export function drawViewportGridLayer(
 ): void {
   const { viewportWidth, viewportHeight, rows, cols } = options;
   context.clearRect(0, 0, viewportWidth, viewportHeight);
+  if (!options.visible) return;
   const range = visibleGridRange(options.artboard, viewportWidth, viewportHeight, rows, cols);
   if (!hasVisibleCells(range)) return;
 

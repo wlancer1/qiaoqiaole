@@ -116,7 +116,8 @@ import { CanvasPage } from './pages/editor/CanvasPage';
 import { BeadingSessionPage } from './pages/beading/BeadingSessionPage';
 import { InventoryCheckSheet } from './pages/beading/InventoryCheckSheet';
 import { ProjectActionSheet } from './pages/beading/ProjectActionSheet';
-import type { BeadingSession } from './beading/beadingSessionClient';
+import type { BeadingSession, InventoryCheck } from './beading/beadingSessionClient';
+import type { Complete, Prepare, Resume, SessionMutation, SessionTransition } from './pages/beading/useBeadingSessionActions';
 import { HomeShellPage, PhoneLoginModal } from './pages/home/HomeShellPage';
 import { resolveRestoredDisplayName } from './utils/authDisplayName';
 import { createNonce, createRequestId, getPhoneDeviceId, normalizePhone, showTencentCaptcha, signWebSmsRequest } from './utils/phoneAuthClient';
@@ -162,9 +163,36 @@ const CAPTCHA_APP_ID = String((import.meta as ImportMeta & { env?: Record<string
 const AUTH_STORAGE_KEY = 'qiaoqiaole.auth';
 const STATUS_VISIBLE_MS = 2800;
 const STICKY_STATUS_PREFIXES = ['正在'];
-type RequestApiError = Error & { status?: number; code?: string };
+type RequestApiError = Error & { status?: number; code?: string; body?: unknown };
 
 const GRID_CONTROL_CELLS = 3;
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
+
+const isCompleteBeadingSession = (value: unknown): value is BeadingSession => {
+  if (!isRecord(value) || !Array.isArray(value.requirements) || !Array.isArray(value.completedColorCodes) || !isRecord(value.progress)) return false;
+  return typeof value.id === 'string'
+    && (value.projectId === null || typeof value.projectId === 'string')
+    && typeof value.projectName === 'string'
+    && value.requirements.every((item) => isRecord(item) && typeof item.colorCode === 'string' && typeof item.required === 'number')
+    && (value.warehouseId === null || typeof value.warehouseId === 'string')
+    && (value.warehouseName === null || typeof value.warehouseName === 'string')
+    && typeof value.status === 'string'
+    && value.completedColorCodes.every((code) => typeof code === 'string')
+    && typeof value.progress.completed === 'number'
+    && typeof value.progress.total === 'number'
+    && typeof value.progress.percent === 'number'
+    && typeof value.elapsedSeconds === 'number'
+    && (value.timerStartedAt === null || typeof value.timerStartedAt === 'string')
+    && typeof value.inventoryDeducted === 'boolean'
+    && Number.isInteger(value.version);
+};
+
+const beadingSessionFromError = (error: unknown, expectedSessionId: string): BeadingSession | null => {
+  if (!isRecord(error)) return null;
+  const session = isRecord(error.body) ? error.body.session : null;
+  return isCompleteBeadingSession(session) && session.id === expectedSessionId ? session : null;
+};
 
 const canvasTools: Array<{ tool: CanvasTool; label: string; icon: IconName }> = [
   { tool: 'pan', label: '手抓移动工具', icon: 'hand' },
@@ -191,6 +219,8 @@ function H5App() {
   const [showPaletteSearch, setShowPaletteSearch] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState('');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [authUserId, setAuthUserId] = useState('');
+  const [legacyDraftOwnerId, setLegacyDraftOwnerId] = useState('');
   const [loginName, setLoginName] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -244,7 +274,7 @@ function H5App() {
   const [shareFailedProjectIds, setShareFailedProjectIds] = useState<Set<string>>(() => new Set());
   const [showBeadList, setShowBeadList] = useState(false);
   const [beadingSession, setBeadingSession] = useState<BeadingSession | null>(null);
-  const [beadingInventoryCheck, setBeadingInventoryCheck] = useState<any>(null);
+  const [beadingInventoryCheck, setBeadingInventoryCheck] = useState<InventoryCheck | null>(null);
   const [projectActionTarget, setProjectActionTarget] = useState<RecentProject | null>(null);
   const [saveProjectName, setSaveProjectName] = useState('未命名作品');
   const [isSavingProject, setIsSavingProject] = useState(false);
@@ -421,10 +451,10 @@ function H5App() {
   useEffect(() => {
     let cancelled = false;
     const restoreSession = async () => {
-      let stored: { token?: string; username?: string } | null = null;
+      let stored: { token?: string; username?: string; userId?: string } | null = null;
       try {
         const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
-        stored = raw ? JSON.parse(raw) as { token?: string; username?: string } : null;
+        stored = raw ? JSON.parse(raw) as { token?: string; username?: string; userId?: string } : null;
       } catch {
         stored = null;
       }
@@ -439,6 +469,8 @@ function H5App() {
         if (cancelled) return;
         if (!payload.user || typeof payload.user !== 'object') throw new Error('登录状态响应无效');
         setAuthToken(stored.token);
+        setAuthUserId(payload.user.id || stored.userId || '');
+        setLegacyDraftOwnerId((stored.username || '').trim());
         setLoginName(resolveRestoredDisplayName(payload.user, stored.username));
         setIsLoggedIn(true);
         await loadRecentProjects(stored.token);
@@ -675,13 +707,15 @@ function H5App() {
       },
     });
     const payload = await response.json().catch(() => ({}));
+    const body = payload;
     if (!response.ok) {
-      const error = new Error(response.status === 401 ? '登录状态已失效，请重新登录' : payload.message || '请求失败') as RequestApiError;
+      const message = response.status === 401 ? '登录状态已失效，请重新登录' : body.message || '请求失败';
+      const error = Object.assign(new Error(message), { status: response.status, code: body.error || body.code, body }) as RequestApiError;
       error.status = response.status;
       error.code = payload.error || payload.code;
       throw error;
     }
-    return payload as T;
+    return body as T;
   };
 
   const loadRecentProjects = async (token: string) => {
@@ -986,30 +1020,125 @@ function H5App() {
     setScreen('beading');
   };
 
-  const patchBeadingProgress = async (completedColorCodes: string[], elapsedSeconds: number) => {
-    if (!beadingSession) return;
-    try {
-      const payload = await requestApi<{ session: BeadingSession }>(`/v1/beading-sessions/${beadingSession.id}`, { method: 'PATCH', body: JSON.stringify({ version: beadingSession.version, completedColorCodes, elapsedSeconds }) });
-      setBeadingSession(payload.session);
-    } catch (error) { setStatus(error instanceof Error ? error.message : '拼豆进度同步失败'); }
+  const syncBeadingSessionFromError = (error: unknown, expectedSessionId: string) => {
+    const latestSession = beadingSessionFromError(error, expectedSessionId);
+    if (latestSession) setBeadingSession(latestSession);
   };
 
-  const prepareBeadingCompletion = async () => {
-    if (!beadingSession) return;
+  const patchBeadingProgress: SessionMutation = async ({ completedColorCodes, elapsedSeconds, version }) => {
+    if (!beadingSession) throw new Error('拼豆会话已失效');
     try {
-      const payload = await requestApi<{ session: BeadingSession }>(`/v1/beading-sessions/${beadingSession.id}/prepare-completion`, { method: 'POST', body: JSON.stringify({ version: beadingSession.version }) });
+      const payload = await requestApi<{ session: BeadingSession }>(`/v1/beading-sessions/${beadingSession.id}`, { method: 'PATCH', body: JSON.stringify({ version, completedColorCodes, elapsedSeconds }) });
       setBeadingSession(payload.session);
-    } catch (error) { setStatus(error instanceof Error ? error.message : '无法准备完成确认'); }
+      return payload.session;
+    } catch (error) {
+      syncBeadingSessionFromError(error, beadingSession.id);
+      setStatus(error instanceof Error ? error.message : '拼豆进度同步失败');
+      throw error;
+    }
   };
 
-  const completeBeading = async (deductInventory: boolean) => {
-    if (!beadingSession) return;
+  const pauseBeading: SessionMutation = async ({ completedColorCodes, elapsedSeconds, version }) => {
+    const activeSession = beadingSession;
+    if (!activeSession) throw new Error('拼豆会话已失效');
+    let patchedSession: BeadingSession | null = null;
     try {
-      const payload = await requestApi<{ session: BeadingSession; deducted: boolean }>(`/v1/beading-sessions/${beadingSession.id}/complete`, { method: 'POST', body: JSON.stringify({ idempotencyKey: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`, deductInventory, warehouseId: activeWarehouseId || undefined }) });
+      const patched = await requestApi<{ session: BeadingSession }>(`/v1/beading-sessions/${activeSession.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ version, completedColorCodes, elapsedSeconds }),
+      });
+      patchedSession = patched.session;
+      const paused = await requestApi<{ session: BeadingSession }>(`/v1/beading-sessions/${activeSession.id}/pause`, {
+        method: 'POST',
+        body: JSON.stringify({ version: patched.session.version }),
+      });
+      setBeadingSession(paused.session);
+      return paused.session;
+    } catch (error) {
+      if (patchedSession) setBeadingSession(patchedSession);
+      syncBeadingSessionFromError(error, activeSession.id);
+      setStatus(error instanceof Error ? error.message : '无法暂停拼豆');
+      throw error;
+    }
+  };
+
+  const prepareBeadingCompletion: Prepare = async ({ version }) => {
+    if (!beadingSession) throw new Error('拼豆会话已失效');
+    try {
+      const payload = await requestApi<{ session: BeadingSession }>(`/v1/beading-sessions/${beadingSession.id}/prepare-completion`, { method: 'POST', body: JSON.stringify({ version }) });
+      setBeadingSession(payload.session);
+      return payload.session;
+    } catch (error) {
+      syncBeadingSessionFromError(error, beadingSession.id);
+      setStatus(error instanceof Error ? error.message : '无法准备完成确认');
+      throw error;
+    }
+  };
+
+  const completeBeading: Complete = async ({ deduct }) => {
+    if (!beadingSession) throw new Error('拼豆会话已失效');
+    try {
+      const idempotencyKey = `${beadingSession.id}:${deduct ? 'deduct' : 'no-deduct'}`;
+      const payload = await requestApi<{ session: BeadingSession; deducted: boolean }>(`/v1/beading-sessions/${beadingSession.id}/complete`, { method: 'POST', body: JSON.stringify({ idempotencyKey, deductInventory: deduct, warehouseId: activeWarehouseId || undefined }) });
       setBeadingSession(payload.session);
       setStatus(payload.deducted ? '已完成拼豆并扣减库存。' : '已完成拼豆，库存未扣减。');
-      setScreen('canvas');
-    } catch (error) { setStatus(error instanceof Error ? error.message : '完成拼豆失败'); }
+      return payload.session;
+    } catch (error) {
+      syncBeadingSessionFromError(error, beadingSession.id);
+      setStatus(error instanceof Error ? error.message : '完成拼豆失败');
+      throw error;
+    }
+  };
+
+  const resumeBeading: Resume = async ({ version }) => {
+    if (!beadingSession) throw new Error('拼豆会话已失效');
+    try {
+      const payload = await requestApi<{ session: BeadingSession }>(`/v1/beading-sessions/${beadingSession.id}/resume`, { method: 'POST', body: JSON.stringify({ version }) });
+      setBeadingSession(payload.session);
+      return payload.session;
+    } catch (error) {
+      syncBeadingSessionFromError(error, beadingSession.id);
+      setStatus(error instanceof Error ? error.message : '无法继续拼豆');
+      throw error;
+    }
+  };
+
+  const returnBeadingToProgress: SessionTransition = async ({ version }) => {
+    if (!beadingSession) throw new Error('拼豆会话已失效');
+    try {
+      const payload = await requestApi<{ session: BeadingSession }>(`/v1/beading-sessions/${beadingSession.id}/return-to-progress`, { method: 'POST', body: JSON.stringify({ version }) });
+      setBeadingSession(payload.session);
+      return payload.session;
+    } catch (error) {
+      syncBeadingSessionFromError(error, beadingSession.id);
+      setStatus(error instanceof Error ? error.message : '无法返回检查');
+      throw error;
+    }
+  };
+
+  const abandonBeading: SessionTransition = async ({ version }) => {
+    if (!beadingSession) throw new Error('拼豆会话已失效');
+    try {
+      const payload = await requestApi<{ session: BeadingSession }>(`/v1/beading-sessions/${beadingSession.id}/abandon`, { method: 'POST', body: JSON.stringify({ version }) });
+      setBeadingSession(payload.session);
+      return payload.session;
+    } catch (error) {
+      syncBeadingSessionFromError(error, beadingSession.id);
+      setStatus(error instanceof Error ? error.message : '无法放弃会话');
+      throw error;
+    }
+  };
+
+  const openBeadingInventory = async (): Promise<void> => {
+    if (!beadingSession) throw new Error('拼豆会话已失效');
+    try {
+      const payload = await requestApi<InventoryCheck>(`/v1/beading-sessions/${beadingSession.id}/inventory-check`, { method: 'POST', body: JSON.stringify({}) });
+      setBeadingInventoryCheck(payload);
+    } catch (error) {
+      syncBeadingSessionFromError(error, beadingSession.id);
+      setStatus(error instanceof Error ? error.message : '库存检测失败');
+      throw error;
+    }
   };
 
   const confirmSaveProject = async () => {
@@ -1154,15 +1283,17 @@ function H5App() {
     authRequestSeqRef.current = requestSeq;
     setIsAuthenticating(true);
     try {
-      const payload = await requestApi<{ token: string; user: { username: string } }>('/auth/login', {
+      const payload = await requestApi<{ token: string; user: { id: string; username: string } }>('/auth/login', {
         method: 'POST',
         body: JSON.stringify({ username, password }),
       });
       if (authRequestSeqRef.current !== requestSeq || !showLoginModal) return;
       setAuthToken(payload.token);
+      setAuthUserId(payload.user.id);
+      setLegacyDraftOwnerId(payload.user.username.trim());
       setLoginName(payload.user.username);
       setIsLoggedIn(true);
-      window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token: payload.token, username: payload.user.username }));
+      window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token: payload.token, username: payload.user.username, userId: payload.user.id }));
       setShowLoginModal(false);
       setLoginPassword('');
       setStatus(`登录成功：${payload.user.username}。`);
@@ -1267,9 +1398,11 @@ function H5App() {
       if (!response.ok) throw new Error(payload.message || '登录失败，请稍后重试');
       const data = payload.data as { accessToken: string; user: { nickname?: string; id: string } };
       setAuthToken(data.accessToken);
+      setAuthUserId(data.user.id);
+      setLegacyDraftOwnerId((data.user.nickname || '我的创作').trim());
       setLoginName(data.user.nickname || '我的创作');
       setIsLoggedIn(true);
-      window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token: data.accessToken, username: data.user.nickname || '我的创作' }));
+      window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token: data.accessToken, username: data.user.nickname || '我的创作', userId: data.user.id }));
       setShowLoginModal(false);
       setPhoneCode('');
       setPhonePassword('');
@@ -1301,6 +1434,8 @@ function H5App() {
       // Clear the local session even when the server is unavailable.
     }
     setAuthToken('');
+    setAuthUserId('');
+    setLegacyDraftOwnerId('');
     setIsLoggedIn(false);
     setLoginName('');
     setRecentProjects([]);
@@ -2631,11 +2766,19 @@ function H5App() {
         rows={rows}
         cols={cols}
         getCode={colorCodeOf}
-        onPatch={(completedColorCodes, elapsedSeconds) => { void patchBeadingProgress(completedColorCodes, elapsedSeconds); }}
-        onPrepareCompletion={() => { void prepareBeadingCompletion(); }}
-        onComplete={(deduct) => { void completeBeading(deduct); }}
+        onPatch={patchBeadingProgress}
+        onPause={pauseBeading}
+        onReturnToProgress={returnBeadingToProgress}
+        onAbandon={abandonBeading}
+        onPrepareCompletion={prepareBeadingCompletion}
+        onComplete={completeBeading}
+        onResume={resumeBeading}
+        onOpenInventory={openBeadingInventory}
+        onSessionConflict={(latest) => setBeadingSession(latest)}
+        draftOwnerId={authUserId || undefined}
+        legacyDraftOwnerId={legacyDraftOwnerId || undefined}
+        onStatus={setStatus}
         onExit={() => setScreen('canvas')}
-        onResume={() => { void requestApi(`/v1/beading-sessions/${beadingSession.id}/resume`, { method: 'POST', body: JSON.stringify({ version: beadingSession.version }) }); }}
         status={status}
       />
       {beadingInventoryCheck ? <InventoryCheckSheet result={beadingInventoryCheck} warehouseId={beadingInventoryCheck.warehouseId || ''} warehouseOptions={warehouses} onWarehouseChange={(warehouseId) => { if (!beadingSession) return; void requestApi<any>(`/v1/beading-sessions/${beadingSession.id}/inventory-check`, { method: 'POST', body: JSON.stringify({ warehouseId: warehouseId || undefined }) }).then(setBeadingInventoryCheck).catch((error) => setStatus(error instanceof Error ? error.message : '库存检测失败')); }} onClose={() => setBeadingInventoryCheck(null)} onStart={enterBeadingSession} /> : null}

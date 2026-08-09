@@ -1,13 +1,34 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
-import { describe, expect, it } from 'vitest';
+import { createElement } from 'react';
+import { act, create, type ReactTestRenderer } from 'react-test-renderer';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { canvasLayerInvalidation } from './H5CanvasLayers';
+import { H5CanvasLayers, canvasLayerInvalidation } from './H5CanvasLayers';
+import type { H5CanvasOverlay } from './H5BeadingOverlay';
+import {
+  CANVAS_LAYER_COUNT,
+  MAX_CANVAS_BACKING_AREA,
+  canvasRenderMetrics,
+} from './H5CanvasRenderer';
+
+vi.mock('react-zoom-pan-pinch', () => ({ useTransformEffect: vi.fn() }));
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 const cells = [{ x: 0, y: 0, color: '#ffffff', transparent: false }];
 const getCode = (color: string) => color;
 const getTextColor = () => '#000000';
+const overlay: H5CanvasOverlay = {
+  currentColorCode: null,
+  highlightEnabled: false,
+  markedCellIndexes: [],
+  completedColorCodes: [],
+};
 
 type ViewportCanvasLayerSnapshot = {
   cells: readonly typeof cells[number][];
@@ -16,6 +37,8 @@ type ViewportCanvasLayerSnapshot = {
   codesVisible: boolean;
   getCode: typeof getCode;
   getTextColor: typeof getTextColor;
+  overlay: H5CanvasOverlay;
+  gridVisible: boolean;
   viewportWidth: number;
   viewportHeight: number;
   artboard: { left: number; top: number; width: number; height: number };
@@ -41,6 +64,8 @@ function snapshot(
     codesVisible: false,
     getCode,
     getTextColor,
+    overlay,
+    gridVisible: true,
     viewportWidth: 390,
     viewportHeight: 640,
     artboard: { left: 16, top: 24, width: 358, height: 358 },
@@ -51,16 +76,33 @@ function snapshot(
 }
 
 describe('canvasLayerInvalidation viewport contract', () => {
-  it.each([
-    ['cells', { cells: [...cells] }],
-    ['getCode', { getCode: () => 'A1' }],
-    ['getTextColor', { getTextColor: () => '#ffffff' }],
-  ] as const)('redraws color and code only when %s changes', (_name, change) => {
-    expect(invalidateViewport(snapshot(), snapshot(change))).toEqual({
+  it('redraws color, code, and overlay when cells change', () => {
+    expect(invalidateViewport(snapshot(), snapshot({ cells: [...cells] }))).toEqual({
       configure: false,
       color: true,
       code: true,
       grid: false,
+      overlay: true,
+    });
+  });
+
+  it('redraws code and overlay when getCode changes', () => {
+    expect(invalidateViewport(snapshot(), snapshot({ getCode: () => 'A1' }))).toEqual({
+      configure: false,
+      color: false,
+      code: true,
+      grid: false,
+      overlay: true,
+    });
+  });
+
+  it('redraws only code when getTextColor changes', () => {
+    expect(invalidateViewport(snapshot(), snapshot({ getTextColor: () => '#ffffff' }))).toEqual({
+      configure: false,
+      color: false,
+      code: true,
+      grid: false,
+      overlay: false,
     });
   });
 
@@ -73,6 +115,32 @@ describe('canvasLayerInvalidation viewport contract', () => {
       color: false,
       code: true,
       grid: false,
+      overlay: false,
+    });
+  });
+
+  it.each([
+    ['current color', { ...overlay, currentColorCode: 'A1' }],
+    ['highlight visibility', { ...overlay, highlightEnabled: true }],
+    ['marked cells', { ...overlay, markedCellIndexes: [0] }],
+    ['completed colors', { ...overlay, completedColorCodes: ['A1'] }],
+  ] as const)('redraws only overlay for %s changes', (_name, nextOverlay) => {
+    expect(invalidateViewport(snapshot(), snapshot({ overlay: nextOverlay }))).toEqual({
+      configure: false,
+      color: false,
+      code: false,
+      grid: false,
+      overlay: true,
+    });
+  });
+
+  it('redraws only grid when grid visibility changes', () => {
+    expect(invalidateViewport(snapshot(), snapshot({ gridVisible: false }))).toEqual({
+      configure: false,
+      color: false,
+      code: false,
+      grid: true,
+      overlay: false,
     });
   });
 
@@ -85,6 +153,7 @@ describe('canvasLayerInvalidation viewport contract', () => {
       color: true,
       code: true,
       grid: true,
+      overlay: true,
     });
   });
 
@@ -97,6 +166,7 @@ describe('canvasLayerInvalidation viewport contract', () => {
       color: true,
       code: true,
       grid: true,
+      overlay: true,
     });
   });
 
@@ -110,6 +180,7 @@ describe('canvasLayerInvalidation viewport contract', () => {
       color: true,
       code: true,
       grid: true,
+      overlay: true,
     });
   });
 });
@@ -352,10 +423,172 @@ describe('H5CanvasLayers scheduling contract', () => {
     expect(structure.hasCall(['cancelAnimationFrame'])).toBe(true);
   });
 
+  it('renders and configures four canvases in color, code, grid, overlay order', () => {
+    const classes = [...source.matchAll(/<canvas[^>]+className="([^"]+)"/g)]
+      .map((match) => match[1]);
+    expect(classes).toEqual([
+      'h5-color-canvas',
+      'h5-code-canvas',
+      'h5-grid-canvas',
+      'h5-overlay-canvas',
+    ]);
+    expect(source.match(/configureCanvas\(/g)).toHaveLength(4);
+    expect(source).toContain('drawViewportBeadingOverlay');
+    expect(source).toContain('style={{ zIndex: 4 }}');
+    expect(source).not.toMatch(/Math\.round\([^)]*logical(?:Width|Height)[^)]*renderScale[^)]*\)/);
+  });
+
+  it('keeps overlay props in the latest snapshot and schedules their changes', () => {
+    expect(source).toContain('overlay, gridVisible');
+    expect(source).toMatch(/\[[^\]]*overlay[^\]]*gridVisible[^\]]*scheduleDraw[^\]]*\]/);
+  });
+
   it('has no zoom-settlement timer because camera changes only redraw', () => {
     expect(source).not.toContain('CANVAS_RASTER_SETTLE_MS');
     expect(source).not.toContain('rasterScaleRef');
     expect(structure.hasCall(['setTimeout'])).toBe(false);
     expect(structure.hasCall(['clearTimeout'])).toBe(false);
+  });
+});
+
+describe('H5CanvasLayers production draw path', () => {
+  it.each([0.5, 2])('keeps four canvases in untransformed artboard geometry at %s× zoom', async (transformScale) => {
+    const originalConsoleError = console.error;
+    vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      if (args[0] === 'react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer') return;
+      originalConsoleError(...args);
+    });
+    const rafCallbacks = new Map<number, FrameRequestCallback>();
+    let nextRaf = 1;
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('window', {
+      devicePixelRatio: 3,
+      requestAnimationFrame(callback: FrameRequestCallback) {
+        const id = nextRaf;
+        nextRaf += 1;
+        rafCallbacks.set(id, callback);
+        return id;
+      },
+      cancelAnimationFrame(id: number) { rafCallbacks.delete(id); },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      matchMedia: () => ({
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }),
+    });
+    vi.stubGlobal('document', { fonts: { ready: new Promise<void>(() => undefined) } });
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      disconnect() {}
+    });
+
+    const stack = {
+      dataset: {} as Record<string, string>,
+      clientWidth: 1024,
+      clientHeight: 768,
+      getBoundingClientRect: () => ({
+        left: 40,
+        top: 30,
+        width: 1024 * transformScale,
+        height: 768 * transformScale,
+      }),
+    };
+    const artboard = {
+      clientWidth: 1024,
+      clientHeight: 768,
+      getBoundingClientRect: () => ({
+        left: 40,
+        top: 30,
+        width: 1024 * transformScale,
+        height: 768 * transformScale,
+      }),
+    };
+    const canvases = new Map<string, {
+      width: number;
+      height: number;
+      style: { width: string; height: string };
+    }>();
+    const operations = new Map<string, string[]>();
+    let renderer: ReactTestRenderer | undefined;
+
+    await act(async () => {
+      renderer = create(createElement(H5CanvasLayers, {
+        artboardRef: { current: artboard as unknown as HTMLElement },
+        cells: [
+          { x: 0, y: 0, color: '#111111' },
+          { x: 1, y: 0, color: '#222222' },
+        ],
+        rows: 1,
+        cols: 2,
+        codesVisible: false,
+        gridVisible: false,
+        getCode: (color: string) => color === '#111111' ? 'A1' : 'B2',
+        getTextColor: () => '#ffffff',
+        overlay: {
+          currentColorCode: 'A1',
+          highlightEnabled: true,
+          markedCellIndexes: [],
+          completedColorCodes: [],
+        },
+      }), {
+        createNodeMock(element) {
+          if (element.type === 'div') return stack;
+          const className = String((element.props as { className?: unknown }).className);
+          const canvas = { width: 0, height: 0, style: { width: '', height: '' } };
+          const calls: string[] = [];
+          const context = {
+            fillStyle: '#000000',
+            strokeStyle: '#000000',
+            lineWidth: 1,
+            font: '',
+            textAlign: 'start',
+            textBaseline: 'alphabetic',
+            setTransform: () => calls.push('setTransform'),
+            save: () => calls.push('save'),
+            restore: () => calls.push('restore'),
+            clearRect: () => calls.push('clearRect'),
+            fillRect: () => calls.push('fillRect'),
+            fillText: () => calls.push('fillText'),
+            beginPath: () => calls.push('beginPath'),
+            moveTo: () => calls.push('moveTo'),
+            lineTo: () => calls.push('lineTo'),
+            stroke: () => calls.push('stroke'),
+            strokeRect: () => calls.push('strokeRect'),
+          };
+          Object.assign(canvas, { getContext: () => context });
+          canvases.set(className, canvas);
+          operations.set(className, calls);
+          return canvas;
+        },
+      });
+    });
+
+    await act(async () => {
+      const pending = [...rafCallbacks.values()];
+      rafCallbacks.clear();
+      pending.forEach((callback) => callback(0));
+    });
+
+    const expected = canvasRenderMetrics(1024, 768, 3, 1);
+    expect(canvases.size).toBe(CANVAS_LAYER_COUNT);
+    for (const canvas of canvases.values()) {
+      expect({ width: canvas.width, height: canvas.height }).toEqual({
+        width: expected.backingWidth,
+        height: expected.backingHeight,
+      });
+      expect(canvas.style).toEqual({ width: '1024px', height: '768px' });
+    }
+    expect(CANVAS_LAYER_COUNT * expected.backingWidth * expected.backingHeight)
+      .toBeLessThanOrEqual(MAX_CANVAS_BACKING_AREA);
+    expect(operations.get('h5-grid-canvas')).toContain('clearRect');
+    expect(operations.get('h5-grid-canvas')).not.toContain('stroke');
+    expect(operations.get('h5-overlay-canvas')).toEqual(expect.arrayContaining([
+      'save', 'clearRect', 'strokeRect', 'fillRect', 'restore',
+    ]));
+    expect(stack.dataset.rasterWidth).toBe(String(expected.backingWidth));
+    expect(stack.dataset.rasterHeight).toBe(String(expected.backingHeight));
+
+    await act(async () => { renderer?.unmount(); });
   });
 });

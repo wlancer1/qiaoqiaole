@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  CANVAS_LAYER_COUNT,
   MAX_CANVAS_BACKING_AREA,
   MAX_CANVAS_BACKING_DIMENSION,
   canvasRenderMetrics,
@@ -14,11 +15,23 @@ import {
   visibleGridRange,
   viewportGridBoundary,
 } from './H5CanvasRenderer';
+import {
+  drawViewportBeadingOverlay,
+  prepareBeadingOverlay,
+} from './H5BeadingOverlay';
 
-type RecordedOperation = { name: string; args: unknown[]; fillStyle?: string; lineWidth?: number; font?: string };
+type RecordedOperation = {
+  name: string;
+  args: unknown[];
+  fillStyle?: string;
+  strokeStyle?: string;
+  lineWidth?: number;
+  font?: string;
+};
 
 function recordingContext() {
   const operations: RecordedOperation[] = [];
+  const states: Array<{ fillStyle: string; strokeStyle: string; lineWidth: number }> = [];
   const context = {
     fillStyle: '#000000',
     strokeStyle: '#000000',
@@ -26,14 +39,26 @@ function recordingContext() {
     font: '',
     textAlign: 'start',
     textBaseline: 'alphabetic',
+    save(...args: unknown[]) {
+      states.push({ fillStyle: this.fillStyle, strokeStyle: this.strokeStyle, lineWidth: this.lineWidth });
+      operations.push({ name: 'save', args });
+    },
+    restore(...args: unknown[]) {
+      Object.assign(this, states.pop());
+      operations.push({ name: 'restore', args });
+    },
     clearRect(...args: unknown[]) { operations.push({ name: 'clearRect', args }); },
     fillRect(...args: unknown[]) { operations.push({ name: 'fillRect', args, fillStyle: this.fillStyle }); },
     fillText(...args: unknown[]) { operations.push({ name: 'fillText', args, fillStyle: this.fillStyle, font: this.font }); },
     beginPath(...args: unknown[]) { operations.push({ name: 'beginPath', args }); },
     moveTo(...args: unknown[]) { operations.push({ name: 'moveTo', args }); },
     lineTo(...args: unknown[]) { operations.push({ name: 'lineTo', args }); },
-    stroke(...args: unknown[]) { operations.push({ name: 'stroke', args, lineWidth: this.lineWidth }); },
-    strokeRect(...args: unknown[]) { operations.push({ name: 'strokeRect', args, lineWidth: this.lineWidth }); },
+    stroke(...args: unknown[]) {
+      operations.push({ name: 'stroke', args, strokeStyle: this.strokeStyle, lineWidth: this.lineWidth });
+    },
+    strokeRect(...args: unknown[]) {
+      operations.push({ name: 'strokeRect', args, strokeStyle: this.strokeStyle, lineWidth: this.lineWidth });
+    },
     setTransform(...args: unknown[]) { operations.push({ name: 'setTransform', args }); },
   };
 
@@ -186,7 +211,7 @@ describe('viewport draw passes', () => {
       getCode: () => 'A1',
       getTextColor: () => '#000000',
     });
-    drawViewportGridLayer(gridRecording.context, geometry);
+    drawViewportGridLayer(gridRecording.context, { ...geometry, visible: true });
 
     const firstOpaqueFill = colorRecording.operations.find(
       (operation) => operation.name === 'fillRect' && operation.fillStyle === 'color-0',
@@ -196,7 +221,12 @@ describe('viewport draw passes', () => {
     expect(firstLabel?.args.slice(1)).toEqual([8.5, 8, 6.3]);
     expect(gridRecording.operations).toContainEqual({ name: 'moveTo', args: [12, 2] });
     expect(gridRecording.operations).toContainEqual({ name: 'lineTo', args: [12, 14] });
-    expect(gridRecording.operations).toContainEqual({ name: 'stroke', args: [], lineWidth: 0.75 });
+    expect(gridRecording.operations).toContainEqual({
+      name: 'stroke',
+      args: [],
+      strokeStyle: 'rgba(18, 70, 69, 0.58)',
+      lineWidth: 0.75,
+    });
   });
 
   it('only clears when the artboard is fully offscreen', () => {
@@ -219,11 +249,206 @@ describe('viewport draw passes', () => {
       getCode: () => 'A1',
       getTextColor: () => '#000000',
     });
-    drawViewportGridLayer(recordings[2].context, offscreen);
+    drawViewportGridLayer(recordings[2].context, { ...offscreen, visible: true });
 
     for (const recording of recordings) {
       expect(recording.operations).toEqual([{ name: 'clearRect', args: [0, 0, 40, 40] }]);
     }
+  });
+});
+
+describe('drawViewportBeadingOverlay', () => {
+  const geometry = {
+    viewportWidth: 40,
+    viewportHeight: 20,
+    artboard: { left: 0, top: 0, width: 40, height: 20 },
+    rows: 1,
+    cols: 4,
+    renderScale: 2,
+  };
+  const cells = [
+    { x: 0, y: 0, color: '#111111' },
+    { x: 1, y: 0, color: '#222222' },
+    { x: 2, y: 0, color: '#333333', transparent: true },
+  ];
+  const getCode = (color: string) => ({
+    '#111111': 'A1',
+    '#222222': 'B2',
+    '#333333': 'C3',
+  }[color] ?? '');
+
+  it('dims non-current opaque cells and outlines the current color in cyan', () => {
+    const { context, operations } = recordingContext();
+    context.fillStyle = '#before-fill';
+    context.strokeStyle = '#before-stroke';
+    context.lineWidth = 7;
+
+    drawViewportBeadingOverlay(context, {
+      ...geometry,
+      cells,
+      getCode,
+      currentColorCode: 'A1',
+      highlightEnabled: true,
+      markedCellIndexes: [],
+      completedColorCodes: [],
+    });
+
+    expect(operations.slice(0, 2)).toEqual([
+      { name: 'save', args: [] },
+      { name: 'clearRect', args: [0, 0, 40, 20] },
+    ]);
+    expect(operations.at(-1)).toEqual({ name: 'restore', args: [] });
+    expect(operations.filter((operation) => operation.name === 'fillRect')).toEqual([
+      { name: 'fillRect', args: [10, 0, 10, 20], fillStyle: 'rgba(12, 18, 28, 0.66)' },
+    ]);
+    expect(operations).toContainEqual({
+      name: 'strokeRect',
+      args: [0.75, 0.75, 8.5, 18.5],
+      strokeStyle: '#18d8ff',
+      lineWidth: 1.5,
+    });
+    expect({
+      fillStyle: context.fillStyle,
+      strokeStyle: context.strokeStyle,
+      lineWidth: context.lineWidth,
+    }).toEqual({ fillStyle: '#before-fill', strokeStyle: '#before-stroke', lineWidth: 7 });
+  });
+
+  it('draws weak completed checks and lets marked checks take priority', () => {
+    const { context, operations } = recordingContext();
+
+    drawViewportBeadingOverlay(context, {
+      ...geometry,
+      cells,
+      getCode,
+      currentColorCode: null,
+      highlightEnabled: false,
+      markedCellIndexes: [1],
+      completedColorCodes: ['A1', 'B2'],
+    });
+
+    const checkStrokes = operations.filter((operation) => operation.name === 'stroke');
+    expect(checkStrokes).toEqual([
+      { name: 'stroke', args: [], strokeStyle: 'rgba(255, 255, 255, 0.45)', lineWidth: 1 },
+      { name: 'stroke', args: [], strokeStyle: '#ffffff', lineWidth: 1.5 },
+    ]);
+  });
+
+  it('skips transparent and missing cells and only accesses the visible grid range', () => {
+    const accessed: number[] = [];
+    const trackedCells = new Proxy(cells, {
+      get(target, property, receiver) {
+        if (typeof property === 'string' && /^\d+$/.test(property)) accessed.push(Number(property));
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    const { context, operations } = recordingContext();
+
+    drawViewportBeadingOverlay(context, {
+      ...geometry,
+      viewportWidth: 20,
+      cells: trackedCells,
+      getCode,
+      currentColorCode: 'A1',
+      highlightEnabled: true,
+      markedCellIndexes: [2, 3],
+      completedColorCodes: ['C3'],
+    });
+
+    expect(accessed).toEqual([0, 1]);
+    expect(operations.filter((operation) => ['fillRect', 'strokeRect', 'stroke'].includes(operation.name)))
+      .toHaveLength(2);
+  });
+
+  it('clears stale highlights without painting when highlighting is disabled', () => {
+    const { context, operations } = recordingContext();
+
+    drawViewportBeadingOverlay(context, {
+      ...geometry,
+      cells,
+      getCode,
+      currentColorCode: 'A1',
+      highlightEnabled: false,
+      markedCellIndexes: [],
+      completedColorCodes: [],
+    });
+
+    expect(operations).toEqual([
+      { name: 'save', args: [] },
+      { name: 'clearRect', args: [0, 0, 40, 20] },
+      { name: 'restore', args: [] },
+    ]);
+  });
+
+  it('restores canvas state when painting throws', () => {
+    const { context, operations } = recordingContext();
+    context.fillStyle = '#before-error';
+    context.fillRect = () => { throw new Error('paint failed'); };
+
+    expect(() => drawViewportBeadingOverlay(context, {
+      ...geometry,
+      cells,
+      getCode,
+      currentColorCode: 'A1',
+      highlightEnabled: true,
+      markedCellIndexes: [],
+      completedColorCodes: [],
+    })).toThrow('paint failed');
+
+    expect(operations.at(-1)).toEqual({ name: 'restore', args: [] });
+    expect(context.fillStyle).toBe('#before-error');
+  });
+});
+
+describe('prepareBeadingOverlay', () => {
+  it('reuses prepared sets while overlay array references stay unchanged', () => {
+    const markedCellIndexes = [1, 4];
+    const completedColorCodes = ['A1', 'B2'];
+    const value = {
+      currentColorCode: 'A1',
+      highlightEnabled: true,
+      markedCellIndexes,
+      completedColorCodes,
+    };
+
+    const first = prepareBeadingOverlay(value);
+    const second = prepareBeadingOverlay({ ...value });
+
+    expect(second.markedCellIndexSet).toBe(first.markedCellIndexSet);
+    expect(second.completedColorCodeSet).toBe(first.completedColorCodeSet);
+  });
+
+  it('rebuilds only the set whose source array reference changes', () => {
+    const value = {
+      currentColorCode: null,
+      highlightEnabled: false,
+      markedCellIndexes: [1],
+      completedColorCodes: ['A1'],
+    };
+    const first = prepareBeadingOverlay(value);
+    const second = prepareBeadingOverlay({ ...value, markedCellIndexes: [2] });
+
+    expect(second.markedCellIndexSet).not.toBe(first.markedCellIndexSet);
+    expect(second.markedCellIndexSet.has(2)).toBe(true);
+    expect(second.completedColorCodeSet).toBe(first.completedColorCodeSet);
+  });
+});
+
+describe('drawViewportGridLayer visibility', () => {
+  it('clears stale grid pixels and returns without stroking when hidden', () => {
+    const { context, operations } = recordingContext();
+
+    drawViewportGridLayer(context, {
+      viewportWidth: 40,
+      viewportHeight: 20,
+      artboard: { left: 0, top: 0, width: 40, height: 20 },
+      rows: 2,
+      cols: 4,
+      renderScale: 2,
+      visible: false,
+    });
+
+    expect(operations).toEqual([{ name: 'clearRect', args: [0, 0, 40, 20] }]);
   });
 });
 
@@ -251,7 +476,8 @@ describe('canvasRenderMetrics', () => {
 
     expect(metrics.backingWidth).toBeLessThanOrEqual(MAX_CANVAS_BACKING_DIMENSION);
     expect(metrics.backingHeight).toBeLessThanOrEqual(MAX_CANVAS_BACKING_DIMENSION);
-    expect(3 * metrics.backingWidth * metrics.backingHeight).toBeLessThanOrEqual(MAX_CANVAS_BACKING_AREA);
+    expect(CANVAS_LAYER_COUNT).toBe(4);
+    expect(4 * metrics.backingWidth * metrics.backingHeight).toBeLessThanOrEqual(MAX_CANVAS_BACKING_AREA);
     expect(metrics.renderScale).toBeLessThan(24);
   });
 
@@ -266,7 +492,7 @@ describe('canvasRenderMetrics', () => {
     expect(metrics.backingHeight).toBeGreaterThanOrEqual(1);
     expect(metrics.backingWidth).toBeLessThanOrEqual(MAX_CANVAS_BACKING_DIMENSION);
     expect(metrics.backingHeight).toBeLessThanOrEqual(MAX_CANVAS_BACKING_DIMENSION);
-    expect(3 * metrics.backingWidth * metrics.backingHeight).toBeLessThanOrEqual(MAX_CANVAS_BACKING_AREA);
+    expect(4 * metrics.backingWidth * metrics.backingHeight).toBeLessThanOrEqual(MAX_CANVAS_BACKING_AREA);
   });
 
   it('returns an empty backing store for invalid logical sizes', () => {
@@ -278,7 +504,7 @@ describe('canvasRenderMetrics', () => {
 describe('configureCanvas', () => {
   it('applies identical backing metrics and transforms to every layer', () => {
     const metrics = canvasRenderMetrics(120, 80, 2, 1.5);
-    const layers = Array.from({ length: 3 }, () => {
+    const layers = Array.from({ length: 4 }, () => {
       const recording = recordingContext();
       const canvas = {
         width: 0,
@@ -380,10 +606,16 @@ describe('drawGridLayer', () => {
     expect(operations[0]).toEqual({ name: 'clearRect', args: [0, 0, 20, 10] });
     expect(operations).toContainEqual({ name: 'moveTo', args: [10, 0] });
     expect(operations).toContainEqual({ name: 'lineTo', args: [10, 10] });
-    expect(operations).toContainEqual({ name: 'stroke', args: [], lineWidth: 0.25 });
+    expect(operations).toContainEqual({
+      name: 'stroke',
+      args: [],
+      strokeStyle: 'rgba(18, 70, 69, 0.58)',
+      lineWidth: 0.25,
+    });
     expect(operations).toContainEqual({
       name: 'strokeRect',
       args: [0.125, 0.125, 19.75, 9.75],
+      strokeStyle: 'rgba(18, 70, 69, 0.58)',
       lineWidth: 0.25,
     });
   });
@@ -407,6 +639,7 @@ describe('drawGridLayer', () => {
     expect(operations).toContainEqual({
       name: 'strokeRect',
       args: [0.125, 0.125, 19.75, 9.75],
+      strokeStyle: 'rgba(18, 70, 69, 0.58)',
       lineWidth: 0.25,
     });
   });
