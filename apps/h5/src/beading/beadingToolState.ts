@@ -14,6 +14,11 @@ export type BeadingToolState = {
   markedCellIndexes: number[];
 };
 
+export type PersistedBeadingToolState = Pick<
+  BeadingToolState,
+  'markedCellIndexes' | 'highlightEnabled' | 'locked' | 'codesVisible' | 'gridVisible' | 'sortMode'
+>;
+
 export type BeadingToolAction =
   | { type: 'toggle-mode'; mode: 'mark' | 'revise' }
   | { type: 'set-panel'; panel: ActivePanel }
@@ -24,6 +29,7 @@ export type BeadingToolAction =
   | { type: 'toggle-grid' }
   | { type: 'set-sort'; sortMode: SortMode }
   | { type: 'set-marks'; indexes: number[]; cellCount: number }
+  | { type: 'hydrate-persisted'; state: PersistedBeadingToolState; cellCount: number }
   | { type: 'reset' };
 
 export type SortableBeadingRequirement = { colorCode: string; required: number };
@@ -145,6 +151,12 @@ export function beadingToolReducer(state: BeadingToolState, action: BeadingToolA
       return { ...state, sortMode: action.sortMode };
     case 'set-marks':
       return { ...state, markedCellIndexes: normalizeMarkedCellIndexes(action.indexes, action.cellCount) };
+    case 'hydrate-persisted':
+      return {
+        ...createBeadingToolState(),
+        ...action.state,
+        markedCellIndexes: normalizeMarkedCellIndexes(action.state.markedCellIndexes, action.cellCount),
+      };
     case 'reset':
       return createBeadingToolState();
   }

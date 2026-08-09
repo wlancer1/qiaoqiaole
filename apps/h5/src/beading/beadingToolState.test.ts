@@ -72,6 +72,36 @@ describe('beading tool state', () => {
 
     expect(beadingToolReducer(changed, { type: 'reset' })).toEqual(createBeadingToolState());
   });
+
+  it('hydrates persisted fields atomically while resetting transient state and filtering marks', () => {
+    const changed = {
+      ...createBeadingToolState(),
+      interactionMode: 'revise' as const,
+      activePanel: 'more' as const,
+      focusMode: true,
+    };
+
+    expect(beadingToolReducer(changed, {
+      type: 'hydrate-persisted',
+      state: {
+        markedCellIndexes: [4, 1, 4, -1, 5],
+        highlightEnabled: false,
+        locked: true,
+        codesVisible: false,
+        gridVisible: false,
+        sortMode: 'remaining',
+      },
+      cellCount: 5,
+    })).toEqual({
+      ...createBeadingToolState(),
+      markedCellIndexes: [1, 4],
+      highlightEnabled: false,
+      locked: true,
+      codesVisible: false,
+      gridVisible: false,
+      sortMode: 'remaining',
+    });
+  });
 });
 
 describe('cellIndexFromPoint', () => {

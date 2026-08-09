@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useRef, type Dispatch } from 'react';
+import { useCallback, useEffect, useRef, useState, type Dispatch } from 'react';
 import {
   beadingDraftKey,
   normalizeBeadingDraft,
   readBeadingDraft,
   type BeadingDraft,
+  type PersistedBeadingToolState,
 } from './beadingSessionUtils';
-import type { BeadingToolAction, BeadingToolState } from './beadingToolState';
+import { createBeadingToolState, type BeadingToolAction, type BeadingToolState } from './beadingToolState';
 
 type DraftStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
@@ -21,44 +22,56 @@ export type UseBeadingDraftOptions = {
 
 export type UseBeadingDraftResult = { clearDraft(): void };
 
-type LatestDraftContext = {
-  ownerId?: string;
-  sessionId: string;
+type DraftIdentity = { ownerId: string; sessionId: string; storage: DraftStorage };
+type ActiveDraft = {
+  identity: DraftIdentity;
   cellCount: number;
   state: BeadingToolState;
-  storage?: DraftStorage;
-  onWarning?: (message: string) => void;
+  hydrated: boolean;
+  suppressed: boolean;
 };
+type PendingHydration = { identity: DraftIdentity; persisted: PersistedBeadingToolState };
 
 function warn(onWarning: ((message: string) => void) | undefined, message: string): void {
   try { onWarning?.(message); } catch { /* Warning handlers must not break draft persistence. */ }
 }
 
-function browserStorage(onWarning?: (message: string) => void): DraftStorage | undefined {
-  if (typeof window === 'undefined') return undefined;
-  try {
-    return window.localStorage;
-  } catch {
-    warn(onWarning, '无法访问本地草稿存储，本次更改可能无法保存。');
-    return undefined;
-  }
+function sameIdentity(left: DraftIdentity | undefined, right: DraftIdentity | undefined): boolean {
+  return left?.ownerId === right?.ownerId
+    && left?.sessionId === right?.sessionId
+    && left?.storage === right?.storage;
+}
+
+function stateMatchesHydration(state: BeadingToolState, persisted: PersistedBeadingToolState): boolean {
+  const defaults = createBeadingToolState();
+  return state.interactionMode === defaults.interactionMode
+    && state.activePanel === defaults.activePanel
+    && state.focusMode === defaults.focusMode
+    && state.highlightEnabled === persisted.highlightEnabled
+    && state.locked === persisted.locked
+    && state.codesVisible === persisted.codesVisible
+    && state.gridVisible === persisted.gridVisible
+    && state.sortMode === persisted.sortMode
+    && state.markedCellIndexes.length === persisted.markedCellIndexes.length
+    && state.markedCellIndexes.every((index, position) => index === persisted.markedCellIndexes[position]);
 }
 
 function draftFromState(state: BeadingToolState, cellCount: number): BeadingDraft {
-  const normalized = normalizeBeadingDraft(state, cellCount);
   return {
     completedColorCodes: [],
     elapsedSeconds: 0,
     updatedAt: new Date().toISOString(),
-    ...normalized,
+    ...normalizeBeadingDraft(state, cellCount),
   };
 }
 
-function writeLatestDraft(context: LatestDraftContext, suppressed: boolean): void {
-  const { ownerId, sessionId, cellCount, state, onWarning } = context;
-  if (!ownerId || !context.storage || suppressed) return;
+function writeActiveDraft(active: ActiveDraft, onWarning?: (message: string) => void): void {
+  if (!active.hydrated || active.suppressed) return;
   try {
-    context.storage.setItem(beadingDraftKey(ownerId, sessionId), JSON.stringify(draftFromState(state, cellCount)));
+    active.identity.storage.setItem(
+      beadingDraftKey(active.identity.ownerId, active.identity.sessionId),
+      JSON.stringify(draftFromState(active.state, active.cellCount)),
+    );
   } catch {
     warn(onWarning, '本地草稿保存失败，存储空间可能不足。');
   }
@@ -73,46 +86,62 @@ export function useBeadingDraft({
   storage,
   onWarning,
 }: UseBeadingDraftOptions): UseBeadingDraftResult {
-  const resolvedStorage = storage ?? browserStorage(onWarning);
-  const loadedKeyRef = useRef<string | null>(null);
+  const [defaultStorage, setDefaultStorage] = useState<DraftStorage>();
+  const attemptedDefaultStorageRef = useRef(false);
+  const warningRef = useRef(onWarning);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const suppressedRef = useRef(false);
-  const latestContextRef = useRef<LatestDraftContext>({
-    ownerId,
-    sessionId,
-    cellCount,
-    state,
-    storage: resolvedStorage,
-    onWarning,
-  });
-  latestContextRef.current = {
-    ownerId,
-    sessionId,
-    cellCount,
-    state,
-    storage: resolvedStorage,
-    onWarning,
+  const activeRef = useRef<ActiveDraft | undefined>(undefined);
+  const pendingHydrationRef = useRef<PendingHydration | undefined>(undefined);
+  const unmountGenerationRef = useRef(0);
+  warningRef.current = onWarning;
+  const resolvedStorage = storage ?? defaultStorage;
+  const currentIdentity = ownerId && resolvedStorage ? { ownerId, sessionId, storage: resolvedStorage } : undefined;
+
+  const cancelTimer = () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
   };
 
   useEffect(() => {
-    if (!ownerId || !resolvedStorage) return;
-    const key = beadingDraftKey(ownerId, sessionId);
-    if (loadedKeyRef.current === key) return;
-    loadedKeyRef.current = key;
-    suppressedRef.current = false;
-    const draft = readBeadingDraft(resolvedStorage, ownerId, sessionId, () => {
-      warn(onWarning, '本地草稿读取失败，已使用默认工具设置。');
-    });
-    if (!draft) return;
+    if (!ownerId || storage || attemptedDefaultStorageRef.current) return;
+    attemptedDefaultStorageRef.current = true;
+    if (typeof window === 'undefined') return;
+    try {
+      setDefaultStorage(window.localStorage);
+    } catch {
+      warn(warningRef.current, '无法访问本地草稿存储，本次更改可能无法保存。');
+    }
+  }, [ownerId, storage]);
 
-    const restored = normalizeBeadingDraft(draft, cellCount);
-    dispatch({ type: 'set-marks', indexes: restored.markedCellIndexes, cellCount });
-    dispatch({ type: 'set-sort', sortMode: restored.sortMode });
-    if (restored.highlightEnabled !== state.highlightEnabled) dispatch({ type: 'toggle-highlight' });
-    if (restored.locked !== state.locked) dispatch({ type: 'toggle-lock' });
-    if (restored.codesVisible !== state.codesVisible) dispatch({ type: 'toggle-codes' });
-    if (restored.gridVisible !== state.gridVisible) dispatch({ type: 'toggle-grid' });
-  }, [cellCount, dispatch, onWarning, ownerId, resolvedStorage, sessionId, state.codesVisible, state.gridVisible, state.highlightEnabled, state.locked]);
+  useEffect(() => {
+    const previous = activeRef.current;
+    if (sameIdentity(previous?.identity, currentIdentity)) return;
+
+    cancelTimer();
+    if (previous) writeActiveDraft(previous, warningRef.current);
+    pendingHydrationRef.current = undefined;
+    activeRef.current = undefined;
+    if (!currentIdentity) return;
+
+    const loaded = readBeadingDraft(
+      currentIdentity.storage,
+      currentIdentity.ownerId,
+      currentIdentity.sessionId,
+      () => warn(warningRef.current, '本地草稿读取失败，已使用默认工具设置。'),
+    );
+    const persisted = normalizeBeadingDraft(loaded, cellCount);
+    activeRef.current = {
+      identity: currentIdentity,
+      cellCount,
+      state: createBeadingToolState(),
+      hydrated: false,
+      suppressed: false,
+    };
+    pendingHydrationRef.current = { identity: currentIdentity, persisted };
+    dispatch({ type: 'hydrate-persisted', state: persisted, cellCount });
+  }, [dispatch, ownerId, resolvedStorage, sessionId]);
 
   useEffect(() => {
     const normalizedMarks = normalizeBeadingDraft(state, cellCount).markedCellIndexes;
@@ -123,40 +152,51 @@ export function useBeadingDraft({
   }, [cellCount, dispatch, state.markedCellIndexes]);
 
   useEffect(() => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    if (!ownerId || !resolvedStorage || suppressedRef.current) return;
-    timerRef.current = setTimeout(() => {
-      timerRef.current = null;
-      writeLatestDraft(latestContextRef.current, suppressedRef.current);
-    }, 150);
-    return () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-    };
+    const active = activeRef.current;
+    if (!active || !sameIdentity(active.identity, currentIdentity)) return;
+    const pending = pendingHydrationRef.current;
+    if (pending && sameIdentity(pending.identity, currentIdentity)) {
+      if (!stateMatchesHydration(state, pending.persisted)) return;
+      active.hydrated = true;
+      pendingHydrationRef.current = undefined;
+    }
+    active.state = state;
+    active.cellCount = cellCount;
   }, [cellCount, ownerId, resolvedStorage, sessionId, state]);
 
-  useEffect(() => () => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
+  useEffect(() => {
+    cancelTimer();
+    const active = activeRef.current;
+    if (!active || !active.hydrated || active.suppressed || !sameIdentity(active.identity, currentIdentity)) return;
+    timerRef.current = setTimeout(() => {
       timerRef.current = null;
-    }
-    writeLatestDraft(latestContextRef.current, suppressedRef.current);
+      const latest = activeRef.current;
+      if (latest && sameIdentity(latest.identity, currentIdentity)) writeActiveDraft(latest, warningRef.current);
+    }, 150);
+    return cancelTimer;
+  }, [cellCount, ownerId, resolvedStorage, sessionId, state]);
+
+  useEffect(() => {
+    const generation = ++unmountGenerationRef.current;
+    return () => {
+      queueMicrotask(() => {
+        if (unmountGenerationRef.current !== generation) return;
+        cancelTimer();
+        const active = activeRef.current;
+        if (active) writeActiveDraft(active, warningRef.current);
+      });
+    };
   }, []);
 
   const clearDraft = useCallback(() => {
-    suppressedRef.current = true;
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-    const context = latestContextRef.current;
-    if (!context.ownerId || !context.storage) return;
+    cancelTimer();
+    const active = activeRef.current;
+    if (!active) return;
+    active.suppressed = true;
     try {
-      context.storage.removeItem(beadingDraftKey(context.ownerId, context.sessionId));
+      active.identity.storage.removeItem(beadingDraftKey(active.identity.ownerId, active.identity.sessionId));
     } catch {
-      warn(context.onWarning, '本地草稿删除失败，请稍后重试。');
+      warn(warningRef.current, '本地草稿删除失败，请稍后重试。');
     }
   }, []);
 

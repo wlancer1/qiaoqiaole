@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   beadingDraftKey,
   canCompleteOffline,
@@ -101,5 +101,38 @@ describe('beading session client utilities', () => {
       sortMode: 'remaining',
     });
     expect([...data.keys()]).toEqual(['qiaoqiaole.beading-draft:u1:s1']);
+  });
+
+  it('accepts new drafts without legacy progress fields and supplies safe defaults', () => {
+    const storage = {
+      getItem: () => JSON.stringify({ locked: true, markedCellIndexes: [2] }),
+    };
+
+    expect(readBeadingDraft(storage, 'u1', 's1')).toEqual({
+      completedColorCodes: [],
+      elapsedSeconds: 0,
+      updatedAt: '',
+      locked: true,
+      markedCellIndexes: [2],
+    });
+  });
+
+  it.each([
+    { completedColorCodes: [1], elapsedSeconds: 0, updatedAt: '' },
+    { completedColorCodes: [], elapsedSeconds: Number.NaN, updatedAt: '' },
+    { completedColorCodes: [], elapsedSeconds: -1, updatedAt: '' },
+    { completedColorCodes: [], elapsedSeconds: 0, updatedAt: 42 },
+  ])('rejects malformed legacy fields: %j', (draft) => {
+    const onError = vi.fn();
+    const storage = { getItem: () => JSON.stringify(draft) };
+
+    expect(readBeadingDraft(storage, 'u1', 's1', onError)).toBeNull();
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
+  it('contains an onError callback that throws', () => {
+    const storage = { getItem: () => '{broken' };
+
+    expect(() => readBeadingDraft(storage, 'u1', 's1', () => { throw new Error('warning failed'); })).not.toThrow();
   });
 });
