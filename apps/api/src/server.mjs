@@ -1253,14 +1253,15 @@ async function createProject(request, response, userId) {
     return sendJson(response, 400, { error: 'INVALID_INPUT', message: error instanceof Error ? error.message : '项目图片路径无效' });
   }
   const canvasData = String(body.canvasData || '').trim();
+  const beadList = Array.isArray(body.beadList) ? JSON.stringify(body.beadList) : '';
   if (!name || !Number.isInteger(rows) || !Number.isInteger(cols) || rows < 1 || cols < 1) {
     return sendJson(response, 400, { error: 'INVALID_INPUT', message: '项目名称和画布尺寸无效' });
   }
   const now = new Date().toISOString();
   const id = randomUUID();
   db.run(
-    'INSERT INTO projects (id, user_id, name, rows, cols, tone, source_image, thumbnail_image, canvas_data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [id, userId, name, rows, cols, tone, sourceImage, thumbnailImage, canvasData, now, now],
+    'INSERT INTO projects (id, user_id, name, rows, cols, tone, source_image, thumbnail_image, canvas_data, bead_list, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [id, userId, name, rows, cols, tone, sourceImage, thumbnailImage, canvasData, beadList, now, now],
   );
   await persist();
   sendJson(response, 201, { project: {
@@ -1279,6 +1280,7 @@ async function createProject(request, response, userId) {
 async function updateProject(request, response, userId, projectId) {
   const existing = getOne(
     `SELECT id, user_id, source_image AS sourceImage, thumbnail_image AS thumbnailImage,
+            bead_list AS beadList,
             shared_to_community AS sharedToCommunity, shared_at AS sharedAt, likes_count AS likesCount,
             created_at AS createdAt
      FROM projects WHERE id = ?`,
@@ -1299,15 +1301,16 @@ async function updateProject(request, response, userId, projectId) {
     return sendJson(response, 400, { error: 'INVALID_INPUT', message: error instanceof Error ? error.message : '项目图片路径无效' });
   }
   const canvasData = String(body.canvasData || '').trim();
+  const beadList = Array.isArray(body.beadList) ? JSON.stringify(body.beadList) : existing.beadList || '';
   if (!name || !Number.isInteger(rows) || !Number.isInteger(cols) || rows < 1 || cols < 1) {
     return sendJson(response, 400, { error: 'INVALID_INPUT', message: '项目名称和画布尺寸无效' });
   }
   const now = new Date().toISOString();
   db.run(
     `UPDATE projects
-     SET name = ?, rows = ?, cols = ?, tone = ?, source_image = ?, thumbnail_image = ?, canvas_data = ?, revision = revision + 1, updated_at = ?
+     SET name = ?, rows = ?, cols = ?, tone = ?, source_image = ?, thumbnail_image = ?, canvas_data = ?, bead_list = ?, revision = revision + 1, updated_at = ?
      WHERE id = ? AND user_id = ?`,
-    [name, rows, cols, tone, sourceImage, thumbnailImage, canvasData, now, projectId, userId],
+    [name, rows, cols, tone, sourceImage, thumbnailImage, canvasData, beadList, now, projectId, userId],
   );
   await persist();
   sendJson(response, 200, { project: {

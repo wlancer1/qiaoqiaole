@@ -1,19 +1,29 @@
 import { describe, expect, it } from 'vitest';
+import { MARD_221_COLORS } from './mard221.mjs';
 import {
   aggregateBeadRequirements,
   calculateInventoryDiff,
   calculateCompletionProgress,
+  normalizeMardColorCode,
   isValidMard221Code,
   transitionBeadingSession,
 } from './beadingSessionUtils.mjs';
 
 describe('beading session pure rules', () => {
+  it('normalizes stored MARD hex colors to their color codes', () => {
+    expect(normalizeMardColorCode('#E99C17')).toBe('G6');
+    expect(normalizeMardColorCode('g6')).toBe('G6');
+    expect(normalizeMardColorCode('#E99C18')).toBe('G6');
+  });
+
   it('validates MARD 221 color codes', () => {
-    expect(isValidMard221Code('A1')).toBe(true);
-    expect(isValidMard221Code('A14')).toBe(true);
-    expect(isValidMard221Code('Z9')).toBe(true);
+    expect(MARD_221_COLORS).toHaveLength(221);
+    expect(MARD_221_COLORS.every(({ code }) => isValidMard221Code(code))).toBe(true);
+    expect(isValidMard221Code('c17')).toBe(true);
     expect(isValidMard221Code('A0')).toBe(false);
-    expect(isValidMard221Code('A15')).toBe(false);
+    expect(isValidMard221Code('A27')).toBe(false);
+    expect(isValidMard221Code('C30')).toBe(false);
+    expect(isValidMard221Code('Z9')).toBe(false);
     expect(isValidMard221Code('AA1')).toBe(false);
     expect(isValidMard221Code('rgb(1,2,3)')).toBe(false);
   });
@@ -27,6 +37,7 @@ describe('beading session pure rules', () => {
       { colorCode: 'A14', required: 5 },
       { colorCode: 'C5', required: 1 },
     ]);
+    expect(aggregateBeadRequirements([{ color: '#E99C17', count: 2 }])).toEqual([{ colorCode: 'G6', required: 2 }]);
     expect(() => aggregateBeadRequirements([{ color: 'A14', count: 0 }])).toThrow(/positive/i);
     expect(() => aggregateBeadRequirements([{ color: 'rgb(1,2,3)', count: 1 }])).toThrow(/MARD/i);
   });

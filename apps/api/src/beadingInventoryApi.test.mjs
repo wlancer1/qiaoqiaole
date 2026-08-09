@@ -68,4 +68,24 @@ describe('beading inventory API', () => {
     expect(created.response.status).toBe(200);
     expect(created.body.session.warehouseId).toBeNull();
   });
+
+  it('converts legacy hex canvas colors when creating a session', async () => {
+    const hexProject = (await request('/api/projects', { method: 'POST', body: JSON.stringify({ name: '旧格式作品', rows: 1, cols: 1, canvasData: JSON.stringify([{ color: '#E99C17' }]) }) })).body.project.id;
+    const created = await request(`/api/v1/projects/${hexProject}/beading-session`, { method: 'POST', body: JSON.stringify({}) });
+    expect(created.response.status, JSON.stringify(created.body)).toBe(200);
+    expect(created.body.session.requirements).toEqual([{ colorCode: 'G6', required: 1 }]);
+  });
+
+  it('creates a session with canonical color codes above 14', async () => {
+    const project = (await request('/api/projects', { method: 'POST', body: JSON.stringify({
+      name: '高编号色号作品',
+      rows: 1,
+      cols: 1,
+      canvasData: JSON.stringify([{ color: '#bc9ae5' }]),
+      beadList: [{ color: 'C17', count: 1 }],
+    }) })).body.project.id;
+    const created = await request(`/api/v1/projects/${project}/beading-session`, { method: 'POST', body: JSON.stringify({}) });
+    expect(created.response.status, JSON.stringify(created.body)).toBe(200);
+    expect(created.body.session.requirements).toEqual([{ colorCode: 'C17', required: 1 }]);
+  });
 });

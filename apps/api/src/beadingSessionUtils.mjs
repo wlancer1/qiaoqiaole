@@ -1,15 +1,32 @@
-const MAX_MARD_NUMBER = 14;
+import { MARD_221_COLORS } from './mard221.mjs';
+
+const MARD_221_CODES = new Set(MARD_221_COLORS.map(({ code }) => code));
+const MAX_MARD_NUMBER = Math.max(...MARD_221_COLORS.map(({ code }) => Number(code.slice(1))));
+const MARD_221_CODE_BY_HEX = new Map(MARD_221_COLORS.map(({ code, hex }) => [hex.toUpperCase(), code]));
 
 export function isValidMard221Code(value) {
   if (typeof value !== 'string') return false;
-  const match = /^([A-Z])([1-9]|1[0-4])$/.exec(value.trim().toUpperCase());
-  return Boolean(match);
+  return MARD_221_CODES.has(value.trim().toUpperCase());
+}
+
+export function normalizeMardColorCode(value) {
+  const normalized = String(value ?? '').trim().toUpperCase();
+  if (isValidMard221Code(normalized)) return normalized;
+  const exactCode = MARD_221_CODE_BY_HEX.get(normalized);
+  if (exactCode) return exactCode;
+  if (!/^#[0-9A-F]{6}$/.test(normalized)) return normalized;
+  const target = [1, 3, 5].map((offset) => Number.parseInt(normalized.slice(offset, offset + 2), 16));
+  return MARD_221_COLORS.reduce((closest, color) => {
+    const channels = [1, 3, 5].map((offset) => Number.parseInt(color.hex.slice(offset, offset + 2), 16));
+    const distance = channels.reduce((sum, channel, index) => sum + (channel - target[index]) ** 2, 0);
+    return distance < closest.distance ? { code: color.code, distance } : closest;
+  }, { code: normalized, distance: Number.POSITIVE_INFINITY }).code;
 }
 
 export function aggregateBeadRequirements(entries) {
   const totals = new Map();
   for (const entry of entries ?? []) {
-    const colorCode = String(entry?.colorCode ?? entry?.color ?? '').trim().toUpperCase();
+    const colorCode = normalizeMardColorCode(entry?.colorCode ?? entry?.color);
     const rawCount = entry?.required ?? entry?.count;
     const count = rawCount === undefined ? 1 : Number(rawCount);
     if (!isValidMard221Code(colorCode)) {

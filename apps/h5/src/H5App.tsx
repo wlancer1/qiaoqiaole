@@ -854,7 +854,13 @@ function H5App() {
           'content-type': 'application/json',
           authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ ...projectPayload, ...images, canvasData: serializeProjectCells(cells), tone }),
+        body: JSON.stringify({
+          ...projectPayload,
+          ...images,
+          canvasData: serializeProjectCells(cells),
+          beadList: beadListColors.map(({ code, count }) => ({ color: code, count })),
+          tone,
+        }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.message || '最近项目保存失败');
