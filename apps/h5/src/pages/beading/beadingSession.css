@@ -43,12 +43,12 @@
   z-index: 6;
   display: flex;
   width: 100%;
-  height: max(64px, calc(44px + env(safe-area-inset-top)));
-  min-height: 64px;
+  height: max(2.0317rem, calc(1.7143rem + env(safe-area-inset-top)));
+  min-height: 2.0317rem;
   flex: 0 0 auto;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 6px;
+  gap: 0.1905rem;
   padding-top: env(safe-area-inset-top);
   padding-right: max(10px, env(safe-area-inset-right));
   padding-bottom: 0;
@@ -59,9 +59,11 @@
 
 .beading-toolbar > button {
   display: grid;
+  width: 1.1429rem;
+  height: 1.1429rem;
   min-width: 44px;
   min-height: 44px;
-  flex: 0 0 44px;
+  flex: 0 0 1.1429rem;
   place-items: center;
   border: 0;
   background: transparent;
@@ -73,7 +75,7 @@
   min-width: 0;
   align-items: center;
   justify-content: flex-end;
-  gap: 6px;
+  gap: 0.1905rem;
 }
 
 .beading-toolbar-actions button {
@@ -82,8 +84,8 @@
   min-height: 44px;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  padding: 0 10px;
+  gap: 0.1587rem;
+  padding: 0 0.3175rem;
   border: 1px solid #dce4ef;
   border-radius: 999px;
   background: #f7f9fc;
@@ -92,9 +94,12 @@
 }
 
 .beading-toolbar-actions button:last-child {
-  width: 44px;
+  width: 1.1429rem;
+  height: 1.1429rem;
+  min-width: 44px;
+  min-height: 44px;
   padding: 0;
-  border-radius: 13px;
+  border-radius: 0.1905rem;
 }
 
 .beading-toolbar-actions button:hover:not(:disabled),
@@ -109,20 +114,20 @@
 }
 
 .beading-toolbar svg {
-  width: 21px;
-  height: 21px;
+  width: 0.6349rem;
+  height: 0.6349rem;
   stroke-width: 2.2;
 }
 
 .beading-toolbar-label,
 .beading-toolbar-capsule > span {
-  font-size: 12px;
+  font-size: 0.381rem;
   font-weight: 800;
 }
 
 .beading-toolbar-actions .beading-timer {
-  min-width: 92px;
-  padding-inline: 9px;
+  min-width: 2.9206rem;
+  padding-inline: 0.2857rem;
   color: #34465f;
   font-variant-numeric: tabular-nums;
   font-weight: 800;
@@ -261,21 +266,21 @@
 
 .beading-focus-toggle {
   position: absolute;
-  top: calc(max(64px, calc(44px + env(safe-area-inset-top))) + 34px);
+  top: calc(max(2.0317rem, calc(1.7143rem + env(safe-area-inset-top))) + 1.0794rem);
   right: max(12px, env(safe-area-inset-right));
   z-index: 12;
   display: inline-flex;
-  min-width: 72px;
+  min-width: 2.2857rem;
   min-height: 44px;
   align-items: center;
   justify-content: center;
-  padding: 0 14px;
+  padding: 0 0.4444rem;
   border: 1px solid #e4eaf3;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.94);
   color: #52657f;
   box-shadow: 0 4px 14px rgba(42, 63, 96, 0.12);
-  font-size: 13px;
+  font-size: 0.4127rem;
   font-weight: 800;
 }
 
@@ -283,11 +288,11 @@
   position: relative;
   z-index: 5;
   display: grid;
-  height: 64px;
-  min-height: 64px;
-  flex: 0 0 64px;
+  height: 1.7778rem;
+  min-height: 1.7778rem;
+  flex: 0 0 1.7778rem;
   grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 1px;
+  gap: 0.0317rem;
   padding-top: 0;
   padding-right: max(3px, env(safe-area-inset-right));
   padding-bottom: 0;
@@ -298,25 +303,27 @@
 
 .beading-tool-button {
   display: flex;
+  width: 1.5238rem;
+  height: 1.5238rem;
   min-width: 44px;
   min-height: 44px;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-  padding: 3px 0 2px;
+  gap: 0.0952rem;
+  padding: 0.0952rem 0 0.0635rem;
   border: 0;
   border-right: 1px solid transparent;
   border-left: 1px solid transparent;
   background: #fff;
   color: #63738a;
-  font-size: 12px;
+  font-size: 0.381rem;
   line-height: 1;
 }
 
 .beading-tool-button svg {
-  width: 23px;
-  height: 23px;
+  width: 0.6984rem;
+  height: 0.6984rem;
   stroke-width: 2;
 }
 
@@ -337,15 +344,15 @@
   z-index: 6;
   display: grid;
   min-width: 0;
-  min-height: calc(112px + env(safe-area-inset-bottom));
+  min-height: calc(2.8572rem + env(safe-area-inset-bottom));
   flex: 0 0 auto;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
-  gap: 8px;
-  padding-top: 8px;
-  padding-right: max(8px, env(safe-area-inset-right));
-  padding-bottom: calc(8px + env(safe-area-inset-bottom));
-  padding-left: max(8px, env(safe-area-inset-left));
+  gap: 0.254rem;
+  padding-top: 0.254rem;
+  padding-right: max(0.254rem, env(safe-area-inset-right));
+  padding-bottom: max(0.254rem, calc(0.254rem + env(safe-area-inset-bottom)));
+  padding-left: max(0.254rem, env(safe-area-inset-left));
   border-top: 1px solid #e2e8f1;
   background: #fff;
 }
@@ -353,10 +360,10 @@
 .beading-color-rail {
   display: flex;
   min-width: 0;
-  gap: 8px;
+  gap: 0.254rem;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 3px 4px 5px;
+  padding: 0.0952rem 0.127rem 0.1587rem;
   scrollbar-width: none;
   overscroll-behavior-x: contain;
   scroll-snap-type: x proximity;
@@ -370,40 +377,42 @@
 .beading-color-chip {
   position: relative;
   display: flex;
-  width: 64px;
-  height: 68px;
-  min-width: 64px;
-  min-height: 68px;
-  flex: 0 0 64px;
+  width: 1.3968rem;
+  height: 1.3968rem;
+  min-width: 1.3968rem;
+  min-height: 1.3968rem;
+  min-width: 44px;
+  min-height: 44px;
+  flex: 0 0 1.3968rem;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 7px 5px;
+  gap: 0.127rem;
+  padding: 0.2222rem 0.1587rem;
   scroll-snap-align: start;
   border: 2px solid rgba(30, 48, 72, 0.1);
-  border-radius: 16px;
+  border-radius: 0.381rem;
   background: #edf2fb;
   color: #1e3048;
   box-shadow: 0 3px 8px rgba(42, 63, 96, 0.1);
 }
 
 .beading-color-chip strong {
-  font-size: 16px;
+  font-size: 0.4762rem;
   font-weight: 900;
   line-height: 1;
   text-shadow: 0 1px 1px rgba(255, 255, 255, 0.46);
 }
 
 .beading-color-chip > span:not(.beading-color-complete-badge) {
-  font-size: 12px;
+  font-size: 0.3492rem;
   font-weight: 700;
   line-height: 1;
 }
 
 .beading-color-chip.is-current {
   border-color: #f0a517;
-  box-shadow: 0 0 0 2px #fff7df, 0 0 0 4px #f0a517;
+  box-shadow: 0 0 0 0.0635rem #fff7df, 0 0 0 0.127rem #f0a517;
 }
 
 .beading-color-complete-badge {
@@ -412,8 +421,8 @@
   right: -5px;
   z-index: 2;
   display: grid;
-  width: 22px;
-  height: 22px;
+  width: 0.6984rem;
+  height: 0.6984rem;
   place-items: center;
   border: 2px solid #fff;
   border-radius: 50%;
@@ -423,14 +432,14 @@
 }
 
 .beading-color-complete-badge svg {
-  width: 13px;
-  height: 13px;
+  width: 0.4127rem;
+  height: 0.4127rem;
   stroke-width: 3;
 }
 
 .beading-color-actions {
   display: flex;
-  gap: 6px;
+  gap: 0.1905rem;
 }
 
 .beading-color-actions button {
@@ -441,26 +450,28 @@
 .beading-color-sort,
 .beading-color-revise {
   display: flex;
-  width: 64px;
-  height: 68px;
-  flex: 0 0 64px;
+  width: 1.3968rem;
+  height: 1.3968rem;
+  min-width: 44px;
+  min-height: 44px;
+  flex: 0 0 1.3968rem;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  padding: 4px;
+  gap: 0.1587rem;
+  padding: 0.127rem;
   border: 1px solid #e0e7f1;
-  border-radius: 15px;
+  border-radius: 0.381rem;
   background: #f5f8fe;
   color: #52657f;
-  font-size: 12px;
+  font-size: 0.3492rem;
   font-weight: 800;
 }
 
 .beading-color-sort svg,
 .beading-color-revise svg {
-  width: 22px;
-  height: 22px;
+  width: 0.5714rem;
+  height: 0.5714rem;
 }
 
 .beading-color-revise.is-active {
@@ -470,16 +481,17 @@
 }
 
 .beading-complete-color {
-  min-width: 88px;
-  height: 68px;
-  flex: 0 0 88px;
-  padding: 5px 8px;
+  min-width: 1.7778rem;
+  height: 1.3968rem;
+  min-height: 44px;
+  flex: 0 0 1.7778rem;
+  padding: 0.1587rem 0.254rem;
   border: 0;
-  border-radius: 16px;
+  border-radius: 0.4444rem;
   background: #1268d7;
   color: #fff;
   box-shadow: 0 5px 12px rgba(18, 104, 215, 0.22);
-  font-size: 14px;
+  font-size: 0.4444rem;
   font-weight: 900;
   line-height: 1.25;
 }
@@ -492,7 +504,7 @@
 .beading-status {
   position: absolute;
   right: max(12px, env(safe-area-inset-right));
-  bottom: calc(184px + env(safe-area-inset-bottom));
+  bottom: calc(4.7619rem + env(safe-area-inset-bottom));
   left: max(12px, env(safe-area-inset-left));
   z-index: 20;
   margin: 0;
@@ -523,7 +535,7 @@
   display: flex;
   min-height: 44px;
   align-items: center;
-  gap: 8px;
+  gap: 0.254rem;
   margin-top: 12px;
   padding: 0 12px;
   border: 1px solid #dce4ef;
@@ -538,30 +550,30 @@
 
 .beading-search-input input {
   min-width: 0;
-  min-height: 42px;
+  min-height: 44px;
   flex: 1;
   border: 0;
   outline: 0;
   background: transparent;
   color: #20314a;
-  font-size: 16px;
+  font-size: 0.508rem;
 }
 
 .beading-search-results {
   display: grid;
-  gap: 8px;
+  gap: 0.254rem;
   margin-top: 12px;
 }
 
 .beading-search-result {
   display: grid;
-  min-height: 52px;
+  min-height: 1.6508rem;
   grid-template-columns: 36px 1fr auto auto;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
+  gap: 0.254rem;
+  padding: 0.1905rem 0.3175rem;
   border: 1px solid #edf1f6;
-  border-radius: 12px;
+  border-radius: 0.381rem;
   background: #fff;
   color: #52657f;
   text-align: left;
@@ -574,10 +586,10 @@
 
 .beading-color-swatch {
   display: block;
-  width: 32px;
-  height: 32px;
+  width: 1.0159rem;
+  height: 1.0159rem;
   border: 1px solid rgba(23, 40, 63, 0.12);
-  border-radius: 9px;
+  border-radius: 0.2857rem;
 }
 
 .beading-search-result-code {
@@ -587,7 +599,7 @@
 .beading-search-result-required,
 .beading-search-result-remaining,
 .beading-search-empty {
-  font-size: 12px;
+  font-size: 0.381rem;
 }
 
 .beading-search-empty {
@@ -599,17 +611,17 @@
 .beading-more-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 0.254rem;
   margin-top: 12px;
 }
 
 .beading-more-actions button {
-  min-height: 48px;
+  min-height: 44px;
   border: 1px solid #dce4ef;
-  border-radius: 12px;
+  border-radius: 0.381rem;
   background: #f7f9fc;
   color: #35506f;
-  font-size: 15px;
+  font-size: 0.4762rem;
   font-weight: 800;
 }
 
@@ -640,14 +652,14 @@
 .beading-dialog h2 {
   margin: 0 0 8px;
   color: #1e3048;
-  font-size: 20px;
+  font-size: 0.635rem;
   line-height: 1.3;
 }
 
 .beading-dialog p {
   margin: 0;
   color: #63738a;
-  font-size: 14px;
+  font-size: 0.4444rem;
   line-height: 1.6;
 }
 
@@ -659,12 +671,12 @@
 }
 
 .beading-dialog-actions button {
-  min-height: 48px;
+  min-height: 44px;
   border: 0;
-  border-radius: 13px;
+  border-radius: 0.4127rem;
   background: #f2f6fc;
   color: #35506f;
-  font-size: 16px;
+  font-size: 0.508rem;
   font-weight: 800;
 }
 
@@ -701,17 +713,17 @@
 
 @media (max-width: 360px) {
   .beading-toolbar {
-    gap: 4px;
-    padding-right: max(8px, env(safe-area-inset-right));
-    padding-left: max(8px, env(safe-area-inset-left));
+    gap: 0.127rem;
+    padding-right: max(0.254rem, env(safe-area-inset-right));
+    padding-left: max(0.254rem, env(safe-area-inset-left));
   }
 
   .beading-toolbar-actions {
-    gap: 2px;
+    gap: 0.0635rem;
   }
 
   .beading-toolbar-actions button {
-    padding-inline: 6px;
+    padding-inline: 0.1905rem;
   }
 
   .beading-toolbar-label {
@@ -719,44 +731,44 @@
   }
 
   .beading-toolbar-actions .beading-timer {
-    min-width: 76px;
-    padding-inline: 6px;
+    min-width: 2.4127rem;
+    padding-inline: 0.1905rem;
   }
 
   .beading-progress-bar {
-    padding-inline: 10px;
+    padding-inline: 0.3175rem;
   }
 
   .beading-tool-button {
-    min-width: 44px;
-    font-size: 11px;
+    min-width: 1.1429rem;
+    font-size: 0.3492rem;
   }
 
   .beading-color-section {
-    gap: 5px;
-    padding-right: max(5px, env(safe-area-inset-right));
-    padding-left: max(5px, env(safe-area-inset-left));
+    gap: 0.1587rem;
+    padding-right: max(0.1587rem, env(safe-area-inset-right));
+    padding-left: max(0.1587rem, env(safe-area-inset-left));
   }
 
   .beading-color-rail {
-    gap: 6px;
-    padding-inline: 3px;
+    gap: 0.1905rem;
+    padding-inline: 0.0952rem;
   }
 
   .beading-color-actions {
-    gap: 4px;
+    gap: 0.127rem;
   }
 
   .beading-color-sort,
   .beading-color-revise {
-    width: 58px;
-    flex-basis: 58px;
+    width: 1.3968rem;
+    flex-basis: 1.3968rem;
   }
 
   .beading-complete-color {
-    min-width: 80px;
-    flex-basis: 80px;
-    font-size: 13px;
+    min-width: 1.7778rem;
+    flex-basis: 1.7778rem;
+    font-size: 0.4127rem;
   }
 }
 

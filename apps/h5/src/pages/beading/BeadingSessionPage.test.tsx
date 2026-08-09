@@ -702,8 +702,8 @@ describe('BeadingSessionPage static contracts', () => {
     expectDeclaration(toolbar, 'padding-top', /env\(safe-area-inset-top\)/);
     expectDeclaration(toolbar, 'padding-left', /max\(8px, env\(safe-area-inset-left\)\)/);
     expectDeclaration(toolbar, 'padding-right', /max\(10px, env\(safe-area-inset-right\)\)/);
-    expectDeclaration(toolbar, 'min-height', '64px');
-    expectDeclaration(toolbar, 'height', /max\(64px, calc\(44px \+ env\(safe-area-inset-top\)\)\)/);
+    expectDeclaration(toolbar, 'min-height', '2.0317rem');
+    expectDeclaration(toolbar, 'height', /max\(2\.0317rem, calc\(1\.7143rem \+ env\(safe-area-inset-top\)\)\)/);
     const stage = cssBlock(styles, '.beading-canvas-stage');
     expectDeclaration(stage, 'flex', /1(?: 1 auto)?/);
     expectDeclaration(stage, 'min-height', '0');
@@ -713,8 +713,8 @@ describe('BeadingSessionPage static contracts', () => {
     expectDeclaration(toolRow, 'padding-left', /max\(3px, env\(safe-area-inset-left\)\)/);
     expectDeclaration(toolRow, 'padding-right', /max\(3px, env\(safe-area-inset-right\)\)/);
     const colorDock = cssBlock(styles, '.beading-color-section');
-    expectDeclaration(colorDock, 'padding-left', /max\(8px, env\(safe-area-inset-left\)\)/);
-    expectDeclaration(colorDock, 'padding-right', /max\(8px, env\(safe-area-inset-right\)\)/);
+    expectDeclaration(colorDock, 'padding-left', /max\(0\.254rem, env\(safe-area-inset-left\)\)/);
+    expectDeclaration(colorDock, 'padding-right', /max\(0\.254rem, env\(safe-area-inset-right\)\)/);
   });
 
   it('sizes the header controls, progress, tool row, and color dock to the mobile reference', () => {
@@ -722,22 +722,25 @@ describe('BeadingSessionPage static contracts', () => {
     const pageButtons = cssBlock(styles, '.beading-session-page button');
     expectDeclaration(pageButtons, 'font-family', 'inherit');
     expect(pageButtons).not.toMatch(/(?:^|;)\s*font\s*:/);
-    expectDeclaration(cssBlock(styles, '.beading-toolbar > button'), 'min-width', '44px');
+    expectDeclaration(cssBlock(styles, '.beading-toolbar > button'), 'width', '1.1429rem');
     expectDeclaration(cssBlock(styles, '.beading-toolbar-actions button'), 'min-height', '44px');
     expectDeclaration(cssBlock(styles, '.beading-progress-track'), 'height', /[78]px/);
     expectDeclaration(cssBlock(styles, '.beading-progress-fill'), 'background', /linear-gradient\([^;]*#(?:1268d7|146cff)[^;]*#[0-9a-f]{6}[^;]*\)/i);
-    expectDeclaration(cssBlock(styles, '.beading-tool-row'), 'height', /6[24]px/);
-    expectDeclaration(cssBlock(styles, '.beading-tool-button'), 'font-size', '12px');
-    expectDeclaration(cssBlock(styles, '.beading-focus-toggle'), 'font-size', '13px');
-    expectDeclaration(cssBlock(styles, '.beading-color-sort,\n.beading-color-revise'), 'font-size', '12px');
+    expectDeclaration(cssBlock(styles, '.beading-tool-row'), 'height', '1.7778rem');
+    expectDeclaration(cssBlock(styles, '.beading-tool-button'), 'width', '1.5238rem');
+    expectDeclaration(cssBlock(styles, '.beading-tool-button'), 'height', '1.5238rem');
+    expectDeclaration(cssBlock(styles, '.beading-tool-button'), 'font-size', '0.381rem');
+    expectDeclaration(cssBlock(styles, '.beading-focus-toggle'), 'font-size', '0.4127rem');
+    expectDeclaration(cssBlock(styles, '.beading-color-sort,\n.beading-color-revise'), 'font-size', '0.3492rem');
     const chip = cssBlock(styles, '.beading-color-chip');
-    expectDeclaration(chip, 'width', '64px');
-    expectDeclaration(chip, 'height', '68px');
-    expectDeclaration(cssBlock(styles, '.beading-color-chip > span:not(.beading-color-complete-badge)'), 'font-size', /(?:1[2-9]|[2-9][0-9])px/);
-    expectDeclaration(cssBlock(styles, '.beading-color-chip.is-current'), 'box-shadow', /0 0 0 2px #fff[^,;]*,\s*0 0 0 4px #f0a517/);
+    expectDeclaration(chip, 'width', '1.3968rem');
+    expectDeclaration(chip, 'height', '1.3968rem');
+    expectDeclaration(cssBlock(styles, '.beading-color-chip > span:not(.beading-color-complete-badge)'), 'font-size', '0.3492rem');
+    expectDeclaration(cssBlock(styles, '.beading-color-chip.is-current'), 'box-shadow', /0 0 0 0\.0635rem #fff[^,;]*,\s*0 0 0 0\.127rem #f0a517/);
     expectDeclaration(cssBlock(styles, '.beading-color-complete-badge'), 'background', /#(?:1268d7|146cff)/i);
-    expectDeclaration(cssBlock(styles, '.beading-complete-color'), 'min-width', /(?:8[0-9]|9[0-2])px/);
-    expectDeclaration(cssBlock(styles, '.beading-color-section'), 'padding-bottom', /calc\([^;]*env\(safe-area-inset-bottom\)\)/);
+    expectDeclaration(cssBlock(styles, '.beading-complete-color'), 'min-width', '1.7778rem');
+    expectDeclaration(cssBlock(styles, '.beading-complete-color'), 'height', '1.3968rem');
+    expectDeclaration(cssBlock(styles, '.beading-color-section'), 'padding-bottom', /.*env\(safe-area-inset-bottom\).*/);
   });
 
   it('keeps all four Canvas layers aligned and the overlay on top', () => {
@@ -772,9 +775,9 @@ describe('BeadingSessionPage static contracts', () => {
     const narrow = styles.match(/@media\s*\(max-width:\s*360px\)\s*\{([\s\S]*)\}\s*@media/s)?.[1];
     expect(narrow).toBeTruthy();
     expect(narrow).toMatch(/\.beading-toolbar-label\s*\{[^}]*display:\s*none/);
-    expect(narrow).toMatch(/\.beading-toolbar\s*\{[^}]*padding-left:\s*max\(8px, env\(safe-area-inset-left\)\)/);
-    expect(narrow).toMatch(/\.beading-toolbar\s*\{[^}]*padding-right:\s*max\(8px, env\(safe-area-inset-right\)\)/);
-    expect(narrow).toMatch(/\.beading-tool-button\s*\{[^}]*font-size:\s*11px/);
+    expect(narrow).toMatch(/\.beading-toolbar\s*\{[^}]*padding-left:\s*max\(0\.254rem, env\(safe-area-inset-left\)\)/);
+    expect(narrow).toMatch(/\.beading-toolbar\s*\{[^}]*padding-right:\s*max\(0\.254rem, env\(safe-area-inset-right\)\)/);
+    expect(narrow).toMatch(/\.beading-tool-button\s*\{[^}]*font-size:\s*0\.3492rem/);
     expect(narrow).not.toMatch(/\.beading-color-chip[^{}]*span[^{}]*\{[^}]*font-size:\s*(?:[0-9]|1[01])px/);
     const contentWidth = 320 - 2 * 8;
     const fixedControlWidth = 44 + 4 + 44 + 76 + 44 + 44 + 3 * 2;
@@ -786,9 +789,9 @@ describe('BeadingSessionPage static contracts', () => {
     const styles = cssSource();
     expect(styles).toMatch(/\.beading-color-revise\.is-active\s*\{[^}]*color:\s*#8a5700;/);
     expect(styles).toMatch(/\.beading-more-actions button\[aria-pressed="true"\]\s*\{[^}]*color:\s*#1859b8;/);
-    expect(styles).toMatch(/\.beading-dialog h2\s*\{[^}]*font-size:\s*(?:18|19|20)px/);
-    expect(styles).toMatch(/\.beading-dialog p\s*\{[^}]*font-size:\s*(?:12|13|14|15|16)px/);
-    expect(styles).toMatch(/\.beading-dialog-actions button\s*\{[^}]*font-size:\s*(?:15|16|17)px/);
+    expect(styles).toMatch(/\.beading-dialog h2\s*\{[^}]*font-size:\s*0\.635rem/);
+    expect(styles).toMatch(/\.beading-dialog p\s*\{[^}]*font-size:\s*0\.4444rem/);
+    expect(styles).toMatch(/\.beading-dialog-actions button\s*\{[^}]*font-size:\s*0\.508rem/);
     expect(styles).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?transition(?:-duration)?:\s*(?:none|0\.01ms)/);
     expect(contrastRatio('#8a5700', '#f7f9fc')).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio('#1859b8', '#eef5ff')).toBeGreaterThanOrEqual(4.5);
