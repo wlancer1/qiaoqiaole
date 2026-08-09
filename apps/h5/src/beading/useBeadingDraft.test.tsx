@@ -13,6 +13,7 @@ import { useBeadingDraft, type UseBeadingDraftResult } from './useBeadingDraft';
 type TestStorage = ReturnType<typeof createStorage>;
 type HarnessProps = {
   ownerId?: string;
+  legacyOwnerId?: string;
   sessionId: string;
   cellCount: number;
   storage?: TestStorage;
@@ -61,7 +62,7 @@ function createHarness() {
     const [passiveCellCount, setPassiveCellCount] = useState<number>();
     useEffect(() => {
       setPassiveCellCount(props.passiveCellCount);
-    }, [props.ownerId, props.passiveCellCount, props.sessionId, props.storage]);
+    }, [props.legacyOwnerId, props.ownerId, props.passiveCellCount, props.sessionId, props.storage]);
     return <Harness {...props} cellCount={passiveCellCount ?? props.cellCount} />;
   }
 
@@ -130,6 +131,30 @@ describe('useBeadingDraft with real React lifecycle', () => {
     expect(storage.setItem).not.toHaveBeenCalled();
     act(() => { vi.advanceTimersByTime(1); });
     expect(storage.setItem).toHaveBeenCalledTimes(1);
+  });
+
+  it('migrates a legacy username-keyed draft to the stable owner id', async () => {
+    const legacyKey = beadingDraftKey('alice', 'session-a');
+    const stableKey = beadingDraftKey('user-123', 'session-a');
+    const original = draft({ locked: true, highlightEnabled: false, markedCellIndexes: [3, 1] });
+    const storage = createStorage({ [legacyKey]: original });
+    const harness = createHarness();
+
+    await harness.mount({
+      ownerId: 'user-123',
+      legacyOwnerId: 'alice',
+      sessionId: 'session-a',
+      cellCount: 4,
+      storage,
+    });
+
+    expect(harness.control.current!.state).toMatchObject({
+      locked: true,
+      highlightEnabled: false,
+      markedCellIndexes: [1, 3],
+    });
+    expect(JSON.parse(storage.data.get(stableKey)!)).toEqual(JSON.parse(original));
+    expect(storage.data.has(legacyKey)).toBe(false);
   });
 
   it('merges rapid state changes into one debounced write', async () => {

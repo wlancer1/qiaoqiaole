@@ -12,6 +12,7 @@ type DraftStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
 export type UseBeadingDraftOptions = {
   ownerId?: string;
+  legacyOwnerId?: string;
   sessionId: string;
   cellCount: number;
   state: BeadingToolState;
@@ -22,7 +23,7 @@ export type UseBeadingDraftOptions = {
 
 export type UseBeadingDraftResult = { clearDraft(): void };
 
-type DraftIdentity = { ownerId: string; sessionId: string; storage: DraftStorage };
+type DraftIdentity = { ownerId: string; legacyOwnerId?: string; sessionId: string; storage: DraftStorage };
 type ActiveDraft = {
   identity: DraftIdentity;
   cellCount: number;
@@ -84,6 +85,7 @@ function writeActiveDraft(active: ActiveDraft, onWarning?: (message: string) => 
 
 export function useBeadingDraft({
   ownerId,
+  legacyOwnerId,
   sessionId,
   cellCount,
   state,
@@ -100,7 +102,9 @@ export function useBeadingDraft({
   const unmountGenerationRef = useRef(0);
   warningRef.current = onWarning;
   const resolvedStorage = storage ?? defaultStorage;
-  const currentIdentity = ownerId && resolvedStorage ? { ownerId, sessionId, storage: resolvedStorage } : undefined;
+  const currentIdentity = ownerId && resolvedStorage
+    ? { ownerId, legacyOwnerId, sessionId, storage: resolvedStorage }
+    : undefined;
 
   const cancelTimer = () => {
     if (timerRef.current) {
@@ -130,12 +134,33 @@ export function useBeadingDraft({
     activeRef.current = undefined;
     if (!currentIdentity) return;
 
-    const loaded = readBeadingDraft(
+    let loaded = readBeadingDraft(
       currentIdentity.storage,
       currentIdentity.ownerId,
       currentIdentity.sessionId,
       () => warn(warningRef.current, '本地草稿读取失败，已使用默认工具设置。'),
     );
+    if (!loaded && currentIdentity.legacyOwnerId && currentIdentity.legacyOwnerId !== currentIdentity.ownerId) {
+      loaded = readBeadingDraft(
+        currentIdentity.storage,
+        currentIdentity.legacyOwnerId,
+        currentIdentity.sessionId,
+        () => warn(warningRef.current, '旧版本地草稿读取失败，已使用默认工具设置。'),
+      );
+      if (loaded) {
+        try {
+          currentIdentity.storage.setItem(
+            beadingDraftKey(currentIdentity.ownerId, currentIdentity.sessionId),
+            JSON.stringify(loaded),
+          );
+          currentIdentity.storage.removeItem(
+            beadingDraftKey(currentIdentity.legacyOwnerId, currentIdentity.sessionId),
+          );
+        } catch {
+          warn(warningRef.current, '本地草稿迁移失败，本次仍会恢复旧版草稿。');
+        }
+      }
+    }
     const persisted = normalizeBeadingDraft(loaded, cellCount);
     activeRef.current = {
       identity: currentIdentity,
@@ -214,6 +239,9 @@ export function useBeadingDraft({
     active.suppressed = true;
     try {
       active.identity.storage.removeItem(beadingDraftKey(active.identity.ownerId, active.identity.sessionId));
+      if (active.identity.legacyOwnerId && active.identity.legacyOwnerId !== active.identity.ownerId) {
+        active.identity.storage.removeItem(beadingDraftKey(active.identity.legacyOwnerId, active.identity.sessionId));
+      }
     } catch {
       warn(warningRef.current, '本地草稿删除失败，请稍后重试。');
     }

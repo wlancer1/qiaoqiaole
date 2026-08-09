@@ -58,6 +58,7 @@ export type BeadingSessionPageProps = {
   onExit: (input: { mode: 'saved' | 'abandon' | 'completed' }) => void;
   onSessionConflict: (session: BeadingSession) => void;
   draftOwnerId?: string;
+  legacyDraftOwnerId?: string;
   onStatus: (message: string) => void;
   status?: string;
 };
@@ -93,6 +94,7 @@ export function BeadingSessionPage({
   onExit,
   onSessionConflict,
   draftOwnerId,
+  legacyDraftOwnerId,
   onStatus,
   status = '',
 }: BeadingSessionPageProps) {
@@ -115,6 +117,7 @@ export function BeadingSessionPage({
 
   const { clearDraft } = useBeadingDraft({
     ownerId: draftOwnerId,
+    legacyOwnerId: legacyDraftOwnerId,
     sessionId: session.id,
     cellCount,
     state: toolState,

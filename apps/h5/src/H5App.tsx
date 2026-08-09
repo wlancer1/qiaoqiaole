@@ -2732,6 +2732,7 @@ function H5App() {
         onOpenInventory={openBeadingInventory}
         onSessionConflict={(latest) => setBeadingSession(latest)}
         draftOwnerId={authUserId || undefined}
+        legacyDraftOwnerId={loginName || undefined}
         onStatus={setStatus}
         onExit={() => setScreen('canvas')}
         status={status}
