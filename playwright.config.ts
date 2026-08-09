@@ -1,25 +1,34 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const h5Port = Number(process.env.H5_E2E_PORT || 5174);
+function validPort(value: string | undefined, fallback: number): number {
+  const port = value === undefined ? fallback : Number(value);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(`Invalid H5_E2E_PORT: ${value}`);
+  }
+  return port;
+}
+
+const h5Port = validPort(process.env.H5_E2E_PORT, 5174);
 const h5BaseUrl = `http://127.0.0.1:${h5Port}`;
 
 export default defineConfig({
   testDir: './tests/e2e',
   timeout: 30_000,
+  snapshotPathTemplate: '{testDir}/{testFilePath}-snapshots/{arg}{ext}',
   use: { trace: 'retain-on-failure' },
   webServer: [
     {
       command: 'SQLITE_PATH=/tmp/qiaoqiaole-e2e.sqlite QIAOQIAOLE_USERNAME=admin QIAOQIAOLE_PASSWORD=qiaoqiaole123 npm run dev:api',
       url: 'http://127.0.0.1:3000/api/health',
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: process.env.PLAYWRIGHT_REUSE_API === '1',
     },
     {
-      command: 'npm run dev:web -- --port 5173',
+      command: 'npm run dev:web -- --port 5173 --strictPort',
       url: 'http://127.0.0.1:5173',
       reuseExistingServer: !process.env.CI,
     },
     {
-      command: `npm run dev:h5 -- --port ${h5Port}`,
+      command: `npm run dev:h5 -- --port ${h5Port} --strictPort`,
       url: h5BaseUrl,
       reuseExistingServer: !process.env.CI,
     },

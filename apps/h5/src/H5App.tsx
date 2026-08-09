@@ -217,6 +217,7 @@ function H5App() {
   const [showPaletteSearch, setShowPaletteSearch] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState('');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [authUserId, setAuthUserId] = useState('');
   const [loginName, setLoginName] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -447,10 +448,10 @@ function H5App() {
   useEffect(() => {
     let cancelled = false;
     const restoreSession = async () => {
-      let stored: { token?: string; username?: string } | null = null;
+      let stored: { token?: string; username?: string; userId?: string } | null = null;
       try {
         const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
-        stored = raw ? JSON.parse(raw) as { token?: string; username?: string } : null;
+        stored = raw ? JSON.parse(raw) as { token?: string; username?: string; userId?: string } : null;
       } catch {
         stored = null;
       }
@@ -464,6 +465,7 @@ function H5App() {
         if (!response.ok) throw new Error(payload.message || '登录状态已失效');
         if (cancelled) return;
         setAuthToken(stored.token);
+        setAuthUserId(payload.user.id || stored.userId || '');
         setLoginName(payload.user.username || payload.user.nickname || stored.username || '');
         setIsLoggedIn(true);
         await loadRecentProjects(stored.token);
@@ -1272,15 +1274,16 @@ function H5App() {
     authRequestSeqRef.current = requestSeq;
     setIsAuthenticating(true);
     try {
-      const payload = await requestApi<{ token: string; user: { username: string } }>('/auth/login', {
+      const payload = await requestApi<{ token: string; user: { id: string; username: string } }>('/auth/login', {
         method: 'POST',
         body: JSON.stringify({ username, password }),
       });
       if (authRequestSeqRef.current !== requestSeq || !showLoginModal) return;
       setAuthToken(payload.token);
+      setAuthUserId(payload.user.id);
       setLoginName(payload.user.username);
       setIsLoggedIn(true);
-      window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token: payload.token, username: payload.user.username }));
+      window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token: payload.token, username: payload.user.username, userId: payload.user.id }));
       setShowLoginModal(false);
       setLoginPassword('');
       setStatus(`登录成功：${payload.user.username}。`);
@@ -1385,9 +1388,10 @@ function H5App() {
       if (!response.ok) throw new Error(payload.message || '登录失败，请稍后重试');
       const data = payload.data as { accessToken: string; user: { nickname?: string; id: string } };
       setAuthToken(data.accessToken);
+      setAuthUserId(data.user.id);
       setLoginName(data.user.nickname || '我的创作');
       setIsLoggedIn(true);
-      window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token: data.accessToken, username: data.user.nickname || '我的创作' }));
+      window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token: data.accessToken, username: data.user.nickname || '我的创作', userId: data.user.id }));
       setShowLoginModal(false);
       setPhoneCode('');
       setPhonePassword('');
@@ -1419,6 +1423,7 @@ function H5App() {
       // Clear the local session even when the server is unavailable.
     }
     setAuthToken('');
+    setAuthUserId('');
     setIsLoggedIn(false);
     setLoginName('');
     setRecentProjects([]);
@@ -2726,7 +2731,7 @@ function H5App() {
         onResume={resumeBeading}
         onOpenInventory={openBeadingInventory}
         onSessionConflict={(latest) => setBeadingSession(latest)}
-        draftOwnerId={loginName.trim() || undefined}
+        draftOwnerId={authUserId || undefined}
         onStatus={setStatus}
         onExit={() => setScreen('canvas')}
         status={status}

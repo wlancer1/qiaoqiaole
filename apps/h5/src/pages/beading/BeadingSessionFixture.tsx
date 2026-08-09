@@ -16,6 +16,7 @@ function color(code: string): string {
 
 function fixtureCodeAt(x: number, y: number): string {
   if (x === 0 && y === 0) return 'C4';
+  if (x === 2 && y === 2) return 'B7';
   if (y >= 20 && y <= 22 && Math.abs(x - 13) <= 10 - (y - 20) * 2) return 'C4';
   if ((y === 19 && (x <= 1 || x >= 25)) || (y === 23 && x === 13) || (y === 25 && (x === 11 || x === 15))) return 'C4';
   if (y === 18 && x >= 9 && x <= 17) return x % 2 === 0 ? 'G6' : 'H7';

@@ -100,6 +100,7 @@ export function BeadingSessionPage({
   const fitRef = useRef<() => void>(() => undefined);
   const lastSyncedSessionIdRef = useRef(session.id);
   const lastSyncedVersionRef = useRef(session.version);
+  const lastSyncedCompletedCodesRef = useRef(session.completedColorCodes);
   const [toolState, dispatch] = useReducer(beadingToolReducer, undefined, createBeadingToolState);
   const [searchQuery, setSearchQuery] = useState('');
   const [paused, setPaused] = useState(() => pausedFromSession(session));
@@ -157,6 +158,7 @@ export function BeadingSessionPage({
     if (lastSyncedSessionIdRef.current !== session.id) {
       lastSyncedSessionIdRef.current = session.id;
       lastSyncedVersionRef.current = session.version;
+      lastSyncedCompletedCodesRef.current = session.completedColorCodes;
       dispatch({ type: 'reset' });
       setPaused(pausedFromSession(session));
       setPauseRequested(false);
@@ -168,10 +170,14 @@ export function BeadingSessionPage({
     }
     if (lastSyncedVersionRef.current === session.version) return;
     lastSyncedVersionRef.current = session.version;
+    const previousCompletedCodes = lastSyncedCompletedCodesRef.current;
+    lastSyncedCompletedCodesRef.current = session.completedColorCodes;
     setPaused(pausedFromSession(session));
     setPauseRequested(false);
     setCurrent((selected) => {
-      if (selected && session.completedColorCodes.includes(selected)) {
+      if (selected
+        && !previousCompletedCodes.includes(selected)
+        && session.completedColorCodes.includes(selected)) {
         return nextIncompleteColor(session.requirements, session.completedColorCodes);
       }
       if (selected && session.requirements.some(({ colorCode }) => colorCode === selected)) return selected;

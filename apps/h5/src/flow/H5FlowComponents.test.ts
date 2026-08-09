@@ -475,12 +475,23 @@ describe('H5 flow presentation components', () => {
     expect(page).toContain('onResume={resumeBeading}');
     expect(page).toContain('onOpenInventory={openBeadingInventory}');
     expect(page).toContain('onSessionConflict={(latest) => setBeadingSession(latest)}');
-    expect(page).toContain('draftOwnerId={loginName.trim() || undefined}');
+    expect(page).toContain('draftOwnerId={authUserId || undefined}');
     expect(page).toContain('onStatus={setStatus}');
     expect(page).toContain("onExit={() => setScreen('canvas')}");
     expect(page).not.toContain('void patchBeadingProgress');
     expect(page).not.toContain('void prepareBeadingCompletion');
     expect(page).not.toContain('void completeBeading');
     expect(page).not.toContain('void resumeBeading');
+  });
+
+  it('keys beading drafts with the stable authenticated user id across login flows and reloads', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+    expect(source).toContain("const [authUserId, setAuthUserId] = useState('')");
+    expect(source).toContain('setAuthUserId(payload.user.id)');
+    expect(source).toContain('setAuthUserId(data.user.id)');
+    expect(source).toContain("setAuthUserId('')");
+    expect(source).toMatch(/setAuthUserId\(payload\.user\.id \|\| stored\.userId \|\| ''\)/);
+    expect(source).toContain('userId: payload.user.id');
+    expect(source).toContain('userId: data.user.id');
   });
 });

@@ -152,6 +152,32 @@ describe('useBeadingSessionActions', () => {
     expect(harness.control.current!.pendingAction).toBeNull();
   });
 
+  it('advances from an out-of-order completed color instead of rewinding to the first remaining color', async () => {
+    const requirements = [
+      { colorCode: 'A1', required: 1 },
+      { colorCode: 'B2', required: 1 },
+      { colorCode: 'C3', required: 1 },
+      { colorCode: 'D4', required: 1 },
+    ];
+    const patched = session({
+      requirements,
+      completedColorCodes: ['A1', 'C3'],
+      version: 5,
+    });
+    const onCurrentChange = vi.fn();
+    const harness = createHarness();
+    await harness.mount(defaultProps({
+      session: session({ requirements, completedColorCodes: ['A1'] }),
+      currentColor: 'C3',
+      onPatch: vi.fn(async () => patched),
+      onCurrentChange,
+    }));
+
+    await act(async () => { await harness.control.current!.completeCurrent(); });
+
+    expect(onCurrentChange).toHaveBeenCalledWith('D4');
+  });
+
   it('uses only the PATCH response to decide completion and prepare version', async () => {
     const patch = deferred<BeadingSession>();
     const prepared = session({ status: 'pending_completion', completedColorCodes: ['A1', 'B2'], version: 10 });

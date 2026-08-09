@@ -41,6 +41,7 @@ for (const viewport of VIEWPORTS) {
     await page.addInitScript(() => {
       Date.now = () => 1_786_276_800_000;
     });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.setViewportSize(viewport);
     await page.goto('/?beading-fixture=1');
     const workspace = page.getByRole('main', { name: '开始拼豆' });
@@ -49,6 +50,24 @@ for (const viewport of VIEWPORTS) {
     await expect(page.locator('.beading-color-chip.is-current')).toBeVisible();
 
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await expect.poll(async () => {
+      const stage = await page.locator('.beading-canvas-stage').boundingBox();
+      const artboard = await page.locator('.beading-canvas-artboard').boundingBox();
+      if (!stage || !artboard || artboard.width <= 0) return false;
+      return artboard.x >= stage.x - 4
+        && artboard.x + artboard.width <= stage.x + stage.width + 4;
+    }).toBe(true);
+    const overlayInk = await page.locator('.h5-overlay-canvas').evaluate((canvas) => {
+      const context = (canvas as HTMLCanvasElement).getContext('2d');
+      if (!context) return 0;
+      const pixels = context.getImageData(0, 0, (canvas as HTMLCanvasElement).width, (canvas as HTMLCanvasElement).height).data;
+      let count = 0;
+      for (let index = 3; index < pixels.length; index += 4) {
+        if ((pixels[index] ?? 0) > 0) count += 1;
+      }
+      return count;
+    });
+    expect(overlayInk).toBeGreaterThan(0);
 
     const controls = page.locator('button:visible');
     for (let index = 0; index < await controls.count(); index += 1) {

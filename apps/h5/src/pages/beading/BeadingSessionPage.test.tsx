@@ -604,6 +604,10 @@ describe('BeadingSessionPage integration', () => {
       session: session({ version: 5, completedColorCodes: ['A1'] }),
     })} />));
     expect(canvasSpy.props?.overlay.currentColorCode).toBe('A1');
+    await act(async () => renderer.update(<BeadingSessionPage {...callbacks({
+      session: session({ version: 6, completedColorCodes: ['A1'], status: 'paused' }),
+    })} />));
+    expect(canvasSpy.props?.overlay.currentColorCode).toBe('A1');
   });
 
   it('resets every local tool and selects the new next color when session id changes without an owner', async () => {

@@ -113,10 +113,13 @@ function uniqueCodes(codes: string[]): string[] {
   return [...new Set(codes)];
 }
 
-function nextIncompleteCode(session: BeadingSession): string | null {
+function nextIncompleteCode(session: BeadingSession, current?: string | null): string | null {
   const completed = new Set(session.completedColorCodes);
-  return uniqueCodes(session.requirements.map(({ colorCode }) => colorCode))
-    .find((code) => !completed.has(code)) ?? null;
+  const codes = uniqueCodes(session.requirements.map(({ colorCode }) => colorCode));
+  const start = current ? codes.indexOf(current) : -1;
+  return codes.slice(Math.max(0, start + 1)).find((code) => !completed.has(code))
+    ?? codes.find((code) => !completed.has(code))
+    ?? null;
 }
 
 function safeStatus(input: UseBeadingSessionActionsInput, message: string): void {
@@ -258,7 +261,7 @@ export function useBeadingSessionActions(input: UseBeadingSessionActionsInput): 
       }
       if (!isCurrent(operation)) return false;
 
-      const nextIncomplete = nextIncompleteCode(patched);
+      const nextIncomplete = nextIncompleteCode(patched, currentColor);
       safeNotify(snapshot, snapshot.onCurrentChange, nextIncomplete);
       if (!isCurrent(operation)) return false;
       if (nextIncomplete !== null) return true;
