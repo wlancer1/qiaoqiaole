@@ -46,7 +46,7 @@ export function BeadingToolbar({
           disabled={isPending('inventory') || !onInventory}
           onClick={onInventory}
         >
-          <Package /><span>库存</span>
+          <Package /><span className="beading-toolbar-label">库存</span>
         </button>
         <button
           type="button"
@@ -64,7 +64,7 @@ export function BeadingToolbar({
           disabled={hasPendingAction}
           onClick={onSave}
         >
-          <Save /><span>保存</span>
+          <Save /><span className="beading-toolbar-label">保存</span>
         </button>
         <button
           type="button"

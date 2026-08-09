@@ -8925,7 +8925,7 @@ input:focus-visible {
 
 .beading-color-revise.is-active {
   border-color: #f0a517;
-  color: #b87500;
+  color: #8a5700;
 }
 
 .beading-color-complete-badge {
@@ -9062,5 +9062,30 @@ input:focus-visible {
 .beading-more-actions button[aria-pressed="true"] {
   border-color: #2874ef;
   background: #eef5ff;
-  color: #1e6ee8;
+  color: #1859b8;
+}
+
+/* Keep every essential toolbar control operable at the narrowest supported width. */
+@media (max-width: 360px) {
+  .beading-toolbar {
+    padding: env(safe-area-inset-top) 8px 0;
+    gap: 4px;
+  }
+
+  .beading-toolbar-actions {
+    min-width: 0;
+    gap: 2px;
+  }
+
+  .beading-toolbar-actions button.beading-toolbar-capsule {
+    padding-inline: 6px;
+  }
+
+  .beading-toolbar-actions .beading-toolbar-label {
+    display: none;
+  }
+
+  .beading-toolbar-actions .beading-timer {
+    min-width: 76px;
+  }
 }

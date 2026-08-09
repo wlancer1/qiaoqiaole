@@ -42,6 +42,21 @@ describe('BeadingToolbar', () => {
     expect(markup).toContain('aria-label="设置"');
   });
 
+  it('marks only inventory and save copy as compact-width labels', () => {
+    const markup = renderToStaticMarkup(createElement(BeadingToolbar, {
+      elapsed: '12:34', paused: false, progress: { completed: 3, total: 8, percent: 37.5 }, ...callbacks(),
+    }));
+    expect(markup.match(/class="beading-toolbar-label"/g)).toHaveLength(2);
+    expect(markup).toContain('<span class="beading-toolbar-label">库存</span>');
+    expect(markup).toContain('<span class="beading-toolbar-label">保存</span>');
+    expect(markup).toContain('<span>12:34</span>');
+    expect(markup).toContain('aria-label="返回"');
+    expect(markup).toContain('aria-label="查看库存"');
+    expect(markup).toContain('aria-label="暂停计时"');
+    expect(markup).toContain('aria-label="保存"');
+    expect(markup).toContain('aria-label="设置"');
+  });
+
   it.each([
     ['save', false, true, false, false],
     ['patch', false, true, false, false],
