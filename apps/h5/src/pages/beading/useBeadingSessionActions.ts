@@ -9,7 +9,8 @@ export type SessionMutation = (input: {
 export type Prepare = (input: { version: number }) => Promise<BeadingSession>;
 export type Complete = (input: { deduct: boolean }) => Promise<BeadingSession>;
 export type Resume = (input: { version: number }) => Promise<BeadingSession>;
-export type PendingAction = null | 'save' | 'inventory' | 'patch' | 'prepare' | 'complete' | 'pause' | 'resume';
+export type SessionTransition = (input: { version: number }) => Promise<BeadingSession>;
+export type PendingAction = null | 'save' | 'inventory' | 'patch' | 'prepare' | 'complete' | 'pause' | 'resume' | 'return' | 'abandon';
 
 export type UseBeadingSessionActionsInput = {
   session: BeadingSession;
@@ -17,6 +18,8 @@ export type UseBeadingSessionActionsInput = {
   currentColor: string | null;
   onPatch: SessionMutation;
   onPause: SessionMutation;
+  onReturnToProgress: SessionTransition;
+  onAbandon: SessionTransition;
   onPrepareCompletion: Prepare;
   onComplete: Complete;
   onResume: Resume;
@@ -35,6 +38,8 @@ export type UseBeadingSessionActionsResult = {
   retryPrepare(): Promise<boolean>;
   openInventory(): Promise<boolean>;
   pause(): Promise<boolean>;
+  returnToProgress(): Promise<boolean>;
+  abandon(): Promise<boolean>;
   resume(): Promise<boolean>;
   complete(deduct: boolean): Promise<boolean>;
 };
@@ -355,6 +360,40 @@ export function useBeadingSessionActions(input: UseBeadingSessionActionsInput): 
     }
   }, [begin, finish, isCurrent, reportError]);
 
+  const returnToProgress = useCallback(async (): Promise<boolean> => {
+    const operation = begin('return');
+    if (!operation) return false;
+    try {
+      try {
+        await operation.input.onReturnToProgress({ version: operation.input.session.version });
+      } catch (error) {
+        if (!isCurrent(operation)) return false;
+        reportError(operation, error);
+        return false;
+      }
+      return isCurrent(operation);
+    } finally {
+      finish(operation);
+    }
+  }, [begin, finish, isCurrent, reportError]);
+
+  const abandon = useCallback(async (): Promise<boolean> => {
+    const operation = begin('abandon');
+    if (!operation) return false;
+    try {
+      try {
+        await operation.input.onAbandon({ version: operation.input.session.version });
+      } catch (error) {
+        if (!isCurrent(operation)) return false;
+        reportError(operation, error);
+        return false;
+      }
+      return isCurrent(operation);
+    } finally {
+      finish(operation);
+    }
+  }, [begin, finish, isCurrent, reportError]);
+
   const complete = useCallback(async (deduct: boolean): Promise<boolean> => {
     const operation = begin('complete');
     if (!operation) return false;
@@ -375,5 +414,5 @@ export function useBeadingSessionActions(input: UseBeadingSessionActionsInput): 
     }
   }, [begin, finish, isCurrent, reportError]);
 
-  return { pendingAction, save, completeCurrent, retryPrepare, openInventory, pause, resume, complete };
+  return { pendingAction, save, completeCurrent, retryPrepare, openInventory, pause, resume, returnToProgress, abandon, complete };
 }

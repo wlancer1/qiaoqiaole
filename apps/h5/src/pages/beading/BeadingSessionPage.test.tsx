@@ -103,6 +103,8 @@ function callbacks(overrides: Partial<BeadingSessionPageProps> = {}): BeadingSes
     onPause: vi.fn(async ({ completedColorCodes, elapsedSeconds, version }) => session({
       completedColorCodes, elapsedSeconds, status: 'paused', version: version + 2,
     })),
+    onReturnToProgress: vi.fn(async ({ version }) => session({ status: 'in_progress', version: version + 1 })),
+    onAbandon: vi.fn(async ({ version }) => session({ status: 'abandoned', version: version + 1 })),
     onPrepareCompletion: vi.fn(async ({ version }) => session({
       completedColorCodes: ['A1', 'B2'], status: 'pending_completion', version: version + 1,
     })),
@@ -325,7 +327,7 @@ describe('BeadingSessionPage integration', () => {
     expect(failedProps.onStatus).toHaveBeenCalledWith('完成失败');
   });
 
-  it('clears draft when the parent completion callback switches screen before resolving', async () => {
+  it('clears the draft before asking the parent to exit after completion', async () => {
     const storage = installWindow();
     const key = 'qiaoqiaole.beading-draft:alice:s1';
     storage.setItem(key, JSON.stringify({ updatedAt: new Date().toISOString() }));
@@ -333,15 +335,30 @@ describe('BeadingSessionPage integration', () => {
       status: 'completed_deducted', completedColorCodes: ['A1', 'B2'], inventoryDeducted: true, version: 8,
     });
 
+    const events: string[] = [];
+    const removeItem = storage.removeItem.bind(storage);
+    vi.spyOn(storage, 'removeItem').mockImplementation((keyToRemove) => {
+      events.push('clear');
+      removeItem(keyToRemove);
+    });
+
     function Parent() {
       const [visible, setVisible] = useState(true);
+      const [activeSession, setActiveSession] = useState(session({
+        status: 'pending_completion', completedColorCodes: ['A1', 'B2'],
+      }));
       if (!visible) return <p>canvas screen</p>;
       return <BeadingSessionPage {...callbacks({
         draftOwnerId: 'alice',
-        session: session({ status: 'pending_completion', completedColorCodes: ['A1', 'B2'] }),
+        session: activeSession,
         onComplete: async () => {
-          setVisible(false);
+          events.push('complete');
+          setActiveSession(completedSession);
           return completedSession;
+        },
+        onExit: ({ mode }) => {
+          events.push(`exit:${mode}`);
+          setVisible(false);
         },
       })} />;
     }
@@ -357,9 +374,10 @@ describe('BeadingSessionPage integration', () => {
     await clickText(renderer, '完成并扣减库存');
     expect(renderer.root.findByType('p').children.join('')).toBe('canvas screen');
     expect(storage.getItem(key)).toBeNull();
+    expect(events).toEqual(['complete', 'clear', 'exit:completed']);
   });
 
-  it('keeps timing until pause succeeds, remains running on failure, and only resumes after success', async () => {
+  it('freezes timing while pause is pending, excludes failed network wait, and only resumes after success', async () => {
     vi.useFakeTimers();
     installWindow();
     let resolvePause!: (value: BeadingSession) => void;
@@ -372,12 +390,13 @@ describe('BeadingSessionPage integration', () => {
     act(() => { button(renderer, '暂停计时').props.onClick(); });
     expect(onPause).toHaveBeenCalledWith({ completedColorCodes: [], elapsedSeconds: 12, version: 4 });
     expect(button(renderer, '暂停计时').props.disabled).toBe(true);
+    await act(async () => renderer.update(<BeadingSessionPage {...props} status="父层刷新" />));
     act(() => { vi.advanceTimersByTime(2000); });
-    expect(button(renderer, '暂停计时').findByType('span').children.join('')).toBe('00:14');
+    expect(button(renderer, '暂停计时').findByType('span').children.join('')).toBe('00:12');
     await act(async () => { resolvePause(session({ status: 'paused', elapsedSeconds: 12, version: 6 })); });
-    expect(button(renderer, '继续计时').findByType('span').children.join('')).toBe('00:14');
+    expect(button(renderer, '继续计时').findByType('span').children.join('')).toBe('00:12');
     act(() => { vi.advanceTimersByTime(2000); });
-    expect(button(renderer, '继续计时').findByType('span').children.join('')).toBe('00:14');
+    expect(button(renderer, '继续计时').findByType('span').children.join('')).toBe('00:12');
     await click(renderer, '继续计时');
     expect(props.onResume).toHaveBeenCalledWith({ version: 4 });
     expect(button(renderer, '暂停计时')).toBeTruthy();
@@ -389,6 +408,56 @@ describe('BeadingSessionPage integration', () => {
     act(() => { vi.advanceTimersByTime(1000); });
     expect(button(failed.renderer, '暂停计时').findByType('span').children.join('')).toBe('00:11');
     expect(failedProps.onStatus).toHaveBeenCalledWith('暂停失败');
+  });
+
+  it('keeps completion open on return failure and closes it only after a successful transition', async () => {
+    let resolveReturn!: (value: BeadingSession) => void;
+    const pendingReturn = new Promise<BeadingSession>((resolve) => { resolveReturn = resolve; });
+    const onReturnToProgress = vi.fn()
+      .mockRejectedValueOnce(new Error('返回失败'))
+      .mockImplementationOnce(() => pendingReturn);
+    const props = callbacks({
+      session: session({ status: 'pending_completion', completedColorCodes: ['A1', 'B2'] }),
+      onReturnToProgress,
+    });
+    const { renderer } = await renderPage(props);
+    await clickText(renderer, '返回检查');
+    expect(renderer.root.findByProps({ 'aria-label': '完成拼豆' })).toBeTruthy();
+    expect(props.onStatus).toHaveBeenCalledWith('返回失败');
+
+    act(() => { textButton(renderer, '返回检查').props.onClick(); });
+    expect(textButton(renderer, '返回检查').props.disabled).toBe(true);
+    act(() => { textButton(renderer, '返回检查').props.onClick(); });
+    expect(onReturnToProgress).toHaveBeenCalledTimes(2);
+    await act(async () => resolveReturn(session({ status: 'in_progress', version: 5 })));
+    expect(renderer.root.findAllByProps({ 'aria-label': '完成拼豆' })).toHaveLength(0);
+    expect(button(renderer, '暂停计时')).toBeTruthy();
+  });
+
+  it('retains the exit dialog and draft when remote abandon fails', async () => {
+    const storage = installWindow();
+    const key = 'qiaoqiaole.beading-draft:alice:s1';
+    storage.setItem(key, JSON.stringify({ updatedAt: new Date().toISOString() }));
+    const props = callbacks({
+      draftOwnerId: 'alice',
+      onAbandon: vi.fn(async () => { throw new Error('放弃失败'); }),
+    });
+    const { renderer } = await renderPage(props);
+    await click(renderer, '返回');
+    await clickText(renderer, '放弃会话');
+    expect(renderer.root.findByProps({ 'aria-label': '退出拼豆' })).toBeTruthy();
+    expect(storage.getItem(key)).not.toBeNull();
+    expect(props.onExit).not.toHaveBeenCalled();
+  });
+
+  it('keeps the Canvas overlay object stable across elapsed timer ticks', async () => {
+    vi.useFakeTimers();
+    installWindow();
+    const { renderer } = await renderPage();
+    const before = canvasSpy.props?.overlay;
+    act(() => { vi.advanceTimersByTime(3000); });
+    expect(button(renderer, '暂停计时').findByType('span').children.join('')).toBe('00:13');
+    expect(canvasSpy.props?.overlay).toBe(before);
   });
 
   it('keeps pending controls disabled, retries terminal prepare, and opens the completion dialog only after success', async () => {
@@ -468,6 +537,25 @@ describe('BeadingSessionPage integration', () => {
     expect(button(renderer, '暂停计时').findByType('span').children.join('')).toBe('00:55');
     act(() => { vi.advanceTimersByTime(1000); });
     expect(button(renderer, '暂停计时').findByType('span').children.join('')).toBe('00:56');
+  });
+
+  it('advances a newly completed current color on an authoritative version change only', async () => {
+    const { renderer } = await renderPage();
+    await act(async () => renderer.update(<BeadingSessionPage {...callbacks({
+      session: session({ version: 5, completedColorCodes: ['A1'] }),
+    })} />));
+    expect(canvasSpy.props?.overlay.currentColorCode).toBe('B2');
+
+    const completedA1 = renderer.root.findAllByType('button').find((node) => (
+      String(node.props['aria-label']).startsWith('选择色号 A1')
+    ));
+    if (!completedA1) throw new Error('completed A1 color chip not found');
+    await act(async () => completedA1.props.onClick());
+    expect(canvasSpy.props?.overlay.currentColorCode).toBe('A1');
+    await act(async () => renderer.update(<BeadingSessionPage {...callbacks({
+      session: session({ version: 5, completedColorCodes: ['A1'] }),
+    })} />));
+    expect(canvasSpy.props?.overlay.currentColorCode).toBe('A1');
   });
 
   it('resets every local tool and selects the new next color when session id changes without an owner', async () => {

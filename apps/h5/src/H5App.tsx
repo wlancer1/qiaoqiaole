@@ -117,7 +117,7 @@ import { BeadingSessionPage } from './pages/beading/BeadingSessionPage';
 import { InventoryCheckSheet } from './pages/beading/InventoryCheckSheet';
 import { ProjectActionSheet } from './pages/beading/ProjectActionSheet';
 import type { BeadingSession, InventoryCheck } from './beading/beadingSessionClient';
-import type { Complete, Prepare, Resume, SessionMutation } from './pages/beading/useBeadingSessionActions';
+import type { Complete, Prepare, Resume, SessionMutation, SessionTransition } from './pages/beading/useBeadingSessionActions';
 import { HomeShellPage, PhoneLoginModal } from './pages/home/HomeShellPage';
 import { createNonce, createRequestId, getPhoneDeviceId, normalizePhone, showTencentCaptcha, signWebSmsRequest } from './utils/phoneAuthClient';
 import { passwordValidationMessage, validatePasswordLength } from './utils/passwordValidation';
@@ -1030,12 +1030,13 @@ function H5App() {
   const pauseBeading: SessionMutation = async ({ completedColorCodes, elapsedSeconds, version }) => {
     const activeSession = beadingSession;
     if (!activeSession) throw new Error('拼豆会话已失效');
+    let patchedSession: BeadingSession | null = null;
     try {
       const patched = await requestApi<{ session: BeadingSession }>(`/v1/beading-sessions/${activeSession.id}`, {
         method: 'PATCH',
         body: JSON.stringify({ version, completedColorCodes, elapsedSeconds }),
       });
-      setBeadingSession(patched.session);
+      patchedSession = patched.session;
       const paused = await requestApi<{ session: BeadingSession }>(`/v1/beading-sessions/${activeSession.id}/pause`, {
         method: 'POST',
         body: JSON.stringify({ version: patched.session.version }),
@@ -1043,6 +1044,7 @@ function H5App() {
       setBeadingSession(paused.session);
       return paused.session;
     } catch (error) {
+      if (patchedSession) setBeadingSession(patchedSession);
       syncBeadingSessionFromError(error, activeSession.id);
       setStatus(error instanceof Error ? error.message : '无法暂停拼豆');
       throw error;
@@ -1069,7 +1071,6 @@ function H5App() {
       const payload = await requestApi<{ session: BeadingSession; deducted: boolean }>(`/v1/beading-sessions/${beadingSession.id}/complete`, { method: 'POST', body: JSON.stringify({ idempotencyKey, deductInventory: deduct, warehouseId: activeWarehouseId || undefined }) });
       setBeadingSession(payload.session);
       setStatus(payload.deducted ? '已完成拼豆并扣减库存。' : '已完成拼豆，库存未扣减。');
-      setScreen('canvas');
       return payload.session;
     } catch (error) {
       syncBeadingSessionFromError(error, beadingSession.id);
@@ -1087,6 +1088,32 @@ function H5App() {
     } catch (error) {
       syncBeadingSessionFromError(error, beadingSession.id);
       setStatus(error instanceof Error ? error.message : '无法继续拼豆');
+      throw error;
+    }
+  };
+
+  const returnBeadingToProgress: SessionTransition = async ({ version }) => {
+    if (!beadingSession) throw new Error('拼豆会话已失效');
+    try {
+      const payload = await requestApi<{ session: BeadingSession }>(`/v1/beading-sessions/${beadingSession.id}/return-to-progress`, { method: 'POST', body: JSON.stringify({ version }) });
+      setBeadingSession(payload.session);
+      return payload.session;
+    } catch (error) {
+      syncBeadingSessionFromError(error, beadingSession.id);
+      setStatus(error instanceof Error ? error.message : '无法返回检查');
+      throw error;
+    }
+  };
+
+  const abandonBeading: SessionTransition = async ({ version }) => {
+    if (!beadingSession) throw new Error('拼豆会话已失效');
+    try {
+      const payload = await requestApi<{ session: BeadingSession }>(`/v1/beading-sessions/${beadingSession.id}/abandon`, { method: 'POST', body: JSON.stringify({ version }) });
+      setBeadingSession(payload.session);
+      return payload.session;
+    } catch (error) {
+      syncBeadingSessionFromError(error, beadingSession.id);
+      setStatus(error instanceof Error ? error.message : '无法放弃会话');
       throw error;
     }
   };
@@ -2692,6 +2719,8 @@ function H5App() {
         getCode={colorCodeOf}
         onPatch={patchBeadingProgress}
         onPause={pauseBeading}
+        onReturnToProgress={returnBeadingToProgress}
+        onAbandon={abandonBeading}
         onPrepareCompletion={prepareBeadingCompletion}
         onComplete={completeBeading}
         onResume={resumeBeading}

@@ -53,6 +53,8 @@ function defaultProps(overrides: Partial<UseBeadingSessionActionsInput> = {}): U
     currentColor: 'A1',
     onPatch: vi.fn(async () => session()),
     onPause: vi.fn(async () => session({ status: 'paused' })),
+    onReturnToProgress: vi.fn(async () => session({ status: 'in_progress' })),
+    onAbandon: vi.fn(async () => session({ status: 'abandoned' })),
     onPrepareCompletion: vi.fn(async () => session({ status: 'pending_completion' })),
     onComplete: vi.fn(async () => session({ status: 'completed_deducted' })),
     onResume: vi.fn(async () => session({ status: 'in_progress' })),
@@ -728,6 +730,58 @@ describe('useBeadingSessionActions', () => {
 
     expect(await result).toBe(false);
     expect(onStatus).not.toHaveBeenCalled();
+  });
+
+  it('returns to progress once with the committed version and blocks duplicates', async () => {
+    const request = deferred<BeadingSession>();
+    const onReturnToProgress = vi.fn(() => request.promise);
+    const harness = createHarness();
+    await harness.mount(defaultProps({ session: session({ status: 'pending_completion', version: 21 }), onReturnToProgress }));
+    let first!: Promise<boolean>;
+    let duplicate!: Promise<boolean>;
+    act(() => {
+      first = harness.control.current!.returnToProgress();
+      duplicate = harness.control.current!.returnToProgress();
+    });
+    expect(harness.control.current!.pendingAction).toBe('return');
+    expect(onReturnToProgress).toHaveBeenCalledWith({ version: 21 });
+    expect(await duplicate).toBe(false);
+    await act(async () => { request.resolve(session({ status: 'in_progress', version: 22 })); });
+    expect(await first).toBe(true);
+    expect(harness.control.current!.pendingAction).toBeNull();
+  });
+
+  it('keeps abandon retryable after failure', async () => {
+    const onAbandon = vi.fn()
+      .mockRejectedValueOnce(new Error('放弃失败'))
+      .mockResolvedValueOnce(session({ status: 'abandoned', version: 8 }));
+    const onStatus = vi.fn();
+    const harness = createHarness();
+    await harness.mount(defaultProps({ session: session({ version: 7 }), onAbandon, onStatus }));
+    let failed!: boolean;
+    await act(async () => { failed = await harness.control.current!.abandon(); });
+    expect(failed).toBe(false);
+    expect(onStatus).toHaveBeenCalledWith('放弃失败');
+    expect(harness.control.current!.pendingAction).toBeNull();
+    let retried!: boolean;
+    await act(async () => { retried = await harness.control.current!.abandon(); });
+    expect(retried).toBe(true);
+    expect(onAbandon).toHaveBeenLastCalledWith({ version: 7 });
+  });
+
+  it.each(['returnToProgress', 'abandon'] as const)('invalidates %s on session switch', async (action) => {
+    const request = deferred<BeadingSession>();
+    const props = defaultProps({
+      onReturnToProgress: vi.fn(() => request.promise),
+      onAbandon: vi.fn(() => request.promise),
+    });
+    const harness = createHarness();
+    await harness.mount(props);
+    let result!: Promise<boolean>;
+    act(() => { result = harness.control.current![action](); });
+    await harness.update({ ...props, session: session({ id: 'session-2', version: 1 }) });
+    await act(async () => { request.resolve(session({ id: 'session-1', version: 9 })); });
+    expect(await result).toBe(false);
   });
 
   it('uses committed callbacks for the current action and new callbacks for the next action', async () => {

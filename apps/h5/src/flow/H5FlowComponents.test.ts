@@ -404,7 +404,7 @@ describe('H5 flow presentation components', () => {
     expect(complete).toContain('async ({ deduct })');
     expect(complete).toMatch(/idempotencyKey[^;]*deduct/);
     expect(complete).toContain('deductInventory: deduct');
-    expect(complete).toContain("setScreen('canvas')");
+    expect(complete).not.toContain("setScreen('canvas')");
   });
 
   it('serializes pause as progress PATCH followed by pause with the patched version', () => {
@@ -418,16 +418,32 @@ describe('H5 flow presentation components', () => {
     expect(pause).toContain(patchPath);
     expect(pause).toContain("method: 'PATCH'");
     expect(pause).toContain('JSON.stringify({ version, completedColorCodes, elapsedSeconds })');
-    expect(pause).toContain('setBeadingSession(patched.session)');
     expect(pause).toContain(pausePath);
     expect(pause).toContain("method: 'POST'");
     expect(pause).toContain('JSON.stringify({ version: patched.session.version })');
     expect(pause).toContain('setBeadingSession(paused.session)');
     expect(pause).toContain('return paused.session');
     expect(pause.indexOf(patchPath)).toBeLessThan(pause.indexOf(pausePath));
-    expect(pause.indexOf('setBeadingSession(patched.session)')).toBeLessThan(pause.indexOf(pausePath));
+    expect(pause.slice(0, pause.indexOf(pausePath))).not.toContain('setBeadingSession(');
+    expect(pause).toContain('if (patchedSession) setBeadingSession(patchedSession)');
     expect(pause).toContain('syncBeadingSessionFromError(error, activeSession.id)');
     expect(pause).toContain('throw error');
+  });
+
+  it('returns and abandons through versioned transition endpoints without parent navigation', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+    const returned = getVariableInitializer(source, 'returnBeadingToProgress');
+    const abandoned = getVariableInitializer(source, 'abandonBeading');
+    const complete = getVariableInitializer(source, 'completeBeading');
+    expect(returned).toContain('/return-to-progress');
+    expect(returned).toContain('JSON.stringify({ version })');
+    expect(returned).toContain('setBeadingSession(payload.session)');
+    expect(returned).toContain('return payload.session');
+    expect(abandoned).toContain('/abandon');
+    expect(abandoned).toContain('JSON.stringify({ version })');
+    expect(abandoned).toContain('return payload.session');
+    expect(abandoned).not.toContain("setScreen('canvas')");
+    expect(complete).not.toContain("setScreen('canvas')");
   });
 
   it('syncs complete error sessions and keeps inventory sheet data in H5App', () => {
@@ -452,6 +468,8 @@ describe('H5 flow presentation components', () => {
 
     expect(page).toContain('onPatch={patchBeadingProgress}');
     expect(page).toContain('onPause={pauseBeading}');
+    expect(page).toContain('onReturnToProgress={returnBeadingToProgress}');
+    expect(page).toContain('onAbandon={abandonBeading}');
     expect(page).toContain('onPrepareCompletion={prepareBeadingCompletion}');
     expect(page).toContain('onComplete={completeBeading}');
     expect(page).toContain('onResume={resumeBeading}');

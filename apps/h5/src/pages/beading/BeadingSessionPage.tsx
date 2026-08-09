@@ -36,7 +36,9 @@ import {
   type Prepare,
   type Resume,
   type SessionMutation,
+  type SessionTransition,
 } from './useBeadingSessionActions';
+import { useBeadingElapsedTimer } from './useBeadingElapsedTimer';
 
 export type BeadingSessionPageProps = {
   session: BeadingSession;
@@ -46,11 +48,13 @@ export type BeadingSessionPageProps = {
   getCode: (color: string) => string;
   onPatch: SessionMutation;
   onPause: SessionMutation;
+  onReturnToProgress: SessionTransition;
+  onAbandon: SessionTransition;
   onPrepareCompletion: Prepare;
   onComplete: Complete;
   onResume: Resume;
   onOpenInventory: () => Promise<void>;
-  onExit: (input: { mode: 'saved' | 'abandon' }) => void;
+  onExit: (input: { mode: 'saved' | 'abandon' | 'completed' }) => void;
   onSessionConflict: (session: BeadingSession) => void;
   draftOwnerId?: string;
   onStatus: (message: string) => void;
@@ -79,6 +83,8 @@ export function BeadingSessionPage({
   getCode,
   onPatch,
   onPause,
+  onReturnToProgress,
+  onAbandon,
   onPrepareCompletion,
   onComplete,
   onResume,
@@ -96,9 +102,9 @@ export function BeadingSessionPage({
   const [toolState, dispatch] = useReducer(beadingToolReducer, undefined, createBeadingToolState);
   const [searchQuery, setSearchQuery] = useState('');
   const [paused, setPaused] = useState(() => pausedFromSession(session));
+  const [pauseRequested, setPauseRequested] = useState(false);
   const [showExit, setShowExit] = useState(false);
   const [showCompletion, setShowCompletion] = useState(session.status === 'pending_completion');
-  const [elapsed, setElapsed] = useState(session.elapsedSeconds);
   const [current, setCurrent] = useState<string | null>(() => (
     nextIncompleteColor(session.requirements, session.completedColorCodes)
   ));
@@ -114,12 +120,21 @@ export function BeadingSessionPage({
     onWarning: onStatus,
   });
 
+  const elapsed = useBeadingElapsedTimer({
+    sessionId: session.id,
+    version: session.version,
+    authoritativeElapsed: session.elapsedSeconds,
+    stopped: paused || pauseRequested,
+  });
+
   const actions = useBeadingSessionActions({
     session,
     elapsedSeconds: elapsed,
     currentColor: current,
     onPatch,
     onPause,
+    onReturnToProgress,
+    onAbandon,
     onPrepareCompletion,
     onComplete,
     onResume,
@@ -131,7 +146,10 @@ export function BeadingSessionPage({
       setPaused(true);
       setShowCompletion(true);
     },
-    onCompleted: clearDraft,
+    onCompleted: () => {
+      clearDraft();
+      onExit({ mode: 'completed' });
+    },
   });
 
   useLayoutEffect(() => {
@@ -139,8 +157,8 @@ export function BeadingSessionPage({
       lastSyncedSessionIdRef.current = session.id;
       lastSyncedVersionRef.current = session.version;
       dispatch({ type: 'reset' });
-      setElapsed(session.elapsedSeconds);
       setPaused(pausedFromSession(session));
+      setPauseRequested(false);
       setCurrent(nextIncompleteColor(session.requirements, session.completedColorCodes));
       setSearchQuery('');
       setShowExit(false);
@@ -149,8 +167,15 @@ export function BeadingSessionPage({
     }
     if (lastSyncedVersionRef.current === session.version) return;
     lastSyncedVersionRef.current = session.version;
-    setElapsed(session.elapsedSeconds);
     setPaused(pausedFromSession(session));
+    setPauseRequested(false);
+    setCurrent((selected) => {
+      if (selected && session.completedColorCodes.includes(selected)) {
+        return nextIncompleteColor(session.requirements, session.completedColorCodes);
+      }
+      if (selected && session.requirements.some(({ colorCode }) => colorCode === selected)) return selected;
+      return nextIncompleteColor(session.requirements, session.completedColorCodes);
+    });
   }, [session.id, session.version, session.elapsedSeconds, session.status, session.requirements, session.completedColorCodes]);
 
   useEffect(() => {
@@ -163,12 +188,6 @@ export function BeadingSessionPage({
   useEffect(() => {
     dispatch({ type: 'set-marks', indexes: toolState.markedCellIndexes, cellCount });
   }, [cellCount]);
-
-  useEffect(() => {
-    if (paused) return undefined;
-    const timer = window.setInterval(() => setElapsed((value) => value + 1), 1000);
-    return () => window.clearInterval(timer);
-  }, [paused, session.id]);
 
   const elapsedText = useMemo(
     () => `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`,
@@ -221,11 +240,24 @@ export function BeadingSessionPage({
   const allCompleted = nextIncompleteColor(session.requirements, session.completedColorCodes) === null;
   const terminalPrepare = allCompleted && !isTerminalStatus(session.status);
   const hasPendingAction = actions.pendingAction !== null;
-  const toolbarPendingAction = actions.pendingAction === 'pause' ? 'resume' : actions.pendingAction;
+  const toolbarPendingAction = actions.pendingAction === 'pause'
+    ? 'resume'
+    : actions.pendingAction === 'return' || actions.pendingAction === 'abandon'
+      ? null
+      : actions.pendingAction;
+  const canvasOverlay = useMemo(() => ({
+    currentColorCode: current,
+    highlightEnabled: toolState.highlightEnabled,
+    markedCellIndexes: toolState.markedCellIndexes,
+    completedColorCodes: session.completedColorCodes,
+  }), [current, session.completedColorCodes, toolState.highlightEnabled, toolState.markedCellIndexes]);
 
   const togglePause = useCallback(async () => {
     if (!paused) {
-      if (await actions.pause()) setPaused(true);
+      setPauseRequested(true);
+      const succeeded = await actions.pause();
+      if (succeeded) setPaused(true);
+      setPauseRequested(false);
       return;
     }
     if (await actions.resume()) setPaused(false);
@@ -237,11 +269,18 @@ export function BeadingSessionPage({
     onExit({ mode: 'saved' });
   }, [actions, onExit]);
 
-  const abandon = useCallback(() => {
+  const abandon = useCallback(async () => {
+    if (!await actions.abandon()) return;
     clearDraft();
     setShowExit(false);
     onExit({ mode: 'abandon' });
-  }, [clearDraft, onExit]);
+  }, [actions, clearDraft, onExit]);
+
+  const returnToProgress = useCallback(async () => {
+    if (!await actions.returnToProgress()) return;
+    setShowCompletion(false);
+    setPaused(false);
+  }, [actions]);
 
   const finish = useCallback(async (deduct: boolean) => {
     if (await actions.complete(deduct)) setShowCompletion(false);
@@ -282,12 +321,7 @@ export function BeadingSessionPage({
           gridVisible={toolState.gridVisible}
           getCode={getCode}
           getTextColor={colorCodeTextColor}
-          overlay={{
-            currentColorCode: current,
-            highlightEnabled: toolState.highlightEnabled,
-            markedCellIndexes: toolState.markedCellIndexes,
-            completedColorCodes: session.completedColorCodes,
-          }}
+          overlay={canvasOverlay}
         />
       </BeadingCanvasViewport>
       <button
@@ -358,16 +392,14 @@ export function BeadingSessionPage({
         } : { activePanel: null as null })}
       />
       {showExit ? <BeadingExitDialog
+        pending={actions.pendingAction === 'save' || actions.pendingAction === 'abandon'}
         onContinue={() => setShowExit(false)}
         onSaveExit={() => { void saveAndExit(); }}
-        onAbandon={abandon}
+        onAbandon={() => { void abandon(); }}
       /> : null}
       {showCompletion ? <BeadingCompletionDialog
-        pending={actions.pendingAction === 'complete'}
-        onReturn={() => {
-          setShowCompletion(false);
-          setPaused(true);
-        }}
+        pending={actions.pendingAction === 'complete' || actions.pendingAction === 'return'}
+        onReturn={() => { void returnToProgress(); }}
         onNoDeduct={() => { void finish(false); }}
         onDeduct={() => { void finish(true); }}
       /> : null}
