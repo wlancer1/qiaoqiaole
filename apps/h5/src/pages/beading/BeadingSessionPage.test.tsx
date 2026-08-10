@@ -724,10 +724,10 @@ describe('BeadingSessionPage static contracts', () => {
     expectDeclaration(cssBlock(styles, '.beading-tool-button'), 'font-size', '0.381rem');
     expectDeclaration(cssBlock(styles, '.beading-color-sort,\n.beading-color-revise'), 'font-size', '0.3492rem');
     const chip = cssBlock(styles, '.beading-color-chip');
-    expectDeclaration(chip, 'flex', '0 0 1.7778rem');
-    expectDeclaration(cssBlock(styles, '.beading-color-swatch'), 'width', '1.5238rem');
-    expectDeclaration(cssBlock(styles, '.beading-color-swatch'), 'height', '1.5238rem');
-    expectDeclaration(cssBlock(styles, '.beading-color-count'), 'font-size', '0.4444rem');
+    expectDeclaration(chip, 'flex', '0 0 1.5238rem');
+    expectDeclaration(cssBlock(styles, '.beading-color-swatch'), 'width', '1.2063rem');
+    expectDeclaration(cssBlock(styles, '.beading-color-swatch'), 'height', '1.2063rem');
+    expectDeclaration(cssBlock(styles, '.beading-color-count'), 'font-size', '0.381rem');
     expectDeclaration(cssBlock(styles, '.beading-color-chip.is-current .beading-color-swatch'), 'box-shadow', /0 0 0 0\.0635rem #fff[^,;]*,\s*0 0 0 0\.127rem #f0a517/);
     expectDeclaration(cssBlock(styles, '.beading-color-complete-badge'), 'background', /#(?:1268d7|146cff)/i);
     expectDeclaration(cssBlock(styles, '.beading-complete-color'), 'min-width', '1.7778rem');

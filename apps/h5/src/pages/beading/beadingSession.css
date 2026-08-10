@@ -357,7 +357,7 @@
   min-height: calc(1.7778rem + env(safe-area-inset-bottom));
   flex: 0 0 auto;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
+  align-items: center;
   gap: 0.127rem;
   padding-top: 0.127rem;
   padding-right: max(0.254rem, env(safe-area-inset-right));
@@ -369,6 +369,7 @@
 
 .beading-color-rail {
   display: flex;
+  align-items: center;
   min-width: 0;
   gap: 0.254rem;
   overflow-x: auto;
@@ -392,7 +393,7 @@
   min-width: 1.3968rem;
   min-width: 44px;
   min-height: 44px;
-  flex: 0 0 1.7778rem;
+  flex: 0 0 1.5238rem;
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -407,10 +408,8 @@
 .beading-color-swatch {
   position: relative;
   display: grid;
-  width: 1.5238rem;
-  height: 1.5238rem;
-  min-width: 44px;
-  min-height: 44px;
+  width: 1.2063rem;
+  height: 1.2063rem;
   place-items: center;
   border: 2px solid rgba(30, 48, 72, 0.1);
   border-radius: 0.381rem;
@@ -418,7 +417,7 @@
 }
 
 .beading-color-swatch strong {
-  font-size: 0.4762rem;
+  font-size: 0.4444rem;
   font-weight: 900;
   line-height: 1;
   text-shadow: 0 1px 1px rgba(255, 255, 255, 0.46);
@@ -426,7 +425,7 @@
 
 .beading-color-count {
   color: #5b6472;
-  font-size: 0.4444rem;
+  font-size: 0.381rem;
   font-weight: 700;
   line-height: 1;
   white-space: nowrap;
