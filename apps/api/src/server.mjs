@@ -446,6 +446,10 @@ async function route(request, response) {
   if (request.method === 'GET' && url.pathname === '/api/project-assets') {
     return redirectProjectAsset(request, url, response);
   }
+  const publicAvatarMatch = url.pathname.match(/^\/api\/community\/users\/([^/]+)\/avatar$/);
+  if (publicAvatarMatch && request.method === 'GET') {
+    return servePublicAvatar(publicAvatarMatch[1], response);
+  }
 
   if (request.method === 'GET' && url.pathname === '/api/community/posts') {
     const optionalUser = getOptionalUser(request);
@@ -462,6 +466,11 @@ async function route(request, response) {
     const post = getCommunityPost(optionalUser?.id || '', publicCommunityPostMatch[1]);
     if (!post) return sendJson(response, 404, { error: 'NOT_FOUND', message: '社区稿件不存在' });
     return sendJson(response, 200, { post: formatCommunityPost(post) });
+  }
+  const publicAuthorProfileMatch = url.pathname.match(/^\/api\/community\/users\/([^/]+)\/profile$/);
+  if (publicAuthorProfileMatch && request.method === 'GET') {
+    const optionalUser = getOptionalUser(request);
+    return listAuthorProfile(response, optionalUser?.id || '', publicAuthorProfileMatch[1], parsePagination(url.searchParams));
   }
 
   const user = requireUser(request, response);
@@ -487,7 +496,10 @@ async function route(request, response) {
   }
 
   if (request.method === 'GET' && url.pathname === '/api/me') {
-    return sendJson(response, 200, { user });
+    return sendJson(response, 200, { user, ...getFollowCounts(user.id) });
+  }
+  if (request.method === 'PATCH' && url.pathname === '/api/profile') {
+    return updateProfile(request, response, user.id);
   }
   if (request.method === 'GET' && url.pathname === '/api/warehouses') {
     return listWarehouses(response, user.id);
@@ -498,6 +510,9 @@ async function route(request, response) {
   const followMatch = url.pathname.match(/^\/api\/community\/users\/([^/]+)\/follow$/);
   if (followMatch && (request.method === 'POST' || request.method === 'DELETE')) {
     return followUser(response, user.id, followMatch[1], request.method === 'POST');
+  }
+  if (request.method === 'GET' && url.pathname === '/api/community/following') {
+    return listFollowing(response, user.id);
   }
   if (request.method === 'GET' && url.pathname === '/api/notifications') {
     return listNotifications(response, user.id, url);
@@ -686,7 +701,7 @@ async function login(request, response) {
   migrateLegacyOwnership(row.id, { resetAdminSessions });
   const token = createSession(row.id);
   await persist();
-  sendJson(response, 200, { token, user: { id: row.id, username: row.username } });
+  sendJson(response, 200, { token, user: { id: row.id, username: row.username, nickname: row.nickname || row.username, avatarUrl: row.avatar_url || null } });
 }
 
 function ensureEnvUser(username, password) {
@@ -1032,7 +1047,20 @@ function requireUser(request, response) {
     sendJson(response, 401, { error: 'UNAUTHORIZED', message: '请先登录' });
     return null;
   }
-  return { id: row.id, username: row.username, nickname: row.nickname || row.username, status: row.status || 'ACTIVE' };
+  return { id: row.id, username: row.username, nickname: row.nickname || row.username, avatarUrl: row.avatarUrl || null, status: row.status || 'ACTIVE' };
+}
+
+function getFollowCounts(userId) {
+  const counts = getOne(
+    `SELECT
+       (SELECT COUNT(*) FROM follows WHERE following_id = ?) AS followersCount,
+       (SELECT COUNT(*) FROM follows f JOIN users u ON u.id = f.following_id WHERE f.follower_id = ? AND u.status = 'ACTIVE') AS followingCount`,
+    [userId, userId],
+  );
+  return {
+    followersCount: Number(counts?.followersCount || 0),
+    followingCount: Number(counts?.followingCount || 0),
+  };
 }
 
 function getUserFromRequest(request) {
@@ -1040,7 +1068,7 @@ function getUserFromRequest(request) {
   const token = header.startsWith('Bearer ') ? header.slice(7) : '';
   if (!token) return null;
   const legacyUser = getOne(
-    `SELECT users.id, users.username, users.nickname, users.status
+    `SELECT users.id, users.username, users.nickname, users.avatar_url AS avatarUrl, users.status
      FROM sessions
      JOIN users ON users.id = sessions.user_id
      WHERE sessions.token = ? AND sessions.expires_at > ? AND users.username = ?`,
@@ -1049,7 +1077,27 @@ function getUserFromRequest(request) {
   if (legacyUser) return legacyUser;
   const payload = verifyAccessToken(token, String(process.env.AUTH_JWT_SECRET || '').trim());
   if (!payload) return null;
-  return getOne('SELECT id, username, nickname, status FROM users WHERE id = ? AND status = \'ACTIVE\'', [payload.sub]);
+  return getOne('SELECT id, username, nickname, avatar_url AS avatarUrl, status FROM users WHERE id = ? AND status = \'ACTIVE\'', [payload.sub]);
+}
+
+async function updateProfile(request, response, userId) {
+  const body = await readJson(request);
+  const nickname = String(body.nickname || '').trim();
+  if (!nickname) return sendJson(response, 400, { error: 'INVALID_PROFILE', message: '请输入用户名' });
+  if ([...nickname].length > 32) return sendJson(response, 400, { error: 'INVALID_PROFILE', message: '用户名不能超过 32 个字符' });
+
+  const avatarUrl = body.avatarUrl == null ? null : String(body.avatarUrl).trim();
+  if (avatarUrl && !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(avatarUrl)) {
+    return sendJson(response, 400, { error: 'INVALID_PROFILE', message: '头像格式不支持' });
+  }
+  const avatarMatch = avatarUrl.match(/^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/);
+  if (avatarMatch && Buffer.from(avatarMatch[2], 'base64').length > 1024 * 1024) {
+    return sendJson(response, 400, { error: 'INVALID_PROFILE', message: '头像不能超过 1MB' });
+  }
+
+  db.run('UPDATE users SET nickname = ?, avatar_url = ?, updated_at = ? WHERE id = ?', [nickname, avatarUrl || null, new Date().toISOString(), userId]);
+  await persist();
+  return sendJson(response, 200, { user: { id: userId, nickname, avatarUrl: avatarUrl || null } });
 }
 
 function getOptionalUser(request) {
@@ -1133,25 +1181,24 @@ function redirectProjectAsset(request, url, response) {
   if (!assetPath.startsWith('cos://')) {
     return sendJson(response, 400, { error: 'INVALID_INPUT', message: '项目图片路径无效' });
   }
-  const project = getOne(
+  const projects = getAll(
     `SELECT user_id AS userId, shared_to_community AS sharedToCommunity
      FROM projects
      WHERE source_image = ? OR thumbnail_image = ?
-     LIMIT 1`,
+     `,
     [assetPath, assetPath],
   );
-  if (!project) return sendJson(response, 404, { error: 'NOT_FOUND', message: '项目图片不存在' });
-  if (!project.sharedToCommunity) {
-    const access = String(url.searchParams.get('access') || '');
-    const expires = String(url.searchParams.get('expires') || '');
-    if (verifyProjectAssetAccess(assetPath, project.userId, access, expires)) {
-      return redirectToCosAsset(response, assetPath);
-    }
-    const user = getUserFromRequest(request);
-    if (!user) return sendJson(response, 401, { error: 'UNAUTHORIZED', message: '请先登录' });
-    if (user.id !== project.userId) return sendJson(response, 404, { error: 'NOT_FOUND', message: '项目图片不存在' });
+  if (projects.length === 0) return sendJson(response, 404, { error: 'NOT_FOUND', message: '项目图片不存在' });
+  if (projects.some((project) => project.sharedToCommunity)) return redirectToCosAsset(response, assetPath);
+  const access = String(url.searchParams.get('access') || '');
+  const expires = String(url.searchParams.get('expires') || '');
+  if (projects.some((project) => verifyProjectAssetAccess(assetPath, project.userId, access, expires))) {
+    return redirectToCosAsset(response, assetPath);
   }
-  return redirectToCosAsset(response, assetPath);
+  const user = getUserFromRequest(request);
+  if (!user) return sendJson(response, 401, { error: 'UNAUTHORIZED', message: '请先登录' });
+  if (projects.some((project) => project.userId === user.id)) return redirectToCosAsset(response, assetPath);
+  return sendJson(response, 404, { error: 'NOT_FOUND', message: '项目图片不存在' });
 }
 
 function redirectToCosAsset(response, assetPath) {
@@ -1337,10 +1384,16 @@ async function copyCommunityProject(response, userId, projectId) {
   if (!source) return sendJson(response, 404, { error: 'NOT_FOUND', message: '社区稿件不存在或不可复制' });
   const now = new Date().toISOString();
   const copyId = randomUUID();
+  // Preserve one renderable COS asset for the copy. Asset access is checked
+  // against the copied project owner when the image is requested.
+  const sourceCosImage = String(source.sourceImage || '').startsWith('cos://') ? source.sourceImage : '';
+  const thumbnailCosImage = String(source.thumbnailImage || '').startsWith('cos://') ? source.thumbnailImage : '';
+  const copiedSourceImage = sourceCosImage || thumbnailCosImage;
+  const copiedThumbnailImage = String(source.thumbnailImage || '').startsWith('data:') ? source.thumbnailImage : '';
   db.run(`INSERT INTO projects (id, user_id, name, rows, cols, tone, source_image, thumbnail_image, canvas_data, bead_list, revision, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`, [copyId, userId, `${source.name}（副本）`, source.rows, source.cols, source.tone, source.sourceImage || '', source.thumbnailImage || '', source.canvasData || '', source.beadList || '', now, now]);
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`, [copyId, userId, `${source.name}（副本）`, source.rows, source.cols, source.tone, copiedSourceImage, copiedThumbnailImage, source.canvasData || '', source.beadList || '', now, now]);
   await persist();
-  return sendJson(response, 201, { project: { id: copyId, userId, name: `${source.name}（副本）`, rows: Number(source.rows), cols: Number(source.cols), tone: source.tone, canvasData: source.canvasData || '', revision: 1, createdAt: now, updatedAt: now } });
+  return sendJson(response, 201, { project: { id: copyId, userId, name: `${source.name}（副本）`, rows: Number(source.rows), cols: Number(source.cols), tone: source.tone, sourceImage: resolveProjectImage(copiedSourceImage, userId), thumbnailImage: resolveProjectImage(copiedThumbnailImage, userId), canvasData: source.canvasData || '', revision: 1, createdAt: now, updatedAt: now } });
 }
 
 async function deleteProject(response, userId, projectId) {
@@ -1396,12 +1449,29 @@ function safeAvatarUrl(value) {
   return String(value || '').trim() || null;
 }
 
+function publicAvatarUrl(userId, value) {
+  const avatarUrl = safeAvatarUrl(value);
+  return avatarUrl?.startsWith('data:image/')
+    ? `/api/community/users/${encodeURIComponent(userId)}/avatar`
+    : avatarUrl;
+}
+
+function servePublicAvatar(userId, response) {
+  const user = getOne("SELECT avatar_url AS avatarUrl FROM users WHERE id = ? AND status = 'ACTIVE'", [userId]);
+  const match = String(user?.avatarUrl || '').match(/^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/);
+  if (!match) return sendJson(response, 404, { error: 'NOT_FOUND', message: '头像不存在' });
+  const contentType = `image/${match[1]}`;
+  const image = Buffer.from(match[2], 'base64');
+  response.writeHead(200, { 'content-type': contentType, 'content-length': image.length, 'cache-control': 'no-store' });
+  response.end(image);
+}
+
 function getCommunityPost(userId, projectId) {
   return getOne(
     `SELECT p.id, p.name, p.rows, p.cols, p.tone,
             p.source_image AS sourceImage, p.thumbnail_image AS thumbnailImage, p.canvas_data AS canvasData, p.bead_list AS beadList,
             p.shared_at AS sharedAt, p.likes_count AS likesCount,
-            u.id AS authorId, COALESCE(NULLIF(u.nickname, ''), u.username) AS author,
+            u.id AS authorId, COALESCE(NULLIF(u.nickname, ''), u.username) AS author, u.avatar_url AS authorAvatar,
             COUNT(DISTINCT c.id) AS commentsCount,
             CASE WHEN l.user_id IS NULL THEN 0 ELSE 1 END AS likedByMe,
             CASE WHEN EXISTS (SELECT 1 FROM follows f WHERE f.follower_id = ? AND f.following_id = u.id) THEN 1 ELSE 0 END AS isFollowing
@@ -1419,6 +1489,7 @@ function formatCommunityPost(post) {
   const storedBeadList = parseStoredBeadList(post.beadList);
   return {
     ...post,
+    authorAvatar: publicAvatarUrl(post.authorId, post.authorAvatar),
     sourceImage: resolveProjectImage(post.sourceImage),
     thumbnailImage: resolveProjectImage(post.thumbnailImage),
     beadList: storedBeadList.length > 0 ? storedBeadList : buildBeadList(post.canvasData),
@@ -1443,7 +1514,7 @@ function listCommunityPosts(response, userId, sort, pagination = { page: 1, page
     `SELECT p.id, p.name, p.rows, p.cols, p.tone,
             p.source_image AS sourceImage, p.thumbnail_image AS thumbnailImage, p.canvas_data AS canvasData, p.bead_list AS beadList,
             p.shared_at AS sharedAt, p.likes_count AS likesCount,
-            u.id AS authorId, COALESCE(NULLIF(u.nickname, ''), u.username) AS author,
+            u.id AS authorId, COALESCE(NULLIF(u.nickname, ''), u.username) AS author, u.avatar_url AS authorAvatar,
             COUNT(DISTINCT c.id) AS commentsCount,
             CASE WHEN l.user_id IS NULL THEN 0 ELSE 1 END AS likedByMe,
             CASE WHEN EXISTS (SELECT 1 FROM follows f WHERE f.follower_id = ? AND f.following_id = u.id) THEN 1 ELSE 0 END AS isFollowing
@@ -1458,6 +1529,52 @@ function listCommunityPosts(response, userId, sort, pagination = { page: 1, page
     [userId || '', userId, pagination.pageSize, pagination.offset],
   );
   sendJson(response, 200, { posts: posts.map(formatCommunityPost), page: pagination.page, pageSize: pagination.pageSize });
+}
+
+function getAuthorProfile(viewerId, authorId) {
+  const profile = getOne(
+    `SELECT u.id, COALESCE(NULLIF(u.nickname, ''), u.username) AS name, u.avatar_url AS avatarUrl,
+            COUNT(DISTINCT p.id) AS postsCount,
+            COALESCE(SUM(p.likes_count), 0) AS likesCount,
+            (SELECT COUNT(*) FROM follows WHERE following_id = u.id) AS followersCount,
+            CASE WHEN EXISTS (SELECT 1 FROM follows WHERE follower_id = ? AND following_id = u.id) THEN 1 ELSE 0 END AS isFollowing
+     FROM users u
+     LEFT JOIN projects p ON p.user_id = u.id AND p.shared_to_community = 1
+     WHERE u.id = ? AND u.status = 'ACTIVE'
+     GROUP BY u.id`,
+    [viewerId || '', authorId],
+  );
+  return profile ? {
+    ...profile,
+    avatarUrl: publicAvatarUrl(profile.id, profile.avatarUrl),
+    postsCount: Number(profile.postsCount || 0),
+    likesCount: Number(profile.likesCount || 0),
+    followersCount: Number(profile.followersCount || 0),
+    isFollowing: Boolean(profile.isFollowing),
+  } : null;
+}
+
+function listAuthorProfile(response, viewerId, authorId, pagination = { page: 1, pageSize: 20, offset: 0 }) {
+  const profile = getAuthorProfile(viewerId, authorId);
+  if (!profile) return sendJson(response, 404, { error: 'NOT_FOUND', message: '用户不存在' });
+  const posts = getAll(
+    `SELECT p.id, p.name, p.rows, p.cols, p.tone,
+            p.source_image AS sourceImage, p.thumbnail_image AS thumbnailImage, p.canvas_data AS canvasData, p.bead_list AS beadList,
+            p.shared_at AS sharedAt, p.likes_count AS likesCount,
+            u.id AS authorId, COALESCE(NULLIF(u.nickname, ''), u.username) AS author, u.avatar_url AS authorAvatar,
+            COUNT(DISTINCT c.id) AS commentsCount,
+            CASE WHEN l.user_id IS NULL THEN 0 ELSE 1 END AS likedByMe,
+            CASE WHEN EXISTS (SELECT 1 FROM follows f WHERE f.follower_id = ? AND f.following_id = u.id) THEN 1 ELSE 0 END AS isFollowing
+     FROM projects p JOIN users u ON u.id = p.user_id
+     LEFT JOIN project_comments c ON c.project_id = p.id
+     LEFT JOIN project_likes l ON l.project_id = p.id AND l.user_id = ?
+     WHERE p.user_id = ? AND p.shared_to_community = 1
+     GROUP BY p.id, l.user_id
+     ORDER BY p.shared_at DESC, p.id DESC
+     LIMIT ? OFFSET ?`,
+    [viewerId || '', viewerId || '', authorId, pagination.pageSize, pagination.offset],
+  ).map(formatCommunityPost);
+  sendJson(response, 200, { profile, posts, page: pagination.page, pageSize: pagination.pageSize });
 }
 
 function assertSharedProject(response, userId, projectId) {
@@ -1498,7 +1615,7 @@ function listProjectComments(response, userId, projectId, pagination = { page: 1
      WHERE c.project_id = ? ORDER BY c.created_at DESC, c.id DESC
      LIMIT ? OFFSET ?`,
     [projectId, pagination.pageSize, pagination.offset],
-  ).map((comment) => ({ ...comment, authorAvatar: safeAvatarUrl(comment.authorAvatar) }));
+  ).map((comment) => ({ ...comment, authorAvatar: publicAvatarUrl(comment.authorId, comment.authorAvatar) }));
   sendJson(response, 200, { comments, page: pagination.page, pageSize: pagination.pageSize });
 }
 
@@ -1541,10 +1658,21 @@ async function followUser(response, followerId, followingId, shouldFollow) {
   const counts = getOne(
     `SELECT
        (SELECT COUNT(*) FROM follows WHERE following_id = ?) AS followersCount,
-       (SELECT COUNT(*) FROM follows WHERE follower_id = ?) AS followingCount`,
+       (SELECT COUNT(*) FROM follows f JOIN users u ON u.id = f.following_id WHERE f.follower_id = ? AND u.status = 'ACTIVE') AS followingCount`,
     [followingId, followingId],
   );
   sendJson(response, 200, { following: shouldFollow, followersCount: Number(counts?.followersCount || 0), followingCount: Number(counts?.followingCount || 0) });
+}
+
+function listFollowing(response, userId) {
+  const users = getAll(
+    `SELECT u.id, COALESCE(NULLIF(u.nickname, ''), u.username) AS name, u.avatar_url AS avatarUrl
+     FROM follows f JOIN users u ON u.id = f.following_id
+     WHERE f.follower_id = ? AND u.status = 'ACTIVE'
+     ORDER BY f.created_at DESC, u.id DESC`,
+    [userId],
+  ).map((user) => ({ ...user, avatarUrl: publicAvatarUrl(user.id, user.avatarUrl) }));
+  sendJson(response, 200, { users });
 }
 
 function listNotifications(response, userId, url) {
@@ -1556,7 +1684,7 @@ function listNotifications(response, userId, url) {
      FROM notifications n JOIN users s ON s.id = n.sender_id
      WHERE n.receiver_id = ? ORDER BY n.created_at DESC, n.id DESC LIMIT ? OFFSET ?`,
     [userId, pageSize, offset],
-  ).map((item) => ({ ...item, isRead: Boolean(item.readAt) }));
+  ).map((item) => ({ ...item, senderAvatar: publicAvatarUrl(item.senderId, item.senderAvatar), isRead: Boolean(item.readAt) }));
   const unread = getOne('SELECT COUNT(*) AS count FROM notifications WHERE receiver_id = ? AND read_at IS NULL', [userId]);
   sendJson(response, 200, { notifications, unreadCount: Number(unread?.count || 0), page, pageSize });
 }

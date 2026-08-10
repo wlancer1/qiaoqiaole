@@ -118,6 +118,13 @@ describe('phone SMS authentication', () => {
     expect(login.response.status).toBe(200);
     expect(login.body.data.isNewUser).toBe(false);
 
+    const warehouse = await request('/api/warehouses', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${login.body.data.accessToken}` },
+      body: JSON.stringify({ name: '手机号登录仓库' }),
+    });
+    expect(warehouse.response.status, JSON.stringify(warehouse.body)).toBe(201);
+
     const duplicateRegistrationChallenge = await challenge();
     const duplicateRegistrationSend = await signedSend(duplicateRegistrationChallenge.body, '+8613800138000');
     expect(duplicateRegistrationSend.response.status).toBe(409);

@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useRef,
+  useState,
   type HTMLAttributes,
   type ReactNode,
   type Ref,
@@ -12,6 +13,7 @@ import {
   type ReactZoomPanPinchContentRef,
 } from 'react-zoom-pan-pinch';
 import type { InteractionMode } from '../../beading/beadingToolState';
+import { CanvasScaleObserver, CanvasViewportRulers } from '../../canvas/H5CanvasPreview';
 
 export const CELL_SIZE = 18;
 export const MIN_VIEWPORT_SCALE = 0.25;
@@ -86,6 +88,9 @@ export function BeadingCanvasViewport({
   const pendingFitRef = useRef(false);
   const resizeFrameRef = useRef<number | null>(null);
   const lastObservedSizeRef = useRef<{ width: number; height: number } | null>(null);
+  const viewportArtboardRef = useRef<HTMLDivElement | null>(null);
+  const [canvasScale, setCanvasScale] = useState(1);
+  const [viewportRulerSticky, setViewportRulerSticky] = useState(false);
   const dimensions = { width: cols * CELL_SIZE, height: rows * CELL_SIZE };
   const sizeRef = useRef({
     viewportWidth: 0,
@@ -152,7 +157,11 @@ export function BeadingCanvasViewport({
   }, [fit]);
 
   const content = typeof children === 'function' ? children(dimensions) : children;
-  const stageClassName = focusMode ? 'beading-canvas-stage is-focus-mode' : 'beading-canvas-stage';
+  const stageClassName = [
+    'beading-canvas-stage',
+    focusMode ? 'is-focus-mode' : '',
+    viewportRulerSticky ? 'is-viewport-ruler-sticky' : '',
+  ].filter(Boolean).join(' ');
   const {
     className: artboardClassName,
     style: artboardStyle,
@@ -162,6 +171,16 @@ export function BeadingCanvasViewport({
     'beading-canvas-artboard',
     artboardClassName,
   ].filter(Boolean).join(' ');
+
+  const setMergedArtboardRef = useCallback((node: HTMLDivElement | null) => {
+    viewportArtboardRef.current = node;
+    if (!artboardRef) return;
+    if (typeof artboardRef === 'function') {
+      artboardRef(node);
+    } else {
+      artboardRef.current = node;
+    }
+  }, [artboardRef]);
 
   return (
     <section ref={stageRef} className={stageClassName}>
@@ -177,10 +196,11 @@ export function BeadingCanvasViewport({
         pinch={{ disabled: false, allowPanning: true }}
         doubleClick={{ disabled: true }}
       >
+        <CanvasScaleObserver onScaleChange={setCanvasScale} />
         <TransformComponent wrapperClass="beading-canvas-viewport">
           <div
             {...restArtboardProps}
-            ref={artboardRef}
+            ref={setMergedArtboardRef}
             className={mergedArtboardClassName}
             style={{
               ...artboardStyle,
@@ -194,6 +214,14 @@ export function BeadingCanvasViewport({
             {content}
           </div>
         </TransformComponent>
+        <CanvasViewportRulers
+          stageRef={stageRef}
+          artboardRef={viewportArtboardRef}
+          rows={rows}
+          cols={cols}
+          scale={canvasScale}
+          onStickyChange={setViewportRulerSticky}
+        />
       </TransformWrapper>
     </section>
   );

@@ -49,6 +49,14 @@ function getTypeImports(source: string, moduleName: string): string[] {
 }
 
 describe('H5 flow presentation components', () => {
+  it('does not show a success toast after inventory check before beading', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+
+    expect(source).toContain('setBeadingInventoryCheck(inventory);');
+    expect(source).not.toContain("setStatus('库存检测完成，缺豆也可以继续拼豆。');");
+    expect(source).not.toContain("setStatus('已撤销上一步。');");
+  });
+
   it('renders a non-blocking pixel-grid loading state for the generated canvas', () => {
     const markup = renderToStaticMarkup(createElement(SplitCanvasLoading, {
       rows: 160,
@@ -77,6 +85,7 @@ describe('H5 flow presentation components', () => {
     const stackStyles = styles.match(/\.h5-canvas-layers\s*\{([^}]*)\}/s)?.[1] ?? '';
     const transformStyles = styles.match(/\.react-transform-wrapper\s*\{([^}]*)\}/s)?.[1] ?? '';
     const rulerStyles = styles.match(/\.h5-canvas-rulers\s*\{([^}]*)\}/s)?.[1] ?? '';
+    const viewportRulerStyles = styles.match(/\.h5-viewport-rulers\s*\{([^}]*)\}/s)?.[1] ?? '';
     const controlStyles = styles.match(/\.canvas-zoom-controls\s*\{([^}]*)\}/s)?.[1] ?? '';
     const editorStart = app.indexOf('<main className="h5-canvas-page cell-codes-visible"');
     const editorEnd = app.indexOf('<main className="warehouse-page"', editorStart);
@@ -88,6 +97,7 @@ describe('H5 flow presentation components', () => {
     const transformZ = zIndex(transformStyles);
     const rulerZ = zIndex(rulerStyles);
     const controlZ = zIndex(controlStyles);
+    const viewportRulerZ = zIndex(viewportRulerStyles);
 
     expect(styles).toContain('--canvas-cell-size: 14px;');
     expect(styles).toContain('--canvas-ruler-gutter: 22px;');
@@ -96,6 +106,8 @@ describe('H5 flow presentation components', () => {
     expect(transformIndex).toBeGreaterThan(-1);
     expect(stackIndex).toBeLessThan(transformIndex);
     expect([stackZ, transformZ, rulerZ, controlZ].every(Number.isFinite)).toBe(true);
+    expect(viewportRulerZ).toBe(4);
+    expect(viewportRulerStyles).toContain('pointer-events: none;');
     expect(stackZ).toBeLessThan(transformZ);
     expect(transformZ).toBeLessThan(rulerZ);
     expect(rulerZ).toBeLessThan(controlZ);
@@ -106,6 +118,12 @@ describe('H5 flow presentation components', () => {
     expect(layers).toContain('className="h5-overlay-canvas"');
     expect(editorLayers).toContain('getBoundingClientRect');
     expect(editorLayers).toContain('editorCanvasGeometry');
+    expect(app).toContain('CanvasViewportRulers');
+    expect(app).toContain('const canvasStageRef = useRef<HTMLDivElement | null>(null);');
+    expect(app).toContain('viewportRulerSticky');
+    expect(app).toContain('onStickyChange={setViewportRulerSticky}');
+    expect(app).toContain('ref={canvasStageRef}');
+    expect(editorSource).toContain('<CanvasViewportRulers');
   });
 
   it('keeps artwork semantics and input handlers on a div inside the transformed artboard', () => {
@@ -372,6 +390,8 @@ describe('H5 flow presentation components', () => {
 
     expect(requestApi).toContain("response.status === 401 ? '登录状态已失效，请重新登录' : body.message || '请求失败'");
     expect(requestApi).toContain('Object.assign(new Error(message), { status: response.status, code: body.error || body.code, body })');
+    expect(requestApi).toContain('token?: string');
+    expect(requestApi).toContain('...(effectiveToken ? { authorization: `Bearer ${effectiveToken}` } : {})');
   });
 
   it('uses explicit action versions and returns the latest session without swallowing failures', () => {

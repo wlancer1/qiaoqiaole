@@ -1,6 +1,8 @@
 import { HomeUploadHero } from '../../flow/H5FlowComponents';
 import { AuthorProfilePage, PatternDetailPage, PatternDiscoverPage, PatternMessagesPage } from '../../patterns/H5PatternPages';
+import { CommunityPatternCard } from '../../community/CommunityPatternCard';
 import { Icon } from '../../shared/h5Icons';
+import { UserAvatar } from '../../shared/UserAvatar';
 import { Heart, LogOut, MessageCircle } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { passwordValidationMessage } from '../../utils/passwordValidation';
@@ -68,6 +70,33 @@ export function PhoneLoginModal(props: Record<string, any>) {
   );
 }
 
+export function ProfileEditModal(props: Record<string, any>) {
+  const { profileEditName, setProfileEditName, profileEditAvatar, profileEditError, profileEditSaving, profileAvatarInputRef, chooseProfileAvatar, saveProfile, closeProfileEdit } = props;
+  return (
+    <div className="home-create-modal" role="presentation" onClick={closeProfileEdit}>
+      <div className="home-create-panel profile-edit-panel" role="dialog" aria-modal="true" aria-labelledby="profile-edit-title" onClick={(event) => event.stopPropagation()}>
+        <div className="home-create-head">
+          <strong id="profile-edit-title">编辑资料</strong>
+          <button type="button" aria-label="关闭编辑资料" onClick={closeProfileEdit}>关闭</button>
+        </div>
+        <input ref={profileAvatarInputRef} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void chooseProfileAvatar(event.target.files?.[0])} />
+        <button type="button" className="profile-edit-avatar-picker" onClick={() => profileAvatarInputRef.current?.click()} aria-label="更换头像">
+          <UserAvatar className="profile-avatar-content" avatarUrl={profileEditAvatar} />
+          <em>更换头像</em>
+        </button>
+        <label className="profile-edit-name-field">
+          <span>用户名</span>
+          <input value={profileEditName} maxLength={32} placeholder="请输入用户名" onChange={(event) => setProfileEditName(event.target.value)} />
+        </label>
+        {profileEditError ? <p className="phone-auth-error" role="alert">{profileEditError}</p> : null}
+        <button type="button" className="home-create-submit profile-edit-submit" onClick={() => void saveProfile()} disabled={profileEditSaving || !profileEditName.trim()}>
+          {profileEditSaving ? '保存中...' : '保存资料'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function LogoutConfirmModal({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
   return (
     <div className="home-create-modal logout-confirm-backdrop" role="presentation" onClick={onCancel}>
@@ -93,12 +122,15 @@ export function HomeShellPage(props: HomeShellPageProps) {
     xhsPreviewSrc, usedColors, colorCodeOf, quickTools, showCreateCanvasModal, setShowCreateCanvasModal, openCreateCanvasModal,
     openBlankCanvasCreation,
     cfgCols, setCfgCols, cfgRows, setCfgRows, normalizeGridSize, parseGridSizeInput, createBlankCanvas, requireLogin,
-    setStatus, patternListCards, homeTemplateCards, setActivePattern, setScreen, warehouses, stockedColorCount, totalWarehouseStock,
+    setStatus, patternListCards, homeTemplateCards, setActivePattern, setScreen, openAuthorProfile, warehouses, stockedColorCount, totalWarehouseStock,
     activeWarehouse, mardColors, openWarehouse, setActiveTab, communitySort, setCommunitySort, authRequestSeqRef, pendingAuthActionRef,
     setIsAuthenticating, logoutPhone, showLogoutConfirm, setShowLogoutConfirm, notifications, loadNotifications, openNotification,
+    profileAvatarUrl, followingCount = 0, showProfileEditModal, openProfileEdit, profileEditModal, confirmDialog, requestConfirm,
   } = props;
+  const unreadNotificationCount = (notifications ?? []).filter((item: { isRead?: boolean }) => !item.isRead).length;
   return (
     <main className="h5-home-shell">
+      {confirmDialog}
       <input ref={fileInputRef} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void handleUpload(event.target.files?.[0])} />
       {status ? (
         <p className="app-status" role="status" aria-live="polite">{status}</p>
@@ -175,27 +207,15 @@ export function HomeShellPage(props: HomeShellPageProps) {
               </div>
               <div className="home-template-row" aria-label="热门模板预览">
                 {homeTemplateCards.map((template: any) => (
-                  <button className="pattern-card home-template-card" key={template.id} type="button" onClick={() => {
-                    setActivePattern(template);
-                    setScreen('pattern-detail');
-                  }}>
-                    <div className={`pattern-art ${template.tone}`} aria-hidden="true">
-                      {template.image ? <img className="pattern-card-image" src={template.image} alt="" /> : <div className="pattern-card-empty">暂无预览图</div>}
-                    </div>
-                    <div className="pattern-card-body">
-                      <h2>{template.title}</h2>
-                      <div className="pattern-card-info-row">
-                        <div className="pattern-author-row">
-                          <span className={`pattern-avatar ${template.tone}`} aria-hidden="true" />
-                          <strong>{template.author}</strong>
-                        </div>
-                        <div className="pattern-card-meta">
-                          <span><Heart aria-hidden="true" /> {template.likes}</span>
-                          <span><MessageCircle aria-hidden="true" /> {template.comments}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </button>
+                  <CommunityPatternCard
+                    key={template.id}
+                    pattern={template}
+                    className="home-template-card"
+                    onOpen={(pattern) => {
+                      setActivePattern(pattern);
+                      setScreen('pattern-detail');
+                    }}
+                  />
                 ))}
                 {homeTemplateCards.length === 0 ? <p className="community-empty">还没有分享的作品</p> : null}
               </div>
@@ -347,8 +367,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
             setScreen('pattern-detail');
           }}
           onOpenAuthor={(pattern: any) => {
-            setActivePattern(pattern);
-            setScreen('author-profile');
+            openAuthorProfile?.(pattern, 'discover');
           }}
         />
       ) : activeTab === 'messages' ? (
@@ -371,31 +390,33 @@ export function HomeShellPage(props: HomeShellPageProps) {
               <p>管理你的拼豆世界</p>
             </div>
           </header>
-          <section className="profile-account-card" aria-label="账号状态">
+          <section className={isLoggedIn ? 'profile-account-card' : 'profile-account-card is-guest'} aria-label="账号状态">
             <div className="profile-account-top">
               <div className="profile-avatar" aria-hidden="true">
-                <span>拼</span>
+                <UserAvatar className="profile-avatar-content" avatarUrl={isLoggedIn ? profileAvatarUrl : null} />
                 {isLoggedIn ? <i>✓</i> : null}
               </div>
               <div className="profile-account-copy">
                 <div className="profile-account-name">
                   <strong>{isLoggedIn ? loginName : '未登录'}</strong>
-                  {isLoggedIn ? <em>LV5</em> : null}
                 </div>
                 <span>{isLoggedIn ? 'ID 20260729' : '登录后同步项目与豆子库存'}</span>
               </div>
-              <button className="profile-edit-btn" type="button" onClick={() => isLoggedIn ? setStatus('个人资料编辑暂未开放') : setShowLoginModal(true)}>
+              <button className="profile-edit-btn" type="button" onClick={() => requireLogin(() => openProfileEdit())}>
                 <Icon name="brush" />
                 <span>{isLoggedIn ? '编辑资料' : '立即登录'}</span>
               </button>
             </div>
-            <div className="profile-account-stats" aria-label="账号统计">
-              <div><strong>{isLoggedIn ? recentProjects.length : 0}</strong><span>作品</span></div>
-              <div><strong>0</strong><span>获赞</span></div>
-              <div><strong>0</strong><span>关注</span></div>
-              <div><strong>0</strong><span>粉丝</span></div>
-            </div>
+            {isLoggedIn ? (
+              <div className="profile-account-stats" aria-label="账号统计">
+                <button type="button" aria-label="查看我的作品" onClick={() => requireLogin(() => setScreen('my-works'))}><strong>{recentProjects.length}</strong><span>作品</span></button>
+                <button type="button" aria-label="查看获赞列表" onClick={() => requireLogin(() => setStatus('获赞列表功能即将开放。'))}><strong>0</strong><span>获赞</span></button>
+                <button type="button" aria-label="查看关注列表" onClick={() => requireLogin(() => setScreen('following'))}><strong>{followingCount}</strong><span>关注</span></button>
+                <button type="button" aria-label="查看粉丝列表" onClick={() => requireLogin(() => setStatus('粉丝列表功能即将开放。'))}><strong>0</strong><span>粉丝</span></button>
+              </div>
+            ) : null}
           </section>
+          {showProfileEditModal ? profileEditModal : null}
           <button className="profile-warehouse-card" onClick={openWarehouse}>
             <span className="profile-warehouse-icon"><Icon name="layers" /></span>
             <span className="profile-warehouse-copy">
@@ -418,12 +439,9 @@ export function HomeShellPage(props: HomeShellPageProps) {
             <span className="profile-chevron" aria-hidden="true">›</span>
           </button>
           <section className="profile-menu-card" aria-label="个人中心菜单">
-            <button className="profile-row"><span className="profile-row-icon"><Icon name="folder" /></span><span><strong>历史记录</strong><small>查看最近编辑与导出</small></span><em>›</em></button>
-            <button className="profile-row"><span className="profile-row-icon"><Icon name="help" /></span><span><strong>帮助中心</strong><small>常见问题与使用指南</small></span><em>›</em></button>
-            <button className="profile-row"><span className="profile-row-icon"><Icon name="settings" /></span><span><strong>设置</strong><small>账号、安全与偏好</small></span><em>›</em></button>
+            <button className="profile-row" type="button" aria-label="打开设置" onClick={() => requireLogin(() => setStatus('设置功能即将开放。'))}><span className="profile-row-icon"><Icon name="settings" /></span><span><strong>设置</strong><small>账号、安全与偏好</small></span><em>›</em></button>
           </section>
-          {isLoggedIn ? <button className="profile-logout-btn" type="button" onClick={() => setShowLogoutConfirm(true)}><LogOut aria-hidden="true" /><span>退出登录</span></button> : null}
-          {showLogoutConfirm ? <LogoutConfirmModal onCancel={() => setShowLogoutConfirm(false)} onConfirm={() => void logoutPhone()} /> : null}
+          {isLoggedIn ? <button className="profile-logout-btn" type="button" onClick={() => requestConfirm({ title: '确认退出登录？', message: '退出后需要重新登录才能同步作品和豆子仓库。', confirmText: '确认退出', danger: true, onConfirm: logoutPhone })}><LogOut aria-hidden="true" /><span>退出登录</span></button> : null}
           {showLoginModal ? <PhoneLoginModal {...props} /> : null}
         </section>
       )}
@@ -441,7 +459,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
           <Icon name="plus" />
         </button>
         <button className={activeTab === 'messages' ? 'active' : ''} aria-label="消息" onClick={() => { setActiveTab('messages'); void loadNotifications?.(); }}>
-          <Icon name="message" />
+          <span className="pattern-message-tab-icon"><Icon name="message" />{unreadNotificationCount > 0 ? <i aria-label={`${unreadNotificationCount} 条未读`}>{unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}</i> : null}</span>
           <span>消息</span>
         </button>
         <button className={activeTab === 'profile' ? 'active' : ''} aria-label="我的" onClick={() => setActiveTab('profile')}>

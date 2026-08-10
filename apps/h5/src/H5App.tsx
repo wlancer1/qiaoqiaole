@@ -83,6 +83,7 @@ import {
   touchDistance,
 } from './canvas/H5CanvasPreview';
 import { Icon } from './shared/h5Icons';
+import { ConfirmDialog, type ConfirmDialogRequest } from './shared/ConfirmDialog';
 import {
   colorCodeOf,
   colorCodeTextColor,
@@ -106,7 +107,7 @@ import {
 import { normalizeProjectPayload, parseProjectCells, serializeProjectCells } from './utils/projectPayload';
 import { cropSize, getAutoCropBounds, splitCropRegion, splitPreviewBackTarget, type CropBounds } from './utils/splitCrop';
 import { defaultSplitImageView } from './utils/splitImageView';
-import { AuthorProfilePage, MyWorksPage, PatternDetailPage, PatternDiscoverPage, PatternMessagesPage } from './patterns/H5PatternPages';
+import { AuthorProfilePage, FollowingPage, MyWorksPage, PatternDetailPage, PatternDiscoverPage, PatternMessagesPage } from './patterns/H5PatternPages';
 import { quickTools } from './patterns/h5PatternData';
 import { sortCommunityPosts, toPatternListCard, type CommunityComment, type CommunityNotification, type CommunityPost } from './community/communityData';
 import { WarehousePage } from './pages/warehouse/WarehousePage';
@@ -118,12 +119,13 @@ import { InventoryCheckSheet } from './pages/beading/InventoryCheckSheet';
 import { ProjectActionSheet } from './pages/beading/ProjectActionSheet';
 import type { BeadingSession, InventoryCheck } from './beading/beadingSessionClient';
 import type { Complete, Prepare, Resume, SessionMutation, SessionTransition } from './pages/beading/useBeadingSessionActions';
-import { HomeShellPage, PhoneLoginModal } from './pages/home/HomeShellPage';
+import { HomeShellPage, PhoneLoginModal, ProfileEditModal } from './pages/home/HomeShellPage';
 import { resolveRestoredDisplayName } from './utils/authDisplayName';
 import { createNonce, createRequestId, getPhoneDeviceId, normalizePhone, showTencentCaptcha, signWebSmsRequest } from './utils/phoneAuthClient';
 import { passwordValidationMessage, validatePasswordLength } from './utils/passwordValidation';
 import type {
   AlignedGrid,
+  AuthorProfile,
   AppScreen,
   CanvasTool,
   GridHandle,
@@ -134,6 +136,7 @@ import type {
   PatternListCard,
   ReferenceImage,
   RecentProject,
+  FollowingUser,
   SplitMode,
   SplitPreviewTab,
   UploadedSplitImage,
@@ -206,6 +209,11 @@ function H5App() {
   const [screen, setScreen] = useState<AppScreen>('home');
   const [activeTab, setActiveTab] = useState<HomeTab>('home');
   const [activePattern, setActivePattern] = useState<PatternListCard | null>(null);
+  const [authorProfile, setAuthorProfile] = useState<AuthorProfile | null>(null);
+  const [authorProfilePosts, setAuthorProfilePosts] = useState<PatternListCard[]>([]);
+  const [authorProfileError, setAuthorProfileError] = useState('');
+  const [isAuthorProfileLoading, setIsAuthorProfileLoading] = useState(false);
+  const authorProfileBackTargetRef = useRef<'discover' | 'detail'>('discover');
   const [rows, setRows] = useState<number>(32);
   const [cols, setCols] = useState<number>(32);
   const [cells, setCells] = useState<Cell[]>(() => createBlankCells(32, 32));
@@ -222,6 +230,17 @@ function H5App() {
   const [authUserId, setAuthUserId] = useState('');
   const [legacyDraftOwnerId, setLegacyDraftOwnerId] = useState('');
   const [loginName, setLoginName] = useState('');
+  const [profileAvatarUrl, setProfileAvatarUrl] = useState('');
+  const [followingCount, setFollowingCount] = useState(0);
+  const [followingUsers, setFollowingUsers] = useState<FollowingUser[]>([]);
+  const [isFollowingLoading, setIsFollowingLoading] = useState(false);
+  const [followingError, setFollowingError] = useState('');
+  const [showProfileEditModal, setShowProfileEditModal] = useState(false);
+  const [profileEditName, setProfileEditName] = useState('');
+  const [profileEditAvatar, setProfileEditAvatar] = useState('');
+  const [profileEditError, setProfileEditError] = useState('');
+  const [profileEditSaving, setProfileEditSaving] = useState(false);
+  const profileAvatarInputRef = useRef<HTMLInputElement>(null);
   const [loginPassword, setLoginPassword] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [phonePassword, setPhonePassword] = useState('');
@@ -272,10 +291,25 @@ function H5App() {
   const [shareToCommunity, setShareToCommunity] = useState(false);
   const [sharingProjectId, setSharingProjectId] = useState('');
   const [shareFailedProjectIds, setShareFailedProjectIds] = useState<Set<string>>(() => new Set());
+  const [copyingPatternId, setCopyingPatternId] = useState('');
   const [showBeadList, setShowBeadList] = useState(false);
   const [beadingSession, setBeadingSession] = useState<BeadingSession | null>(null);
   const [beadingInventoryCheck, setBeadingInventoryCheck] = useState<InventoryCheck | null>(null);
   const [projectActionTarget, setProjectActionTarget] = useState<RecentProject | null>(null);
+  const [confirmDialogRequest, setConfirmDialogRequest] = useState<ConfirmDialogRequest | null>(null);
+  const requestConfirm = (request: ConfirmDialogRequest) => setConfirmDialogRequest(request);
+  const patternDetailBackTargetRef = useRef<'home' | 'author-profile'>('home');
+  const authorProfileReturnPatternRef = useRef<PatternListCard | null>(null);
+  const closeConfirmDialog = () => setConfirmDialogRequest(null);
+  const confirmDialog = confirmDialogRequest ? <ConfirmDialog
+    {...confirmDialogRequest}
+    onCancel={closeConfirmDialog}
+    onConfirm={() => {
+      const action = confirmDialogRequest.onConfirm;
+      closeConfirmDialog();
+      return action();
+    }}
+  /> : null;
   const [saveProjectName, setSaveProjectName] = useState('未命名作品');
   const [isSavingProject, setIsSavingProject] = useState(false);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
@@ -333,6 +367,7 @@ function H5App() {
   const communityCommentsRequestSeqRef = useRef(0);
   const inventoryRequestSeqRef = useRef(0);
   const recentProjectsRequestSeqRef = useRef(0);
+  const authorProfileRequestSeqRef = useRef(0);
   const saveProjectInFlightRef = useRef(false);
   const saveAndStartRef = useRef(false);
   const cellsRef = useRef(cells);
@@ -412,6 +447,10 @@ function H5App() {
   }, [activeWarehouseId]);
 
   useEffect(() => {
+    if (screen !== 'pattern-detail' && screen !== 'author-profile') patternDetailBackTargetRef.current = 'home';
+  }, [screen]);
+
+  useEffect(() => {
     splitLiveLongSideRef.current = splitLongSide;
   }, [splitLongSide]);
 
@@ -472,9 +511,12 @@ function H5App() {
         setAuthUserId(payload.user.id || stored.userId || '');
         setLegacyDraftOwnerId((stored.username || '').trim());
         setLoginName(resolveRestoredDisplayName(payload.user, stored.username));
+        setProfileAvatarUrl(String(payload.user.avatarUrl || ''));
+        setFollowingCount(Number(payload.followingCount || 0));
         setIsLoggedIn(true);
         await loadRecentProjects(stored.token);
         await loadCommunityPosts('hot', stored.token);
+        await loadNotifications(stored.token);
         await loadWarehouses(stored.token);
       } catch {
         window.localStorage.removeItem(AUTH_STORAGE_KEY);
@@ -486,6 +528,64 @@ function H5App() {
       cancelled = true;
     };
   }, []);
+
+  const openProfileEdit = () => {
+    setProfileEditName(loginName);
+    setProfileEditAvatar(profileAvatarUrl);
+    setProfileEditError('');
+    setShowProfileEditModal(true);
+  };
+
+  const closeProfileEdit = () => {
+    if (profileEditSaving) return;
+    setShowProfileEditModal(false);
+    setProfileEditError('');
+  };
+
+  const chooseProfileAvatar = async (file: File | undefined) => {
+    if (!file) return;
+    if (!/^image\/(png|jpe?g|webp)$/.test(file.type)) {
+      setProfileEditError('头像仅支持 PNG、JPG 或 WebP 图片');
+      if (profileAvatarInputRef.current) profileAvatarInputRef.current.value = '';
+      return;
+    }
+    if (file.size > 1024 * 1024) {
+      setProfileEditError('头像不能超过 1MB');
+      if (profileAvatarInputRef.current) profileAvatarInputRef.current.value = '';
+      return;
+    }
+    try {
+      setProfileEditAvatar(await fileToDataUrl(file));
+      setProfileEditError('');
+    } catch {
+      setProfileEditError('头像读取失败，请换一张图片');
+    } finally {
+      if (profileAvatarInputRef.current) profileAvatarInputRef.current.value = '';
+    }
+  };
+
+  const saveProfile = async () => {
+    const nickname = profileEditName.trim();
+    if (!nickname) {
+      setProfileEditError('请输入用户名');
+      return;
+    }
+    setProfileEditSaving(true);
+    setProfileEditError('');
+    try {
+      const payload = await requestApi<{ user: { nickname: string; avatarUrl?: string | null } }>('/profile', {
+        method: 'PATCH',
+        body: JSON.stringify({ nickname, avatarUrl: profileEditAvatar || null }),
+      });
+      setLoginName(payload.user.nickname);
+      setProfileAvatarUrl(payload.user.avatarUrl || '');
+      setShowProfileEditModal(false);
+    } catch (error) {
+      setProfileEditError(error instanceof Error ? error.message : '资料保存失败');
+    } finally {
+      setProfileEditSaving(false);
+    }
+  };
 
   const totalBeads = useMemo(() => cells.filter((cell) => !cell.transparent).length, [cells]);
   const usedColors = useMemo(() => {
@@ -646,14 +746,12 @@ function H5App() {
     setSelectedColor(color.hex);
     setSelectedCode(color.code);
     setTool('brush');
-    setStatus(`已选择色号 ${color.code}。`);
   };
 
   const fitView = () => {
     setZoom(1.0);
     setPanX(0);
     setPanY(0);
-    setStatus('已重置并居中视图。');
   };
 
   const openUpload = (nextMode: WorkMode, includeBlankCanvas = false) => {
@@ -697,12 +795,20 @@ function H5App() {
     setIsReferenceMinimized(false);
   };
 
-  const requestApi = async <T,>(path: string, options: RequestInit = {}): Promise<T> => {
+  const requestApi = async <T,>(path: string, options: RequestInit = {}, token?: string | null): Promise<T> => {
+    const effectiveToken = token === null ? '' : token || (() => {
+      try {
+        const stored = JSON.parse(window.localStorage.getItem(AUTH_STORAGE_KEY) || 'null') as { token?: string } | null;
+        return stored?.token || authToken;
+      } catch {
+        return '';
+      }
+    })();
     const response = await fetch(`${API_BASE}${path}`, {
       ...options,
       headers: {
         'content-type': 'application/json',
-        ...(authToken ? { authorization: `Bearer ${authToken}` } : {}),
+        ...(effectiveToken ? { authorization: `Bearer ${effectiveToken}` } : {}),
         ...(options.headers ?? {}),
       },
     });
@@ -734,6 +840,79 @@ function H5App() {
       setRecentProjects([]);
       setStatus(error instanceof Error ? error.message : '最近项目读取失败');
     }
+  };
+
+  const loadFollowingCount = async (token: string) => {
+    try {
+      const payload = await requestApi<{ followingCount?: number }>('/me', {}, token);
+      setFollowingCount(typeof payload.followingCount === 'number' ? payload.followingCount : 0);
+    } catch {
+      setFollowingCount(0);
+    }
+  };
+
+  const loadFollowingUsers = async (token = authToken) => {
+    if (!token) return;
+    setIsFollowingLoading(true);
+    setFollowingError('');
+    try {
+      const payload = await requestApi<{ users: FollowingUser[] }>('/community/following', { headers: { authorization: `Bearer ${token}` } }, token);
+      setFollowingUsers(Array.isArray(payload.users) ? payload.users : []);
+    } catch (error) {
+      setFollowingUsers([]);
+      setFollowingError(error instanceof Error ? error.message : '关注列表读取失败');
+    } finally {
+      setIsFollowingLoading(false);
+    }
+  };
+
+  const loadAuthorProfile = async (authorId: string, token = authToken) => {
+    const requestSeq = authorProfileRequestSeqRef.current + 1;
+    authorProfileRequestSeqRef.current = requestSeq;
+    setIsAuthorProfileLoading(true);
+    setAuthorProfileError('');
+    try {
+      const pageSize = 50;
+      let page = 1;
+      let profile: AuthorProfile | null = null;
+      const posts: CommunityPost[] = [];
+      while (true) {
+        const payload = await requestApi<{ profile: AuthorProfile; posts: CommunityPost[] }>(`/community/users/${authorId}/profile?page=${page}&pageSize=${pageSize}`, { headers: token ? { authorization: `Bearer ${token}` } : {} }, token || null);
+        if (authorProfileRequestSeqRef.current !== requestSeq) return;
+        profile = payload.profile;
+        posts.push(...(Array.isArray(payload.posts) ? payload.posts : []));
+        if (payload.posts.length < pageSize) break;
+        page += 1;
+      }
+      if (authorProfileRequestSeqRef.current !== requestSeq) return;
+      setAuthorProfile(profile);
+      setAuthorProfilePosts(posts.map(toPatternListCard));
+    } catch (error) {
+      if (authorProfileRequestSeqRef.current !== requestSeq) return;
+      setAuthorProfile(null);
+      setAuthorProfilePosts([]);
+      setAuthorProfileError(error instanceof Error ? error.message : '作者主页读取失败');
+    } finally {
+      if (authorProfileRequestSeqRef.current === requestSeq) setIsAuthorProfileLoading(false);
+    }
+  };
+
+  const openAuthorProfile = (pattern: PatternListCard, backTarget: 'discover' | 'detail' = 'discover') => {
+    if (pattern.authorId && pattern.authorId === authUserId) {
+      setActiveTab('profile');
+      setScreen('my-works');
+      return;
+    }
+    if (!pattern.authorId) return;
+    authorProfileRequestSeqRef.current += 1;
+    authorProfileBackTargetRef.current = backTarget;
+    authorProfileReturnPatternRef.current = backTarget === 'detail' ? pattern : null;
+    setActivePattern(pattern);
+    setAuthorProfile(null);
+    setAuthorProfilePosts([]);
+    setAuthorProfileError('');
+    setScreen('author-profile');
+    void loadAuthorProfile(pattern.authorId);
   };
 
   const loadCommunityPosts = async (sort: 'hot' | 'latest' = communitySort, token = authToken) => {
@@ -768,6 +947,10 @@ function H5App() {
       void loadCommunityPosts(activeTab === 'discover' ? communitySort : 'hot', authToken);
     }
   }, [activeTab, authToken, communitySort]);
+
+  useEffect(() => {
+    if (screen === 'following' && authToken) void loadFollowingUsers(authToken);
+  }, [screen, authToken]);
 
   const communityCards = useMemo(() => communityPosts.map(toPatternListCard), [communityPosts]);
   const homeTemplateCards = useMemo(() => communityCards.slice(0, 3), [communityCards]);
@@ -850,13 +1033,19 @@ function H5App() {
       return;
     }
     try {
-      const payload = await requestApi<{ following: boolean }>(`/community/users/${authorId}/follow`, {
+      const payload = await requestApi<{ following: boolean; followingCount?: number; followersCount?: number }>(`/community/users/${authorId}/follow`, {
         method: currentlyFollowing ? 'DELETE' : 'POST',
         headers: { authorization: `Bearer ${token}` },
       });
       setCommunityPosts((posts) => posts.map((post) => post.authorId === authorId ? { ...post, isFollowing: payload.following } : post));
+      setAuthorProfilePosts((posts) => posts.map((post) => post.authorId === authorId ? { ...post, isFollowing: payload.following } : post));
       setActivePattern((pattern) => pattern?.authorId === authorId ? { ...pattern, isFollowing: payload.following } : pattern);
-      setStatus(payload.following ? '已关注作者。' : '已取消关注。');
+      setAuthorProfile((profile) => profile?.id === authorId ? {
+        ...profile,
+        isFollowing: payload.following,
+        followersCount: typeof payload.followersCount === 'number' ? payload.followersCount : profile.followersCount + (payload.following ? 1 : -1),
+      } : profile);
+      void loadFollowingCount(token);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : '关注操作失败');
     }
@@ -918,11 +1107,10 @@ function H5App() {
 
   const saveCurrentProject = (token = authToken) => {
     if (!token) {
-      setShowSaveLoginPrompt(true);
+      requireLogin((nextToken) => saveCurrentProject(nextToken));
       return;
     }
-    const sourceName = uploadedSplitImage?.name?.replace(/\.[^/.]+$/, '').trim();
-    setSaveProjectName((activeSavedProject?.name || sourceName || `空白画布 ${cols} × ${rows}`).slice(0, 30));
+    setSaveProjectName((activeSavedProject?.name || '未命名作品').slice(0, 30));
     setShareToCommunity(Boolean(activeSavedProject?.sharedToCommunity));
     setShowSaveProjectModal(true);
   };
@@ -937,39 +1125,39 @@ function H5App() {
       const shareApi = navigator as Navigator & { share?: (data: { title: string; url: string }) => Promise<void>; clipboard?: { writeText: (value: string) => Promise<void> } };
       if (shareApi.share) {
         await shareApi.share({ title: activePattern?.title || '拼豆图纸', url: shareUrl });
-        setStatus('分享面板已打开。');
       } else if (shareApi.clipboard) {
         await shareApi.clipboard.writeText(shareUrl);
-        setStatus('分享链接已复制。');
       } else {
         setStatus('当前浏览器不支持分享，请复制页面地址。');
       }
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
-        setStatus('已取消分享。');
       } else {
         setStatus(error instanceof Error ? error.message : '分享失败，请稍后重试。');
       }
     }
   };
 
-  const downloadCommunityPattern = (projectId: string, token = authToken) => {
+  const copyCommunityPattern = async (projectId: string, token = authToken) => {
     if (!token) {
-      requireLogin((nextToken) => downloadCommunityPattern(projectId, nextToken));
+      requireLogin((nextToken) => { void copyCommunityPattern(projectId, nextToken); });
       return;
     }
-    const pattern = activePattern?.id === projectId ? activePattern : communityCards.find((item) => item.id === projectId);
-    const image = pattern?.detailImage || pattern?.image;
-    if (!image) {
-      setStatus('该图纸暂无可下载的预览图。');
-      return;
+    if (copyingPatternId) return;
+    setCopyingPatternId(projectId);
+    try {
+      await requestApi(`/projects/${projectId}/copy`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      await loadRecentProjects(token);
+      setStatus('已复制到仓库，可在我的作品中查看。');
+      setScreen('my-works');
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : '复制到仓库失败，请稍后重试。');
+    } finally {
+      setCopyingPatternId('');
     }
-    const link = document.createElement('a');
-    link.href = image;
-    link.download = (pattern?.title || '拼豆图纸') + '.png';
-    link.rel = 'noopener';
-    link.click();
-    setStatus('图纸下载已开始。');
   };
 
   const openSavedProject = (project: RecentProject) => {
@@ -992,7 +1180,6 @@ function H5App() {
     setUploadedSourceImageDataUrl('');
     setActiveProjectId(project.id);
     setScreen('canvas');
-    setStatus(restoredCells ? `已打开作品：${project.name}。` : `已打开作品：${project.name}，旧作品未保存画布快照。`);
   };
 
   const startBeadingProject = async (project: RecentProject, token = authToken) => {
@@ -1003,13 +1190,11 @@ function H5App() {
     setProjectActionTarget(null);
     openSavedProject(project);
     try {
-      setStatus('正在准备拼豆会话。');
       const sessionPayload = await requestApi<{ session: BeadingSession }>(`/v1/projects/${project.id}/beading-session`, { method: 'POST', body: JSON.stringify({ warehouseId: activeWarehouseId || undefined }) });
       const inventory = await requestApi<any>(`/v1/beading-sessions/${sessionPayload.session.id}/inventory-check`, { method: 'POST', body: JSON.stringify({}) });
       setBeadingSession(sessionPayload.session);
       setBeadingInventoryCheck(inventory);
       setScreen('beading');
-      setStatus('库存检测完成，缺豆也可以继续拼豆。');
     } catch (error) {
       setStatus(error instanceof Error ? error.message : '无法开始拼豆');
     }
@@ -1081,7 +1266,6 @@ function H5App() {
       const idempotencyKey = `${beadingSession.id}:${deduct ? 'deduct' : 'no-deduct'}`;
       const payload = await requestApi<{ session: BeadingSession; deducted: boolean }>(`/v1/beading-sessions/${beadingSession.id}/complete`, { method: 'POST', body: JSON.stringify({ idempotencyKey, deductInventory: deduct, warehouseId: activeWarehouseId || undefined }) });
       setBeadingSession(payload.session);
-      setStatus(payload.deducted ? '已完成拼豆并扣减库存。' : '已完成拼豆，库存未扣减。');
       return payload.session;
     } catch (error) {
       syncBeadingSessionFromError(error, beadingSession.id);
@@ -1151,7 +1335,6 @@ function H5App() {
     saveProjectInFlightRef.current = true;
     setIsSavingProject(true);
     try {
-      setStatus('正在上传作品图片。');
       const thumbnailDataUrl = createBeadThumbnailCanvas(cells, rows, cols).toDataURL('image/webp', 0.82);
       const imagePayload = await requestApi<{ sourceImagePath?: string; thumbnailImagePath?: string }>('/uploads/projects', {
         method: 'POST',
@@ -1174,13 +1357,11 @@ function H5App() {
           await requestApi(`/projects/${saved.id}/share`, { method: 'POST' });
           setRecentProjects((projects) => projects.map((project) => project.id === saved.id ? { ...project, sharedToCommunity: true, sharedAt: new Date().toISOString() } : project));
           await loadCommunityPosts('hot');
-          setStatus('作品已保存并分享到社区。');
         } catch (error) {
           setStatus(error instanceof Error ? `${error.message}，作品已保存，可稍后重试分享。` : '分享失败，作品已保存，可稍后重试分享。');
         }
       }
       setShowSaveProjectModal(false);
-      if (!shareToCommunity || saved.sharedToCommunity) setStatus(saved.sharedToCommunity ? '已保存，社区分享状态保持不变。' : '已保存到我的作品。');
       if (shouldStartBeading) await startBeadingProject(saved);
    } catch (error) {
       saveAndStartRef.current = false;
@@ -1214,7 +1395,6 @@ function H5App() {
         return next;
       });
       await loadCommunityPosts('hot');
-      setStatus('作品已分享到社区。');
     } catch (error) {
       setShareFailedProjectIds((current) => new Set(current).add(project.id));
       setStatus(error instanceof Error ? `${error.message}，可在我的作品中重试分享。` : '分享失败，可在我的作品中重试分享。');
@@ -1283,7 +1463,7 @@ function H5App() {
     authRequestSeqRef.current = requestSeq;
     setIsAuthenticating(true);
     try {
-      const payload = await requestApi<{ token: string; user: { id: string; username: string } }>('/auth/login', {
+      const payload = await requestApi<{ token: string; user: { id: string; username: string; nickname?: string; avatarUrl?: string | null } }>('/auth/login', {
         method: 'POST',
         body: JSON.stringify({ username, password }),
       });
@@ -1291,12 +1471,13 @@ function H5App() {
       setAuthToken(payload.token);
       setAuthUserId(payload.user.id);
       setLegacyDraftOwnerId(payload.user.username.trim());
-      setLoginName(payload.user.username);
+      setLoginName(payload.user.nickname || payload.user.username);
+      setProfileAvatarUrl(payload.user.avatarUrl || '');
+      await loadFollowingCount(payload.token);
       setIsLoggedIn(true);
       window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token: payload.token, username: payload.user.username, userId: payload.user.id }));
       setShowLoginModal(false);
       setLoginPassword('');
-      setStatus(`登录成功：${payload.user.username}。`);
       await loadRecentProjects(payload.token);
       await loadCommunityPosts('hot', payload.token);
       await loadNotifications(payload.token);
@@ -1355,7 +1536,6 @@ function H5App() {
       setPhoneChallenge({ challengeId: challenge.challengeId, seed: challenge.seed, serverTime: challenge.serverTime });
       setPhoneSmsRequestId(sendPayload.data.smsRequestId);
       setPhoneCountdown(Number(sendPayload.data.retryAfter || 60));
-      setStatus('验证码已发送，请注意查收短信。');
     } catch (error) {
       setPhoneAuthError(error instanceof Error ? error.message : '验证码发送失败');
     } finally {
@@ -1396,11 +1576,13 @@ function H5App() {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.message || '登录失败，请稍后重试');
-      const data = payload.data as { accessToken: string; user: { nickname?: string; id: string } };
+      const data = payload.data as { accessToken: string; user: { nickname?: string; id: string; avatarUrl?: string | null } };
       setAuthToken(data.accessToken);
       setAuthUserId(data.user.id);
       setLegacyDraftOwnerId((data.user.nickname || '我的创作').trim());
       setLoginName(data.user.nickname || '我的创作');
+      setProfileAvatarUrl(data.user.avatarUrl || '');
+      await loadFollowingCount(data.accessToken);
       setIsLoggedIn(true);
       window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token: data.accessToken, username: data.user.nickname || '我的创作', userId: data.user.id }));
       setShowLoginModal(false);
@@ -1409,7 +1591,6 @@ function H5App() {
       setPhoneConfirmPassword('');
       setPhoneSmsRequestId('');
       setPhoneChallenge(null);
-      setStatus(data.user.nickname ? `登录成功：${data.user.nickname}。` : '登录成功。');
       await loadRecentProjects(data.accessToken);
       await loadCommunityPosts('hot', data.accessToken);
       await loadNotifications(data.accessToken);
@@ -1438,6 +1619,8 @@ function H5App() {
     setLegacyDraftOwnerId('');
     setIsLoggedIn(false);
     setLoginName('');
+    setProfileAvatarUrl('');
+    setFollowingCount(0);
     setRecentProjects([]);
     setCommunityPosts([]);
     setCommunityComments([]);
@@ -1447,22 +1630,24 @@ function H5App() {
     pendingAuthActionRef.current = null;
     window.localStorage.removeItem(AUTH_STORAGE_KEY);
     setShowLogoutConfirm(false);
-    setStatus('已退出登录。');
   };
 
   const openWarehouse = () => {
     requireLogin(() => {
       setScreen('warehouse');
-      setStatus('已进入豆子仓库。');
     });
   };
 
-  const openWarehouseDetail = (warehouseId: string) => {
+  const openWarehouseDetail = (warehouseId: string, token = authToken) => {
+    if (!token) {
+      requireLogin((nextToken) => openWarehouseDetail(warehouseId, nextToken));
+      return;
+    }
     activeWarehouseIdRef.current = warehouseId;
     setActiveWarehouseId(warehouseId);
     setSelectedWarehouseCodes([]);
     setScreen('warehouse-detail');
-    void loadInventory(warehouseId);
+    void loadInventory(warehouseId, token);
   };
 
   const toggleWarehouseCode = (code: string) => {
@@ -1487,13 +1672,13 @@ function H5App() {
     });
   };
 
-  const applyWarehouseChange = async (direction: 'in' | 'out') => {
+  const applyWarehouseChange = async (direction: 'in' | 'out', token = authToken) => {
     if (selectedWarehouseCodes.length === 0) {
       setStatus('请先选择需要操作的色号。');
       return;
     }
-    if (!authToken) {
-      setStatus('请先登录。');
+    if (!token) {
+      requireLogin((nextToken) => { void applyWarehouseChange(direction, nextToken); });
       return;
     }
     if (!activeWarehouseId) {
@@ -1509,6 +1694,7 @@ function H5App() {
     try {
       const payload = await requestApi<{ inventory: Record<string, number> }>(`/warehouses/${activeWarehouseId}/inventory`, {
         method: 'POST',
+        headers: { authorization: `Bearer ${token}` },
         body: JSON.stringify({
           codes: selectedWarehouseCodes,
           type: direction,
@@ -1525,34 +1711,33 @@ function H5App() {
           ? { ...warehouse, stockedColorCount: nextStockedColorCount, totalWarehouseStock: nextTotalStock }
           : warehouse
       )));
-      setStatus(`${direction === 'in' ? '已入库' : '已出库'} ${selectedWarehouseCodes.length} 个色号，每色 ${beadCount} 颗。`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : '库存操作失败');
     }
   };
 
-  const createWarehouse = async () => {
+  const createWarehouse = async (token?: string) => {
+    const authTokenOverride = typeof token === 'string' ? token : undefined;
     const name = warehouseName.trim();
     if (!name) {
       setStatus('请输入仓库名称。');
       return;
     }
-    if (!authToken) {
-      setStatus('请先登录。');
+    if (!token) {
+      requireLogin((nextToken) => { void createWarehouse(nextToken); });
       return;
     }
     try {
       const payload = await requestApi<{ warehouse: Warehouse }>('/warehouses', {
         method: 'POST',
         body: JSON.stringify({ name, remark: warehouseRemark }),
-      });
+      }, authTokenOverride);
       setWarehouses((items) => [payload.warehouse, ...items]);
       activeWarehouseIdRef.current = payload.warehouse.id;
       setActiveWarehouseId(payload.warehouse.id);
       setBeadStock({});
       setSelectedWarehouseCodes([]);
       setShowWarehouseCreateModal(false);
-      setStatus(`已创建仓库：${payload.warehouse.name}。`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : '创建仓库失败');
     }
@@ -1568,7 +1753,6 @@ function H5App() {
         setBeadStock({});
         setSelectedWarehouseCodes([]);
       }
-      setStatus('仓库已删除。');
     } catch (error) {
       setStatus(error instanceof Error ? error.message : '删除仓库失败');
     }
@@ -1607,10 +1791,9 @@ function H5App() {
     clearReferenceImage();
     setShowCreateCanvasModal(false);
     setScreen('canvas');
-    setStatus(`已创建 ${nextCols} x ${nextRows} 空白画布。`);
   };
 
-  const commitCells = (nextCells: Cell[], nextStatus?: string) => {
+  const commitCells = (nextCells: Cell[]) => {
     setCells((current) => {
       if (sameCells(current, nextCells)) {
         return current;
@@ -1619,7 +1802,6 @@ function H5App() {
       setFuture([]);
       return nextCells;
     });
-    if (nextStatus) setStatus(nextStatus);
   };
 
   const undo = () => {
@@ -1628,7 +1810,6 @@ function H5App() {
       const previous = items[items.length - 1];
       setFuture((futureItems) => [cells, ...futureItems]);
       setCells(previous);
-      setStatus('已撤销上一步。');
       return items.slice(0, -1);
     });
   };
@@ -1639,7 +1820,6 @@ function H5App() {
       const [next, ...remaining] = items;
       setHistory((historyItems) => [...historyItems, cells]);
       setCells(next);
-      setStatus('已重做。');
       return remaining;
     });
   };
@@ -1653,7 +1833,6 @@ function H5App() {
     const nextSize = gridSizeFromSplitBounds(uploadedSplitImage.crop.width, uploadedSplitImage.crop.height, nextLongSide);
     setSplitRows(nextSize.rows);
     setSplitCols(nextSize.cols);
-    setStatus(`分割数量已调整为 ${nextSize.cols} x ${nextSize.rows}。`);
   };
 
   const scheduleAlignStateCommit = () => {
@@ -1686,7 +1865,6 @@ function H5App() {
       setAlignOffsetX(originX);
       setAlignOffsetY(originY);
     }
-    if (!options.silent) setStatus(`格距已调整为 ${nextCellSize.toFixed(1)}px。`);
   };
 
   const nudgeAlignOffset = (deltaX: number, deltaY: number, options: { deferred?: boolean } = {}) => {
@@ -1938,7 +2116,6 @@ function H5App() {
     setPanY(0);
     clearReferenceImage();
     setScreen('canvas');
-    setStatus(`已导入画布：${previewSplitSize.cols} x ${previewSplitSize.rows}。`);
   };
 
   const openSplitPreview = () => {
@@ -1987,14 +2164,12 @@ function H5App() {
 
   const confirmSplitCrop = () => {
     if (splitMergeThreshold !== deferredSplitMergeThreshold || !uploadedSplitImage) return;
-    const size = cropSize(splitCropBounds);
     setIsSplitCropped(true);
     setIsSplitCropStep(false);
     setSplitPreviewLoading(true);
     setSplitLoadingStage('正在生成像素图...');
     setSplitLoadingProgress(15);
     setScreen('split-preview');
-    setStatus(`已裁剪为 ${size.cols} x ${size.rows} 格。`);
   };
 
   const returnToSplitCrop = () => {
@@ -2052,8 +2227,7 @@ function H5App() {
       const imageData = await loadImageData(file);
       const sourceImageDataUrl = await fileToDataUrl(file);
       setUploadedSourceImageDataUrl(sourceImageDataUrl);
-      const defaultLongSide = loadSplitImage(file.name, imageData);
-      setStatus(`已载入 ${file.name}，默认长边 ${defaultLongSide} 格。`);
+      loadSplitImage(file.name, imageData);
     } catch {
       setStatus('图片读取失败，请换一张图片。');
     } finally {
@@ -2079,13 +2253,11 @@ function H5App() {
       return { name: file.name, url: URL.createObjectURL(file) };
     });
     setIsReferenceMinimized(false);
-    setStatus(`已载入参考图：${file.name}。`);
     if (referenceInputRef.current) referenceInputRef.current.value = '';
   };
 
   const closeReferenceImage = () => {
     clearReferenceImage();
-    setStatus('已关闭参考图。');
   };
 
   const extractXiaohongshuImage = async () => {
@@ -2102,7 +2274,6 @@ function H5App() {
     xhsRequestSeqRef.current = requestSeq;
     setIsExtractingXhs(true);
     setXhsExtractedImages([]);
-    setStatus('正在提取小红书图片。');
     try {
       const payload = await requestApi<{ imageUrl?: string; imageDataUrl?: string; title?: string; images?: XhsExtractedImage[] }>('/xiaohongshu/extract', {
         method: 'POST',
@@ -2118,7 +2289,6 @@ function H5App() {
       }
       setXhsExtractedTitle(payload.title?.trim() || '小红书图纸');
       setXhsExtractedImages(images);
-      setStatus(`已提取 ${images.length} 张图片，请选择一张导入。`);
     } catch (error) {
       if (xhsRequestSeqRef.current !== requestSeq) return;
       setStatus(error instanceof Error ? error.message : '小红书图片提取失败。');
@@ -2135,7 +2305,6 @@ function H5App() {
     const requestSeq = xhsImportSeqRef.current + 1;
     xhsImportSeqRef.current = requestSeq;
     try {
-      setStatus('正在载入小红书图片。');
       let source = image.imageDataUrl || '';
       if (!source && image.imageUrl) {
         const payload = await requestApi<{ imageDataUrl: string }>('/xiaohongshu/image', {
@@ -2147,13 +2316,12 @@ function H5App() {
       const imageData = await loadImageDataFromUrl(source);
       if (xhsImportSeqRef.current !== requestSeq || !showUploadModal) return;
       setUploadedSourceImageDataUrl(source);
-      const defaultLongSide = loadSplitImage(safeImageFilename(title || 'xiaohongshu-drawing', 'image/png'), imageData);
+      loadSplitImage(safeImageFilename(title || 'xiaohongshu-drawing', 'image/png'), imageData);
       setShowUploadModal(false);
       setShowXhsInput(false);
       setXhsLink('');
       setXhsExtractedTitle('');
       setXhsExtractedImages([]);
-      setStatus(`已载入 ${title || '小红书图纸'}，默认长边 ${defaultLongSide} 格。`);
     } catch {
       if (xhsImportSeqRef.current !== requestSeq) return;
       setStatus('小红书图片读取失败，请换一张图片。');
@@ -2377,7 +2545,6 @@ function H5App() {
       if (!cell.transparent) {
         setSelectedColor(cell.color);
         setSelectedCode(colorCodeOf(cell.color));
-        setStatus(`已吸取 ${colorCodeOf(cell.color)}。`);
       }
       return;
     }
@@ -2392,10 +2559,9 @@ function H5App() {
     if (tool === 'fill') {
       const nextCells = bucketFill(cells, rows, cols, cell.x, cell.y, selectedColor);
       if (sameCells(cells, nextCells)) {
-        setStatus(`当前区域已经是 ${selectedCode}。`);
         return;
       }
-      commitCells(nextCells, `已填充 ${selectedCode}。`);
+      commitCells(nextCells);
       return;
     }
 
@@ -2413,7 +2579,6 @@ function H5App() {
         return;
       }
       downloadBlob('qiaoqiaole-h5-pattern.png', blob);
-      setStatus('已导出拼豆图纸 PNG。');
     }, 'image/png');
   };
 
@@ -2431,7 +2596,7 @@ function H5App() {
     setCols(nextCols);
     setCfgCols(nextCols);
     setCfgRows(nextRows);
-    commitCells(newCells, `已调整画布为 ${nextCols} x ${nextRows}。`);
+    commitCells(newCells);
     setShowSettings(false);
   };
 
@@ -2577,18 +2742,24 @@ function H5App() {
         setProjectActionTarget(null);
       }}
       onDelete={async () => {
-        if (!window.confirm('删除后将同时放弃未完成的拼豆会话，确定删除吗？')) return;
-        try {
-          await requestApi(`/projects/${target.id}`, { method: 'DELETE' });
-          setRecentProjects((projects) => projects.filter((project) => project.id !== target.id));
-          setProjectActionTarget((current) => current?.id === target.id ? null : current);
-          setStatus('作品已删除。');
-        } catch (error) {
-          const requestError = error as RequestApiError;
-          const invalidProjectError = requestError.status === 401 || requestError.status === 404 || requestError.code === 'NOT_FOUND';
-          if (invalidProjectError) setProjectActionTarget((current) => current?.id === target.id ? null : current);
-          setStatus(error instanceof Error ? error.message : '删除作品失败');
-        }
+        requestConfirm({
+          title: '删除作品？',
+          message: '删除后将同时放弃未完成的拼豆会话，且无法恢复。',
+          confirmText: '删除作品',
+          danger: true,
+          onConfirm: async () => {
+            try {
+              await requestApi(`/projects/${target.id}`, { method: 'DELETE' });
+              setRecentProjects((projects) => projects.filter((project) => project.id !== target.id));
+              setProjectActionTarget((current) => current?.id === target.id ? null : current);
+            } catch (error) {
+              const requestError = error as RequestApiError;
+              const invalidProjectError = requestError.status === 401 || requestError.status === 404 || requestError.code === 'NOT_FOUND';
+              if (invalidProjectError) setProjectActionTarget((current) => current?.id === target.id ? null : current);
+              setStatus(error instanceof Error ? error.message : '删除作品失败');
+            }
+          },
+        });
       }}
     />;
   })() : null;
@@ -2675,7 +2846,7 @@ function H5App() {
   }
 
   if (screen === 'canvas') {
-    return <CanvasPage
+    return withLoginModalFallback(<CanvasPage
       fileInputRef={fileInputRef}
       handleUpload={handleUpload}
       referenceInputRef={referenceInputRef}
@@ -2753,9 +2924,23 @@ function H5App() {
       setShowBeadList={setShowBeadList}
       beadListColors={beadListColors}
       totalBeads={totalBeads}
-      onInventoryCheck={() => { if (activeSavedProject) void startBeadingProject(activeSavedProject); else saveCurrentProject(); }}
-      onStartBeading={() => { if (activeSavedProject) void startBeadingProject(activeSavedProject); else saveCurrentProject(); }}
-    />;
+      onInventoryCheck={() => {
+        const continueInventoryCheck = (token: string) => {
+          if (activeSavedProject) void startBeadingProject(activeSavedProject, token);
+          else saveCurrentProject(token);
+        };
+        if (authToken) continueInventoryCheck(authToken);
+        else requireLogin(continueInventoryCheck);
+      }}
+      onStartBeading={() => {
+        const continueBeading = (token: string) => {
+          if (activeSavedProject) void startBeadingProject(activeSavedProject, token);
+          else saveCurrentProject(token);
+        };
+        if (authToken) continueBeading(authToken);
+        else requireLogin(continueBeading);
+      }}
+    />);
   }
 
   if (screen === 'beading' && beadingSession) {
@@ -2780,6 +2965,8 @@ function H5App() {
         onStatus={setStatus}
         onExit={() => setScreen('canvas')}
         status={status}
+        requestConfirm={requestConfirm}
+        confirmDialog={confirmDialog}
       />
       {beadingInventoryCheck ? <InventoryCheckSheet result={beadingInventoryCheck} warehouseId={beadingInventoryCheck.warehouseId || ''} warehouseOptions={warehouses} onWarehouseChange={(warehouseId) => { if (!beadingSession) return; void requestApi<any>(`/v1/beading-sessions/${beadingSession.id}/inventory-check`, { method: 'POST', body: JSON.stringify({ warehouseId: warehouseId || undefined }) }).then(setBeadingInventoryCheck).catch((error) => setStatus(error instanceof Error ? error.message : '库存检测失败')); }} onClose={() => setBeadingInventoryCheck(null)} onStart={enterBeadingSession} /> : null}
     </>;
@@ -2801,6 +2988,8 @@ function H5App() {
       setWarehouseRemark={setWarehouseRemark}
       createWarehouse={createWarehouse}
       deleteWarehouse={deleteWarehouse}
+      requestConfirm={requestConfirm}
+      confirmDialog={confirmDialog}
     />;
   }
 
@@ -2839,17 +3028,24 @@ function H5App() {
     return withLoginModalFallback(
       <PatternDetailPage
         pattern={activePattern ?? communityCards[0]}
+        currentUserId={authUserId}
         isLoggedIn={isLoggedIn}
         comments={communityComments}
         isLoadingComments={isCommunityCommentsLoading}
         onLoadComments={() => activePattern && void loadCommunityComments(activePattern.id)}
+        onOpenAuthor={() => activePattern && openAuthorProfile(activePattern, 'detail')}
         onLike={() => activePattern && void likeCommunityPost(activePattern.id)}
         onFollow={() => activePattern?.authorId && void toggleCommunityFollow(activePattern.authorId, Boolean(activePattern.isFollowing))}
         onShare={() => activePattern && void shareCommunityPost(activePattern.id)}
-        onDownload={() => activePattern && downloadCommunityPattern(activePattern.id)}
+        onCopyToRepository={() => activePattern && void copyCommunityPattern(activePattern.id)}
+        copyingToRepository={copyingPatternId === activePattern?.id}
         onComment={(content) => activePattern && void addCommunityComment(activePattern.id, content)}
         onLogin={() => setShowLoginModal(true)}
         onBack={() => {
+          if (patternDetailBackTargetRef.current === 'author-profile') {
+            setScreen('author-profile');
+            return;
+          }
           setScreen('home');
           setActiveTab('discover');
         }}
@@ -2860,17 +3056,25 @@ function H5App() {
   if (screen === 'author-profile') {
     return (
       <AuthorProfilePage
-        patterns={communityCards}
+        patterns={authorProfilePosts}
         authorPattern={activePattern ?? communityCards[0]}
+        authorProfile={authorProfile ?? undefined}
+        loading={isAuthorProfileLoading}
+        error={authorProfileError}
+        onRetry={() => activePattern?.authorId && void loadAuthorProfile(activePattern.authorId)}
+        currentUserId={authUserId}
         onBack={() => {
-          setScreen('home');
+          const returnToDetail = authorProfileBackTargetRef.current === 'detail';
+          if (returnToDetail && authorProfileReturnPatternRef.current) setActivePattern(authorProfileReturnPatternRef.current);
+          setScreen(returnToDetail ? 'pattern-detail' : 'home');
           setActiveTab('discover');
         }}
         onOpen={(pattern) => {
+          patternDetailBackTargetRef.current = 'author-profile';
           setActivePattern(pattern);
           setScreen('pattern-detail');
         }}
-        onFollow={() => activePattern?.authorId && void toggleCommunityFollow(activePattern.authorId, Boolean(activePattern.isFollowing))}
+        onFollow={() => activePattern?.authorId && void toggleCommunityFollow(activePattern.authorId, Boolean(authorProfile?.isFollowing ?? activePattern.isFollowing))}
       />
     );
   }
@@ -2885,6 +3089,18 @@ function H5App() {
         sharingProjectId={sharingProjectId}
         shareFailedProjectIds={shareFailedProjectIds}
         actionSheet={projectActionSheet}
+      />
+    );
+  }
+
+  if (screen === 'following') {
+    return (
+      <FollowingPage
+        users={followingUsers}
+        loading={isFollowingLoading}
+        error={followingError}
+        onBack={() => { setScreen('home'); setActiveTab('profile'); }}
+        onRetry={() => void loadFollowingUsers()}
       />
     );
   }
@@ -2904,7 +3120,7 @@ function H5App() {
     openBlankCanvasCreation={openBlankCanvasCreation}
     cfgCols={cfgCols} setCfgCols={setCfgCols} cfgRows={cfgRows} setCfgRows={setCfgRows}
     normalizeGridSize={normalizeGridSize} parseGridSizeInput={parseGridSizeInput} createBlankCanvas={createBlankCanvas} requireLogin={requireLogin}
-    setStatus={setStatus} patternListCards={communityCards} setActivePattern={setActivePattern} setScreen={setScreen}
+    setStatus={setStatus} patternListCards={communityCards} setActivePattern={setActivePattern} setScreen={setScreen} openAuthorProfile={openAuthorProfile}
     notifications={notifications} loadNotifications={loadNotifications} openNotification={openNotification}
     warehouses={warehouses} stockedColorCount={stockedColorCount} totalWarehouseStock={totalWarehouseStock}
     activeWarehouse={activeWarehouse} mardColors={MARD_221_COLORS} openWarehouse={openWarehouse}
@@ -2919,6 +3135,15 @@ function H5App() {
     phoneSending={phoneSending} phoneVerifying={phoneVerifying} phoneCountdown={phoneCountdown}
     sendPhoneCode={sendPhoneCode} submitPhoneLogin={submitPhoneLogin} submitPhoneRegister={submitPhoneRegister} closeLoginModal={closeLoginModal}
     logoutPhone={logoutPhone}
+    confirmDialog={confirmDialog}
+    requestConfirm={requestConfirm}
+    profileAvatarUrl={profileAvatarUrl} followingCount={followingCount} showProfileEditModal={showProfileEditModal} openProfileEdit={openProfileEdit}
+    profileEditModal={<ProfileEditModal
+      profileEditName={profileEditName} setProfileEditName={setProfileEditName}
+      profileEditAvatar={profileEditAvatar} profileEditError={profileEditError} profileEditSaving={profileEditSaving}
+      profileAvatarInputRef={profileAvatarInputRef} chooseProfileAvatar={chooseProfileAvatar}
+      saveProfile={saveProfile} closeProfileEdit={closeProfileEdit}
+    />}
     showLogoutConfirm={showLogoutConfirm} setShowLogoutConfirm={setShowLogoutConfirm}
     recentProjectsRequestSeqRef={recentProjectsRequestSeqRef} inventoryRequestSeqRef={inventoryRequestSeqRef}
     setWarehouses={setWarehouses} activeWarehouseIdRef={activeWarehouseIdRef} setActiveWarehouseId={setActiveWarehouseId}

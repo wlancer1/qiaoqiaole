@@ -67,7 +67,7 @@ export function BeadingColorRail({
             {done ? <span className="beading-color-complete-badge" aria-label="已完成"><Check /></span> : null}
             <strong>{item.colorCode}</strong>
           </span>
-          <span className="beading-color-count">{item.required}颗</span>
+          <span className="beading-color-count">{item.required}</span>
         </button>;
       })}
     </div>

@@ -8,6 +8,7 @@ export function WarehouseListPage(props: WarehouseListPageProps) {
     status, setActiveTab, setScreen, warehouses, activeWarehouseId, openWarehouseDetail,
     showWarehouseCreateModal, setShowWarehouseCreateModal, warehouseName, setWarehouseName,
     warehouseRemark, setWarehouseRemark, createWarehouse, deleteWarehouse,
+    requestConfirm, confirmDialog,
   } = props;
 
   return (
@@ -53,9 +54,13 @@ export function WarehouseListPage(props: WarehouseListPageProps) {
                 className="wh-list-card-delete"
                 type="button"
                 aria-label={`删除${warehouse.name}`}
-                onClick={() => {
-                  if (window.confirm(`确定删除“${warehouse.name}”吗？仓库里的库存和记录也会被删除。`)) void deleteWarehouse(warehouse.id);
-                }}
+                onClick={() => requestConfirm({
+                  title: '删除仓库？',
+                  message: `确定删除“${warehouse.name}”吗？仓库里的库存和记录也会被删除。`,
+                  confirmText: '删除仓库',
+                  danger: true,
+                  onConfirm: () => deleteWarehouse(warehouse.id),
+                })}
               >
                 <Trash2 aria-hidden="true" />
               </button>
@@ -75,6 +80,7 @@ export function WarehouseListPage(props: WarehouseListPageProps) {
         </section>
       )}
 
+      {confirmDialog}
       {showWarehouseCreateModal ? (
         <div className="home-create-modal" role="dialog" aria-label="新建豆子仓库">
           <div className="home-create-panel">
@@ -92,7 +98,7 @@ export function WarehouseListPage(props: WarehouseListPageProps) {
                 <input type="text" aria-label="仓库备注" placeholder="可选" value={warehouseRemark} onChange={(event) => setWarehouseRemark(event.target.value)} />
               </label>
             </div>
-            <button className="home-create-submit" onClick={createWarehouse}>创建仓库</button>
+            <button className="home-create-submit" onClick={() => void createWarehouse()}>创建仓库</button>
           </div>
         </div>
       ) : null}

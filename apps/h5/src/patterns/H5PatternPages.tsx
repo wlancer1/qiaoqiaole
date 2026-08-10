@@ -1,54 +1,54 @@
-import { ArrowLeft, Download, Grid2X2, Heart, MessageCircle, Ruler, Search, Share2 } from 'lucide-react';
+import { ArrowLeft, Copy, Grid2X2, Heart, MessageCircle, Ruler, Search, Share2 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Icon } from '../shared/h5Icons';
 import { BeadListDrawer, type BeadColorItem } from '../flow/H5FlowComponents';
 import { colorCodeOf } from '../utils/h5AppUtils';
 import type { CommunityComment, CommunityNotification } from '../community/communityData';
-import type { PatternListCard, RecentProject } from '../shared/h5Types';
+import type { FollowingUser, PatternListCard, RecentProject } from '../shared/h5Types';
+import { UserAvatar } from '../shared/UserAvatar';
 import { CommentAvatar } from './CommentAvatar';
+import { CommunityPatternCard } from '../community/CommunityPatternCard';
 
-export function AuthorProfilePage({ patterns, authorPattern, onBack, onOpen, onFollow }: { patterns: PatternListCard[]; authorPattern?: PatternListCard; onBack: () => void; onOpen: (pattern: PatternListCard) => void; onFollow?: () => void }) {
-  const authorWorkTitles = ['纸杯蛋糕', '小熊咖啡', '向日葵', '可爱猫', '草莓蛋糕', '樱花树'];
-  const authorName = authorPattern?.author || '晴';
+export function AuthorProfilePage({ patterns, authorPattern, authorProfile, loading = false, error = '', currentUserId = '', onBack, onOpen, onFollow, onRetry }: { patterns: PatternListCard[]; authorPattern?: PatternListCard; authorProfile?: { id: string; name: string; avatarUrl?: string | null; postsCount: number; likesCount: number; followersCount: number; isFollowing: boolean }; loading?: boolean; error?: string; currentUserId?: string; onBack: () => void; onOpen: (pattern: PatternListCard) => void; onFollow?: () => void; onRetry?: () => void }) {
+  const authorName = authorProfile?.name || authorPattern?.author || '作者';
+  const authorAvatar = authorProfile?.avatarUrl ?? authorPattern?.authorAvatar;
+  const isSelf = Boolean(authorProfile?.id && authorProfile.id === currentUserId);
+  const isFollowing = authorProfile?.isFollowing ?? Boolean(authorPattern?.isFollowing);
 
   return (
-    <main className="author-profile-page" aria-label="作者主页">
+    <main className="author-profile-page my-works-page public-author-profile-page" aria-label="作者主页">
       <header className="author-profile-header">
-        <button type="button" aria-label="返回发现" onClick={onBack}><ArrowLeft aria-hidden="true" /></button>
+        <button type="button" aria-label="返回上一页" onClick={onBack}><ArrowLeft aria-hidden="true" /></button>
         <h1>作者主页</h1>
         <span aria-hidden="true" />
       </header>
       <section className="author-profile-summary" aria-label="作者资料">
-        <div className="author-profile-avatar" aria-hidden="true">{authorName[0]}</div>
+        <UserAvatar className="author-profile-avatar" avatarUrl={authorAvatar} />
         <div className="author-profile-copy">
-          <div className="author-profile-name"><h2>{authorName}</h2><em>LV5</em></div>
-          <p>拼豆爱好者 · 分享可爱图纸</p>
+          <div className="author-profile-name"><h2>{authorName}</h2><em>创作者</em></div>
+          <p>分享拼豆作品</p>
         </div>
-        {authorPattern?.authorId ? <button className="author-follow-btn" type="button" onClick={onFollow}>{authorPattern.isFollowing ? '已关注' : '关注'}</button> : null}
+        {!isSelf && authorProfile?.id ? <button className={`author-follow-btn${isFollowing ? ' is-following' : ''}`} type="button" aria-pressed={isFollowing} onClick={onFollow}>{isFollowing ? '已关注' : '关注'}</button> : null}
       </section>
       <section className="author-profile-stats" aria-label="作者统计">
-        <div><strong>86</strong><span>作品</span></div>
-        <div><strong>1.2w</strong><span>获赞</span></div>
-        <div><strong>5.6w</strong><span>粉丝</span></div>
-        <div><strong>38.2w</strong><span>浏览</span></div>
+        <div><strong>{authorProfile?.postsCount ?? patterns.length}</strong><span>作品</span></div>
+        <div><strong>{authorProfile?.likesCount ?? 0}</strong><span>获赞</span></div>
+        <div><strong>{authorProfile?.followersCount ?? 0}</strong><span>粉丝</span></div>
+        <div><strong>—</strong><span>浏览</span></div>
       </section>
       <nav className="author-profile-tabs" aria-label="作者内容分类">
         <button className="active" type="button">作品</button>
-        <button type="button">收藏</button>
-        <button type="button">喜欢</button>
       </nav>
-      <section className="author-work-grid" aria-label="作者作品">
-        {Array.from({ length: 6 }, (_, index) => patterns[index % patterns.length]).map((card, index) => (
-          <button className="author-work-card" key={`${card.title}-${index}`} type="button" onClick={() => onOpen(card)}>
+      {loading ? <section className="author-work-empty" aria-label="作者主页加载中"><strong>正在加载作者主页...</strong></section> : error ? <section className="author-work-empty" aria-label="作者主页加载失败"><strong>{error}</strong><button type="button" onClick={onRetry}>重新加载</button></section> : patterns.length > 0 ? <section className="author-work-grid" aria-label="作者已分享作品">
+        {patterns.map((card) => (
+          <button className="author-work-card" key={card.id} type="button" onClick={() => onOpen(card)}>
             <div className={`author-work-art ${card.tone}`} aria-hidden="true">
-              <div className="pattern-art-grid">
-                {card.beads.map((color, beadIndex) => <i key={`${index}-${beadIndex}`} style={{ backgroundColor: color }} />)}
-              </div>
+              {card.image ? <img src={card.image} alt="" /> : <div className="pattern-art-grid">{card.beads.map((color, beadIndex) => <i key={`${card.id}-${beadIndex}`} style={{ backgroundColor: color }} />)}</div>}
             </div>
-            <strong>{authorWorkTitles[index]}</strong>
+            <strong>{card.title}</strong>
           </button>
         ))}
-      </section>
+      </section> : <section className="author-work-empty" aria-label="暂无已分享作品"><strong>还没有分享作品</strong><span>作者分享作品后会显示在这里</span></section>}
     </main>
   );
 }
@@ -85,7 +85,7 @@ export function MyWorksPage({
         <span aria-hidden="true" />
       </header>
       <section className="author-profile-summary" aria-label="个人资料">
-        <div className="author-profile-avatar" aria-hidden="true">拼</div>
+        <UserAvatar className="author-profile-avatar" />
         <div className="author-profile-copy">
           <div className="author-profile-name"><h2>我的创作</h2><em>作品</em></div>
           <p>保存的拼豆图纸都会显示在这里</p>
@@ -157,6 +157,33 @@ export function MyWorksPage({
   );
 }
 
+export function FollowingPage({ users, loading, error, onBack, onRetry }: { users: FollowingUser[]; loading: boolean; error: string; onBack: () => void; onRetry: () => void }) {
+  return (
+    <main className="author-profile-page following-list-page" aria-label="关注列表">
+      <header className="author-profile-header">
+        <button type="button" aria-label="返回我的页面" onClick={onBack}><ArrowLeft aria-hidden="true" /></button>
+        <h1>关注列表</h1>
+        <span aria-hidden="true" />
+      </header>
+      <section className="following-list-summary" aria-label="关注说明">
+        <strong>我关注的人</strong>
+        <span>关注喜欢的创作者，随时查看他们的作品</span>
+      </section>
+      {loading ? <p className="following-list-state" role="status">正在读取关注列表...</p> : error ? (
+        <div className="following-list-state"><strong>{error}</strong><button type="button" onClick={onRetry}>重新加载</button></div>
+      ) : users.length > 0 ? (
+        <section className="following-user-list" aria-label="已关注用户">
+          {users.map((user) => <article className="following-user-row" key={user.id}>
+            <UserAvatar className="following-user-avatar" avatarUrl={user.avatarUrl} />
+            <strong>{user.name}</strong>
+            <span aria-hidden="true">已关注</span>
+          </article>)}
+        </section>
+      ) : <div className="following-list-state"><strong>还没有关注任何人</strong><span>去发现页看看喜欢的创作者吧</span></div>}
+    </main>
+  );
+}
+
 export function PatternDiscoverPage({ patterns, activeSort = 'hot', onSortChange, onOpen, onOpenAuthor }: {
   patterns: PatternListCard[];
   activeSort?: 'hot' | 'latest';
@@ -191,40 +218,13 @@ export function PatternDiscoverPage({ patterns, activeSort = 'hot', onSortChange
           {[patterns.filter((_, index) => index % 2 === 0), patterns.filter((_, index) => index % 2 === 1)].map((column, columnIndex) => (
             <div className="pattern-masonry-column" key={`pattern-column-${columnIndex}`}>
               {column.map((card) => (
-                <button className="pattern-card" data-card-index={patterns.indexOf(card)} key={card.title} type="button" onClick={() => onOpen(card)}>
-              <div className={`pattern-art ${card.tone}`} aria-hidden="true">
-                {card.image ? <img className="pattern-card-image" src={card.image} alt="" /> : <div className="pattern-card-empty">暂无预览图</div>}
-              </div>
-              <div className="pattern-card-body">
-                <h2>{card.title}</h2>
-                <div className="pattern-card-info-row">
-                  <div className="pattern-author-row">
-                    <span
-                      className={`pattern-avatar ${card.tone}`}
-                      role="link"
-                      tabIndex={0}
-                      aria-label={`查看${card.author}的作者主页`}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onOpenAuthor(card);
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          onOpenAuthor(card);
-                        }
-                      }}
-                    />
-                    <strong>{card.author}</strong>
-                  </div>
-                  <div className="pattern-card-meta">
-                    <span><Heart aria-hidden="true" /> {formatPatternCount(card.likes)}</span>
-                    <span><MessageCircle aria-hidden="true" /> {formatPatternCount(card.comments)}</span>
-                  </div>
-                  </div>
-                </div>
-                </button>
+                <CommunityPatternCard
+                  key={card.title}
+                  pattern={card}
+                  dataCardIndex={patterns.indexOf(card)}
+                  onOpen={onOpen}
+                  onOpenAuthor={onOpenAuthor}
+                />
               ))}
             </div>
           ))}
@@ -244,11 +244,14 @@ export function PatternMessagesPage({ isLoggedIn, notifications = [], onHome, on
   onLogin: () => void;
   onOpenNotification?: (notification: CommunityNotification) => void;
 }) {
+  const unreadCount = notifications.filter((item) => !item.isRead).length;
+  const hasMessages = isLoggedIn && notifications.length > 0;
+
   return (
-    <main className="pattern-message-page" aria-label="消息">
-      {isLoggedIn && notifications.length > 0 ? (
+    <main className={hasMessages ? 'pattern-message-page' : 'pattern-message-page is-empty'} aria-label="消息">
+      {hasMessages ? (
         <section className="pattern-message-list" aria-label="消息列表">
-          <header><h1>消息</h1><span>{notifications.filter((item) => !item.isRead).length} 条未读</span></header>
+          <header><h1>消息</h1><span>{unreadCount > 0 ? `${unreadCount} 条未读` : '全部已读'}</span></header>
           {notifications.map((notification) => (
             <button
               className={notification.isRead ? 'pattern-message-item is-read' : 'pattern-message-item'}
@@ -256,13 +259,13 @@ export function PatternMessagesPage({ isLoggedIn, notifications = [], onHome, on
               type="button"
               onClick={() => onOpenNotification?.(notification)}
             >
-              <span className="pattern-message-item-icon"><Icon name="message" /></span>
+              <UserAvatar className="pattern-message-item-icon" avatarUrl={notification.senderAvatar} />
               <span className="pattern-message-item-copy">
                 <strong>{notification.senderName}</strong>
                 <span>{notification.content}</span>
-                <small>{new Date(notification.createdAt).toLocaleString('zh-CN')}</small>
               </span>
-              {!notification.isRead ? <i aria-label="未读" /> : null}
+              <time dateTime={notification.createdAt}>{formatMessageTime(notification.createdAt)}</time>
+              {!notification.isRead ? <i aria-label="未读">{unreadCount > 9 ? '9+' : '1'}</i> : null}
             </button>
           ))}
         </section>
@@ -283,16 +286,31 @@ export function PatternMessagesPage({ isLoggedIn, notifications = [], onHome, on
         <button type="button" aria-label="首页" onClick={onHome}><Icon name="home" /><span>首页</span></button>
         <button type="button" aria-label="发现" onClick={onDiscover}><Icon name="discover" /><span>发现</span></button>
         <button className="plus-tab" type="button" aria-label="上传" onClick={onUpload}><Icon name="plus" /></button>
-        <button className="active" type="button" aria-label="消息"><Icon name="message" /><span>消息</span></button>
+        <button className="active" type="button" aria-label="消息">
+          <span className="pattern-message-tab-icon"><Icon name="message" />{unreadCount > 0 ? <i aria-label={`${unreadCount} 条未读`}>{unreadCount > 9 ? '9+' : unreadCount}</i> : null}</span>
+          <span>消息</span>
+        </button>
         <button type="button" aria-label="我的" onClick={onProfile}><Icon name="profile" /><span>我的</span></button>
       </nav>
     </main>
   );
 }
 
-export function PatternDetailPage({ pattern, onBack, isLoggedIn, comments, isLoadingComments, onLoadComments, onLike, onFollow, onShare, onDownload, onComment, onLogin }: {
+function formatMessageTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const now = new Date();
+  const sameDay = date.toDateString() === now.toDateString();
+  return sameDay
+    ? date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    : date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
+}
+
+export function PatternDetailPage({ pattern, currentUserId = '', onBack, onOpenAuthor, isLoggedIn, comments, isLoadingComments, onLoadComments, onLike, onFollow, onShare, onCopyToRepository, copyingToRepository = false, onComment, onLogin }: {
   pattern: PatternListCard;
+  currentUserId?: string;
   onBack: () => void;
+  onOpenAuthor?: () => void;
   isLoggedIn: boolean;
   comments: CommunityComment[];
   isLoadingComments: boolean;
@@ -300,7 +318,8 @@ export function PatternDetailPage({ pattern, onBack, isLoggedIn, comments, isLoa
   onLike: () => void;
   onFollow?: () => void;
   onShare?: () => void;
-  onDownload?: () => void;
+  onCopyToRepository?: () => void;
+  copyingToRepository?: boolean;
   onComment: (content: string) => void;
   onLogin: () => void;
 }) {
@@ -327,7 +346,7 @@ export function PatternDetailPage({ pattern, onBack, isLoggedIn, comments, isLoa
           <header className="pattern-detail-header">
             <button className="pattern-detail-back" type="button" aria-label="返回发现" onClick={onBack}><Icon name="arrow-left" /></button>
             <div className="pattern-detail-author">
-              <span className="detail-author-avatar" aria-hidden="true" />
+              <UserAvatar className="detail-author-avatar" avatarUrl={pattern.authorAvatar} role="button" tabIndex={0} aria-label={`查看${pattern.author}的作者主页`} onClick={onOpenAuthor} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpenAuthor?.(); } }} />
               <div>
                 <div className="pattern-detail-author-name">
                   <strong>{pattern.author}</strong>
@@ -335,7 +354,7 @@ export function PatternDetailPage({ pattern, onBack, isLoggedIn, comments, isLoa
                 <small>社区分享者</small>
               </div>
             </div>
-            {pattern.authorId ? <button className="detail-follow-btn" type="button" onClick={onFollow}>{pattern.isFollowing ? '已关注' : '关注'}</button> : null}
+            {pattern.authorId && pattern.authorId !== currentUserId ? <button className={`detail-follow-btn${pattern.isFollowing ? ' is-following' : ''}`} type="button" aria-pressed={Boolean(pattern.isFollowing)} onClick={onFollow}>{pattern.isFollowing ? '已关注' : '关注'}</button> : null}
             <button className="detail-share-btn" type="button" aria-label="分享" onClick={onShare}><Share2 aria-hidden="true" /></button>
           </header>
         </div>
@@ -408,8 +427,8 @@ export function PatternDetailPage({ pattern, onBack, isLoggedIn, comments, isLoa
 
       <div className="detail-bottom-actions">
         <div className="detail-bottom-actions-inner">
-          <button className={pattern.likedByMe ? 'detail-like-action active' : 'detail-like-action'} type="button" onClick={onLike}><Heart aria-hidden="true" /> {formatPatternCount(pattern.likes)}</button>
-          <button className="detail-download-action" type="button" onClick={onDownload}><Download aria-hidden="true" /> 下载图纸</button>
+          <button className={pattern.likedByMe ? 'detail-like-action active' : 'detail-like-action'} type="button" onClick={onLike}><Heart className={pattern.likedByMe ? 'is-liked' : ''} aria-hidden="true" /> {formatPatternCount(pattern.likes)}</button>
+          <button className="detail-download-action" type="button" disabled={copyingToRepository} onClick={onCopyToRepository}><Copy aria-hidden="true" /> {copyingToRepository ? '复制中…' : '复制到仓库'}</button>
         </div>
       </div>
       {showFullBeadList ? <BeadListDrawer colors={drawerColors} totalBeads={totalBeads} description="按作品实时统计颜色和数量" onClose={() => setShowFullBeadList(false)} /> : null}

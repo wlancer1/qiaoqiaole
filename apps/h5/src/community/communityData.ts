@@ -5,6 +5,7 @@ export type CommunityPost = {
   name: string;
   author: string;
   authorId?: string;
+  authorAvatar?: string | null;
   isFollowing?: boolean;
   rows: number;
   cols: number;
@@ -73,6 +74,7 @@ export function toPatternListCard(post: CommunityPost): PatternListCard {
     title: post.name,
     author: post.author,
     authorId: post.authorId,
+    authorAvatar: post.authorAvatar,
     isFollowing: post.isFollowing,
     size: `${post.cols} × ${post.rows}`,
     meta: formatCommunityTime(post.sharedAt),

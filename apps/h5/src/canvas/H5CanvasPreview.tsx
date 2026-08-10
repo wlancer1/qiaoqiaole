@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent, Touch as ReactTouch } from 'react';
 import { useTransformEffect } from 'react-zoom-pan-pinch';
 import {
@@ -69,6 +69,169 @@ export function rulerTicks(size: number): number[] {
     ticks.push(tick);
   }
   return ticks;
+}
+
+export type CanvasRulerRect = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
+export type ViewportRulerTick = {
+  tick: number;
+  offset: number;
+};
+
+export type ViewportRulerGeometry = {
+  sticky: boolean;
+  columns: ViewportRulerTick[];
+  rows: ViewportRulerTick[];
+};
+
+const RULER_OVERFLOW_TOLERANCE = 1;
+
+export function isCanvasRulerOverflowing(
+  stageRect: CanvasRulerRect,
+  artboardRect: CanvasRulerRect,
+  scale = 1,
+  tolerance = RULER_OVERFLOW_TOLERANCE,
+): boolean {
+  if (scale <= 1) return false;
+  const stageRight = stageRect.left + stageRect.width;
+  const stageBottom = stageRect.top + stageRect.height;
+  const artboardRight = artboardRect.left + artboardRect.width;
+  const artboardBottom = artboardRect.top + artboardRect.height;
+  return artboardRect.left < stageRect.left + tolerance
+    || artboardRect.top < stageRect.top + tolerance
+    || artboardRight > stageRight - tolerance
+    || artboardBottom > stageBottom - tolerance;
+}
+
+function visibleRulerTicks(
+  size: number,
+  cellSize: number,
+  artboardOffset: number,
+  viewportSize: number,
+): ViewportRulerTick[] {
+  return rulerTicks(size)
+    .map((tick) => ({ tick, offset: artboardOffset + (tick - 0.5) * cellSize }))
+    .filter(({ offset }) => offset >= 0 && offset <= viewportSize);
+}
+
+export function getViewportRulerGeometry(
+  stageRect: CanvasRulerRect,
+  artboardRect: CanvasRulerRect,
+  rows: number,
+  cols: number,
+  scale = 1,
+): ViewportRulerGeometry {
+  const safeRows = Math.max(1, rows);
+  const safeCols = Math.max(1, cols);
+  const cellWidth = artboardRect.width / safeCols;
+  const cellHeight = artboardRect.height / safeRows;
+  const artboardLeft = artboardRect.left - stageRect.left;
+  const artboardTop = artboardRect.top - stageRect.top;
+
+  return {
+    sticky: isCanvasRulerOverflowing(stageRect, artboardRect, scale),
+    columns: visibleRulerTicks(safeCols, cellWidth, artboardLeft, stageRect.width),
+    rows: visibleRulerTicks(safeRows, cellHeight, artboardTop, stageRect.height),
+  };
+}
+
+export function CanvasViewportRulers({
+  stageRef,
+  artboardRef,
+  rows,
+  cols,
+  scale,
+  onStickyChange,
+}: {
+  stageRef: { current: HTMLElement | null };
+  artboardRef: { current: HTMLDivElement | null };
+  rows: number;
+  cols: number;
+  scale: number;
+  onStickyChange?: (sticky: boolean) => void;
+}) {
+  const [geometry, setGeometry] = useState<ViewportRulerGeometry>({ sticky: false, columns: [], rows: [] });
+  const frameRef = useRef<number | null>(null);
+  const measure = useCallback(() => {
+    if (frameRef.current !== null) return;
+    frameRef.current = requestAnimationFrame(() => {
+      frameRef.current = null;
+      const stage = stageRef.current;
+      const artboard = artboardRef.current;
+      if (!stage || !artboard) return;
+      const stageBounds = stage.getBoundingClientRect();
+      const artboardBounds = artboard.getBoundingClientRect();
+      setGeometry(getViewportRulerGeometry(
+        {
+          left: stageBounds.left,
+          top: stageBounds.top,
+          width: stageBounds.width,
+          height: stageBounds.height,
+        },
+        {
+          left: artboardBounds.left,
+          top: artboardBounds.top,
+          width: artboardBounds.width,
+          height: artboardBounds.height,
+        },
+        rows,
+        cols,
+        scale,
+      ));
+    });
+  }, [artboardRef, cols, rows, scale, stageRef]);
+
+  useLayoutEffect(() => {
+    measure();
+    const stage = stageRef.current;
+    const artboard = artboardRef.current;
+    if (!stage || !artboard) return undefined;
+    const resizeObserver = new ResizeObserver(measure);
+    resizeObserver.observe(stage);
+    resizeObserver.observe(artboard);
+    const browserWindow = typeof window === 'undefined' ? null : window;
+    browserWindow?.addEventListener('resize', measure);
+    return () => {
+      resizeObserver.disconnect();
+      browserWindow?.removeEventListener('resize', measure);
+      if (frameRef.current !== null) {
+        cancelAnimationFrame(frameRef.current);
+        frameRef.current = null;
+      }
+    };
+  }, [artboardRef, measure, stageRef]);
+
+  useTransformEffect(() => {
+    measure();
+  });
+
+  useEffect(() => {
+    onStickyChange?.(geometry.sticky);
+  }, [geometry.sticky, onStickyChange]);
+
+  return (
+    <div className={geometry.sticky ? 'h5-viewport-rulers is-visible' : 'h5-viewport-rulers'} aria-hidden={!geometry.sticky}>
+      <div className="h5-viewport-column-ruler" aria-label="当前可视列标尺">
+        {geometry.columns.map(({ tick, offset }) => (
+          <span key={`viewport-col-${tick}`} className="h5-viewport-ruler-label" style={{ left: `${offset}px` }}>
+            {tick}
+          </span>
+        ))}
+      </div>
+      <div className="h5-viewport-row-ruler" aria-label="当前可视行标尺">
+        {geometry.rows.map(({ tick, offset }) => (
+          <span key={`viewport-row-${tick}`} className="h5-viewport-ruler-label" style={{ top: `${offset}px` }}>
+            {tick}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function CanvasScaleObserver({ onScaleChange }: { onScaleChange: (scale: number) => void }) {

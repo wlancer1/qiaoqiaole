@@ -39,6 +39,7 @@ import {
   type SessionTransition,
 } from './useBeadingSessionActions';
 import { useBeadingElapsedTimer } from './useBeadingElapsedTimer';
+import type { ReactNode } from 'react';
 import './beadingSession.css';
 
 export type BeadingSessionPageProps = {
@@ -60,6 +61,8 @@ export type BeadingSessionPageProps = {
   draftOwnerId?: string;
   legacyDraftOwnerId?: string;
   onStatus: (message: string) => void;
+  requestConfirm?: (request: { title: string; message: string; confirmText?: string; danger?: boolean; onConfirm: () => void | Promise<void> }) => void;
+  confirmDialog?: ReactNode;
   status?: string;
 };
 
@@ -96,6 +99,8 @@ export function BeadingSessionPage({
   draftOwnerId,
   legacyDraftOwnerId,
   onStatus,
+  requestConfirm,
+  confirmDialog,
   status = '',
 }: BeadingSessionPageProps) {
   const artboardRef = useRef<HTMLDivElement>(null);
@@ -113,6 +118,7 @@ export function BeadingSessionPage({
     nextIncompleteColor(session.requirements, session.completedColorCodes)
   ));
   const cellCount = Math.max(0, rows * cols);
+  const askForConfirmation = requestConfirm ?? ((request: { onConfirm: () => void | Promise<void> }) => { void request.onConfirm(); });
   const progress = completionProgress(session.requirements, session.completedColorCodes);
 
   const { clearDraft } = useBeadingDraft({
@@ -385,10 +391,10 @@ export function BeadingSessionPage({
           onToggleCodes: () => dispatch({ type: 'toggle-codes' }),
           onToggleGrid: () => dispatch({ type: 'toggle-grid' }),
           onClearMarks: () => {
-            if (window.confirm('清除全部单格标记？')) dispatch({ type: 'set-marks', indexes: [], cellCount });
+            askForConfirmation({ title: '清除单格标记？', message: '将清除当前拼豆页面中的全部单格标记。', confirmText: '清除标记', danger: true, onConfirm: () => dispatch({ type: 'set-marks', indexes: [], cellCount }) });
           },
           onReset: () => {
-            if (window.confirm('恢复默认工具设置？')) dispatch({ type: 'reset' });
+            askForConfirmation({ title: '恢复默认设置？', message: '将恢复工具栏、网格和色号显示的默认设置。', confirmText: '恢复默认', onConfirm: () => dispatch({ type: 'reset' }) });
           },
           onClose: () => dispatch({ type: 'set-panel', panel: null }),
         } : { activePanel: null as null })}
@@ -405,6 +411,7 @@ export function BeadingSessionPage({
         onNoDeduct={() => { void finish(false); }}
         onDeduct={() => { void finish(true); }}
       /> : null}
+      {confirmDialog}
     </main>
   );
 }

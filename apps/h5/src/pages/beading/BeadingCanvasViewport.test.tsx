@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import type { ReactNode } from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -22,6 +24,11 @@ vi.mock('react-zoom-pan-pinch', async () => {
     TransformComponent: ({ children, ...props }: { children: ReactNode } & Record<string, unknown>) => (
       <div data-transform-component="true" {...props}>{children}</div>
     ),
+    useTransformEffect: (callback: (input: { state: { scale: number } }) => void) => {
+      React.useEffect(() => {
+        callback({ state: { scale: 1 } });
+      }, [callback]);
+    },
   };
 });
 
@@ -58,6 +65,9 @@ class ResizeObserverMock {
 const stageNode = {
   getBoundingClientRect: vi.fn(() => ({ width: 400, height: 300 })),
 };
+const artboardNode = {
+  getBoundingClientRect: vi.fn(() => ({ left: 0, top: 0, width: 180, height: 90 })),
+};
 
 function renderViewport(
   props: Partial<React.ComponentProps<typeof BeadingCanvasViewport>> = {},
@@ -73,7 +83,9 @@ function renderViewport(
   let renderer!: ReactTestRenderer;
   act(() => {
     renderer = create(<BeadingCanvasViewport {...defaults} {...props} />, {
-      createNodeMock: (element) => element.type === 'section' ? stageNode : {},
+      createNodeMock: (element) => element.type === 'section'
+        ? stageNode
+        : String((element.props as { className?: unknown }).className).includes('beading-canvas-artboard') ? artboardNode : {},
     });
   });
   flushAnimationFrames();
@@ -160,6 +172,18 @@ describe('calculateViewportFit', () => {
 });
 
 describe('BeadingCanvasViewport', () => {
+  it('renders the conditional viewport ruler inside the beading transform context', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/pages/beading/BeadingCanvasViewport.tsx'), 'utf8');
+
+    expect(source).toContain('CanvasScaleObserver');
+    expect(source).toContain('CanvasViewportRulers');
+    expect(source).toContain('artboardRef={viewportArtboardRef}');
+    expect(source).toContain('stageRef={stageRef}');
+    expect(source).toContain('scale={canvasScale}');
+    expect(source).toContain('is-viewport-ruler-sticky');
+    expect(source).toContain('onStickyChange={setViewportRulerSticky}');
+  });
+
   it('sizes the artboard from rows/cols and fits it with setTransform', () => {
     const onPointerDown = vi.fn();
     const renderer = renderViewport({

@@ -260,6 +260,10 @@
   pointer-events: none;
 }
 
+.beading-canvas-stage.is-viewport-ruler-sticky .beading-canvas-artboard > .h5-canvas-rulers {
+  display: none;
+}
+
 .beading-canvas-artboard .h5-canvas-layers {
   position: absolute;
   inset: 0;
@@ -374,9 +378,10 @@
   gap: 0.254rem;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 0.0317rem 0.127rem 0.0952rem;
+  padding: 0.1905rem 0.254rem 0.254rem;
   scrollbar-width: none;
   overscroll-behavior-x: contain;
+  scroll-padding-inline: 0.254rem;
   scroll-snap-type: x proximity;
   -webkit-overflow-scrolling: touch;
 }
@@ -769,7 +774,7 @@
 
   .beading-color-rail {
     gap: 0.1905rem;
-    padding-inline: 0.0952rem;
+    padding-inline: 0.254rem;
   }
 
   .beading-color-actions {

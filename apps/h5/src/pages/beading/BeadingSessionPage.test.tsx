@@ -735,6 +735,12 @@ describe('BeadingSessionPage static contracts', () => {
     expectDeclaration(cssBlock(styles, '.beading-color-section'), 'padding-bottom', /.*env\(safe-area-inset-bottom\).*/);
   });
 
+  it('keeps the current color selection ring clear of the horizontal rail clipping', () => {
+    const rail = cssBlock(cssSource(), '.beading-color-rail');
+    expectDeclaration(rail, 'padding', '0.1905rem 0.254rem 0.254rem');
+    expectDeclaration(rail, 'scroll-padding-inline', '0.254rem');
+  });
+
   it('keeps all four Canvas layers aligned and the overlay on top', () => {
     const styles = cssSource();
     const stack = cssBlock(styles, '.beading-canvas-artboard .h5-canvas-layers');

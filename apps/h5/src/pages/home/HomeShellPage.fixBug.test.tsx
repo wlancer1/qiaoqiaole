@@ -3,7 +3,7 @@ import path from 'node:path';
 import { Children, createElement, isValidElement, type ReactElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { HomeShellPage, PhoneLoginModal } from './HomeShellPage';
+import { HomeShellPage, PhoneLoginModal, ProfileEditModal } from './HomeShellPage';
 
 const props = {
   phoneNumber: '', setPhoneNumber: vi.fn(), phonePassword: '1234567', setPhonePassword: vi.fn(), phoneConfirmPassword: '', setPhoneConfirmPassword: vi.fn(), phoneCode: '', setPhoneCode: vi.fn(), phoneAuthMode: 'login', setPhoneAuthMode: vi.fn(), phoneAgreement: true, setPhoneAgreement: vi.fn(), phoneAuthError: '', phoneSending: false, phoneVerifying: false, phoneCountdown: 0, sendPhoneCode: vi.fn(), submitPhoneLogin: vi.fn(), submitPhoneRegister: vi.fn(), closeLoginModal: vi.fn(), logoutPhone: vi.fn(),
@@ -15,6 +15,26 @@ describe('phone login bug fixes', () => {
     expect(markup).toContain('密码至少需要 8 位');
     expect(markup).toContain('phone-login-submit');
     expect(markup).toContain('home-create-submit');
+  });
+});
+
+describe('profile editing', () => {
+  it('renders the avatar and username editing controls', () => {
+    const markup = renderToStaticMarkup(createElement(ProfileEditModal, {
+      profileEditName: '测试用户',
+      profileEditAvatar: 'data:image/png;base64,AA==',
+      profileEditError: '',
+      profileEditSaving: false,
+      profileAvatarInputRef: { current: null },
+      setProfileEditName: vi.fn(),
+      chooseProfileAvatar: vi.fn(),
+      saveProfile: vi.fn(),
+      closeProfileEdit: vi.fn(),
+    }));
+    expect(markup).toContain('编辑资料');
+    expect(markup).toContain('更换头像');
+    expect(markup).toContain('用户名');
+    expect(markup).toContain('测试用户');
   });
 });
 

@@ -1,6 +1,6 @@
 import type { Cell } from '@qiaoqiaole/core';
 
-export type AppScreen = 'home' | 'profile' | 'split' | 'split-crop' | 'split-preview' | 'canvas' | 'beading' | 'warehouse' | 'warehouse-detail' | 'pattern-detail' | 'author-profile' | 'my-works';
+export type AppScreen = 'home' | 'profile' | 'split' | 'split-crop' | 'split-preview' | 'canvas' | 'beading' | 'warehouse' | 'warehouse-detail' | 'pattern-detail' | 'author-profile' | 'my-works' | 'following';
 export type CanvasTool = 'brush' | 'eraser' | 'fill' | 'eyedropper' | 'pan';
 export type WorkMode = 'bead' | 'peg';
 export type SplitMode = 'quick' | 'align';
@@ -24,6 +24,7 @@ export type PatternListCard = {
   title: string;
   author: string;
   authorId?: string;
+  authorAvatar?: string | null;
   isFollowing?: boolean;
   size: string;
   meta: string;
@@ -56,6 +57,8 @@ export type RecentProject = {
   sharedAt?: string;
   likesCount?: number;
 };
+export type FollowingUser = { id: string; name: string; avatarUrl?: string | null };
+export type AuthorProfile = FollowingUser & { postsCount: number; likesCount: number; followersCount: number; isFollowing: boolean };
 export type IconName =
   | 'arrow-left'
   | 'bell'

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { limitCommentContent, MyWorksPage, PatternDetailPage, PatternDiscoverPage, PatternMessagesPage } from './H5PatternPages';
+import { AuthorProfilePage, limitCommentContent, MyWorksPage, PatternDetailPage, PatternDiscoverPage, PatternMessagesPage } from './H5PatternPages';
 
 describe('PatternDiscoverPage', () => {
   it('marks the selected community sort tab as active', () => {
@@ -83,7 +83,47 @@ describe('MyWorksPage', () => {
   });
 });
 
+describe('AuthorProfilePage', () => {
+  it('renders only shared works and the real author statistics', () => {
+    const markup = renderToStaticMarkup(createElement(AuthorProfilePage, {
+      patterns: [{ id: 'shared-1', title: '已分享作品', author: '小鹿', authorId: 'user-2', authorAvatar: null, size: '2 × 2', meta: '刚刚', likes: '4', comments: '1', downloads: '0', tone: 'recent-flower', beads: ['#fff'], image: '', likesCount: 4, commentsCount: 1, likedByMe: false }],
+      authorProfile: { id: 'user-2', name: '小鹿', avatarUrl: null, postsCount: 1, likesCount: 4, followersCount: 8, isFollowing: false },
+      currentUserId: 'user-1', onBack: vi.fn(), onOpen: vi.fn(), onFollow: vi.fn(),
+    }));
+    expect(markup).toContain('小鹿');
+    expect(markup).toContain('已分享作品');
+    expect(markup).toContain('>1</strong><span>作品</span>');
+    expect(markup).toContain('>8</strong><span>粉丝</span>');
+    expect(markup).toContain('>关注</button>');
+    expect(markup).not.toContain('收藏');
+    expect(markup).not.toContain('喜欢');
+  });
+});
+
 describe('PatternDetailPage', () => {
+  it('hides follow for the current author and renders the database avatar for other authors', () => {
+    const ownMarkup = renderToStaticMarkup(createElement(PatternDetailPage, {
+      pattern: {
+        id: 'own-project', title: '自己的稿件', author: '我', authorId: 'user-1', authorAvatar: 'https://example.com/me.png', size: '1 × 1', meta: '刚刚',
+        likes: '0', comments: '0', downloads: '0', tone: 'recent-flower', beads: [], image: '', likesCount: 0, commentsCount: 0, likedByMe: false,
+      },
+      currentUserId: 'user-1', onBack: vi.fn(), isLoggedIn: true, comments: [], isLoadingComments: false,
+      onLoadComments: vi.fn(), onLike: vi.fn(), onFollow: vi.fn(), onComment: vi.fn(), onLogin: vi.fn(),
+    }));
+    const otherMarkup = renderToStaticMarkup(createElement(PatternDetailPage, {
+      pattern: {
+        id: 'other-project', title: '别人的稿件', author: '别人', authorId: 'user-2', authorAvatar: 'https://example.com/other.png', size: '1 × 1', meta: '刚刚',
+        likes: '0', comments: '0', downloads: '0', tone: 'recent-flower', beads: [], image: '', likesCount: 0, commentsCount: 0, likedByMe: false,
+      },
+      currentUserId: 'user-1', onBack: vi.fn(), isLoggedIn: true, comments: [], isLoadingComments: false,
+      onLoadComments: vi.fn(), onLike: vi.fn(), onFollow: vi.fn(), onComment: vi.fn(), onLogin: vi.fn(),
+    }));
+
+    expect(ownMarkup).not.toContain('class="detail-follow-btn"');
+    expect(otherMarkup).toContain('class="detail-follow-btn"');
+    expect(otherMarkup).toContain('src="https://example.com/other.png"');
+  });
+
   it('renders the shared bead list and uses the full detail image', () => {
     const markup = renderToStaticMarkup(createElement(PatternDetailPage, {
       pattern: {
@@ -103,6 +143,8 @@ describe('PatternDetailPage', () => {
     expect(markup).toContain('格数');
     expect(markup).toContain('发布日期');
     expect(markup).toContain('浏览次数');
+    expect(markup).toContain('复制到仓库');
+    expect(markup).not.toContain('下载图纸');
     expect(markup).not.toContain('难度');
     expect(markup).not.toContain('耗时');
     expect(markup).not.toContain('作品信息');
@@ -152,6 +194,7 @@ describe('PatternMessagesPage', () => {
 
     expect(markup).toContain('晴 评论了你的作品');
     expect(markup).toContain('未读');
+    expect(markup).toContain('aria-label="1 条未读"');
     expect(markup).toContain('消息');
   });
 });

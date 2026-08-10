@@ -1,5 +1,14 @@
 ## [Unreleased]
 
+### Added / Changed / Fixed
+
+- Added sticky, zoom-aware canvas rulers and accurate cell labels for editor and beading views.
+- Added public community author profiles, shared-work viewing without login, community card/avatar components, and follow navigation coverage.
+- Added profile editing with username and avatar updates, and changed new project names to default to `未命名作品`.
+- Replaced browser confirmation dialogs with a unified, design-scale confirmation dialog for destructive and reset actions.
+- Removed non-essential success/status toasts while preserving validation and error feedback.
+- Affected modules: `apps/h5/src/H5App.tsx`, H5 canvas/beading/community/profile pages and styles, `apps/h5/src/shared/ConfirmDialog.tsx`, and `apps/api/src/server.mjs`.
+
 ### Fixed
 
 - Fixed H5 blank-canvas width and height fields so custom multi-digit sizes can be edited before validation, and aligned the new-canvas modal typography with the canvas settings modal.

@@ -1,13 +1,16 @@
 import { FileDown, Layers3, List, Redo2, Save, SlidersHorizontal, Undo2, X } from 'lucide-react';
+import { useRef, useState } from 'react';
 import { TransformComponent, TransformWrapper } from 'react-zoom-pan-pinch';
 import { EditorCanvasLayers } from '../../canvas/EditorCanvasLayers';
-import { CanvasRulers, CanvasScaleObserver } from '../../canvas/H5CanvasPreview';
+import { CanvasRulers, CanvasScaleObserver, CanvasViewportRulers } from '../../canvas/H5CanvasPreview';
 import { BeadListDrawer } from '../../flow/H5FlowComponents';
 import { Icon } from '../../shared/h5Icons';
 
 type CanvasPageProps = Record<string, any>;
 
 export function CanvasPage(props: CanvasPageProps) {
+  const canvasStageRef = useRef<HTMLDivElement | null>(null);
+  const [viewportRulerSticky, setViewportRulerSticky] = useState(false);
   const {
     fileInputRef, handleUpload, referenceInputRef, handleReferenceUpload, clearReferenceImage, setScreen,
     setShowSettings, cols, rows, history, future, undo, redo, chooseReferenceImage, exportPatternPng, workMode,
@@ -55,7 +58,7 @@ return (
         <button className="top-icon-btn save-btn" aria-label="导出拼豆图纸" onClick={exportPatternPng}>
           <FileDown aria-hidden="true" />
         </button>
-        <button className="top-icon-btn save-project-btn" aria-label="保存到我的作品" onClick={saveCurrentProject}>
+        <button className="top-icon-btn save-project-btn" aria-label="保存到我的作品" onClick={() => saveCurrentProject()}>
           <Save aria-hidden="true" />
         </button>
         {workMode === 'peg' ? (
@@ -185,6 +188,7 @@ return (
         onPointerUpCapture={handleCanvasPointerEndCapture}
         onPointerCancelCapture={handleCanvasPointerEndCapture}
         onLostPointerCapture={handleCanvasPointerEndCapture}
+        ref={canvasStageRef}
       >
         <TransformWrapper
           initialScale={1}
@@ -224,7 +228,7 @@ return (
                     width: `min(calc(${cols} * var(--canvas-cell-size)), calc(100% - var(--canvas-ruler-gutter)))`,
                   }}
                   >
-                    <CanvasRulers rows={rows} cols={cols} />
+                     {!viewportRulerSticky ? <CanvasRulers rows={rows} cols={cols} /> : null}
                     <div
                       className="h5-canvas-interaction canvas-artwork"
                       role="img"
@@ -240,6 +244,14 @@ return (
                     />
                 </div>
               </TransformComponent>
+              <CanvasViewportRulers
+                stageRef={canvasStageRef}
+                artboardRef={canvasArtboardRef}
+                rows={rows}
+                cols={cols}
+                scale={canvasScale}
+                onStickyChange={setViewportRulerSticky}
+              />
               <div className="canvas-zoom-controls" aria-label="画布缩放控制">
                 <button aria-label="放大画布" onClick={() => { zoomIn(0.35); setCanvasScale((value: number) => Math.min(12, value + 0.35)); }}>+</button>
                 <button aria-label="缩小画布" onClick={() => { zoomOut(0.35); setCanvasScale((value: number) => Math.max(0.2, value - 0.35)); }}>-</button>
