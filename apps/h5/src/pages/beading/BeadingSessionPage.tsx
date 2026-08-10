@@ -66,7 +66,7 @@ export type BeadingSessionPageProps = {
 const sortCycle: Record<SortMode, SortMode> = {
   canvas: 'remaining',
   remaining: 'code',
-  code: 'canvas',
+  code: 'remaining',
 };
 
 function pausedFromSession(session: BeadingSession): boolean {

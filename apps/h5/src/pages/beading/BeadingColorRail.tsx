@@ -22,8 +22,8 @@ export type BeadingColorRailProps = {
 };
 
 const sortLabels: Record<SortMode, { short: string; accessible: string }> = {
-  canvas: { short: '筛选', accessible: '筛选排序' },
-  remaining: { short: '剩余', accessible: '剩余数量' },
+  canvas: { short: '数量', accessible: '剩余数量' },
+  remaining: { short: '数量', accessible: '剩余数量' },
   code: { short: '色号', accessible: '色号顺序' },
 };
 

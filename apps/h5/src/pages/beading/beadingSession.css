@@ -46,7 +46,7 @@
   height: max(2.0317rem, calc(1.7143rem + env(safe-area-inset-top)));
   min-height: 2.0317rem;
   flex: 0 0 auto;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 0.1905rem;
   padding-top: env(safe-area-inset-top);

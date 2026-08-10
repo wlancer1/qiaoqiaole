@@ -301,8 +301,9 @@ describe('BeadingSessionPage integration', () => {
     await act(async () => renderer.root.findByProps({ className: 'beading-search-result' }).props.onClick());
     expect(canvasSpy.props?.overlay.currentColorCode).toBe('B2');
 
-    await click(renderer, '切换排序，当前筛选排序');
     expect(button(renderer, '切换排序，当前剩余数量')).toBeTruthy();
+    await click(renderer, '切换排序，当前剩余数量');
+    expect(button(renderer, '切换排序，当前色号顺序')).toBeTruthy();
     await click(renderer, '更多工具');
     await click(renderer, '显示色号');
     await click(renderer, '显示网格');
@@ -616,7 +617,7 @@ describe('BeadingSessionPage integration', () => {
     await click(renderer, '显示色号');
     await click(renderer, '显示网格');
     await click(renderer, '关闭更多工具');
-    await click(renderer, '切换排序，当前筛选排序');
+    await click(renderer, '切换排序，当前剩余数量');
 
     await act(async () => renderer.update(<BeadingSessionPage {...callbacks({
       session: session({
@@ -634,7 +635,7 @@ describe('BeadingSessionPage integration', () => {
     expect(canvasSpy.props?.overlay).toMatchObject({
       currentColorCode: 'C3', highlightEnabled: true, markedCellIndexes: [],
     });
-    expect(button(renderer, '切换排序，当前筛选排序')).toBeTruthy();
+    expect(button(renderer, '切换排序，当前剩余数量')).toBeTruthy();
     expect(renderer.root.findAllByProps({ role: 'dialog' })).toHaveLength(0);
   });
 
@@ -697,6 +698,7 @@ describe('BeadingSessionPage static contracts', () => {
     expectDeclaration(toolbar, 'padding-top', /env\(safe-area-inset-top\)/);
     expectDeclaration(toolbar, 'padding-left', /max\(8px, env\(safe-area-inset-left\)\)/);
     expectDeclaration(toolbar, 'padding-right', /max\(10px, env\(safe-area-inset-right\)\)/);
+    expectDeclaration(toolbar, 'align-items', 'center');
     expectDeclaration(toolbar, 'min-height', '2.0317rem');
     expectDeclaration(toolbar, 'height', /max\(2\.0317rem, calc\(1\.7143rem \+ env\(safe-area-inset-top\)\)\)/);
     const stage = cssBlock(styles, '.beading-canvas-stage');

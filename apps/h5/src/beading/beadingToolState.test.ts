@@ -19,7 +19,7 @@ describe('beading tool state', () => {
       focusMode: false,
       codesVisible: true,
       gridVisible: true,
-      sortMode: 'canvas',
+      sortMode: 'remaining',
       markedCellIndexes: [],
     });
   });
