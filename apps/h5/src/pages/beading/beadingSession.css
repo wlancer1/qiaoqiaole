@@ -297,11 +297,10 @@
 .beading-tool-row {
   position: relative;
   z-index: 5;
-  display: grid;
+  display: flex;
   height: 1.7778rem;
   min-height: 1.7778rem;
   flex: 0 0 1.7778rem;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 0.0317rem;
   padding-top: 0;
   padding-right: max(3px, env(safe-area-inset-right));
@@ -313,8 +312,9 @@
 
 .beading-tool-button {
   display: flex;
-  width: 1.5238rem;
-  height: 1.5238rem;
+  width: auto;
+  height: 100%;
+  flex: 1 1 0;
   min-width: 44px;
   min-height: 44px;
   flex-direction: column;
@@ -388,47 +388,59 @@
   position: relative;
   display: flex;
   width: 1.3968rem;
-  height: 1.3968rem;
+  height: auto;
   min-width: 1.3968rem;
-  min-height: 1.3968rem;
   min-width: 44px;
   min-height: 44px;
-  flex: 0 0 1.3968rem;
+  flex: 0 0 1.7778rem;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 0.127rem;
-  padding: 0.2222rem 0.1587rem;
+  padding: 0;
   scroll-snap-align: start;
+  border: 0;
+  background: transparent;
+  color: #1e3048;
+}
+
+.beading-color-swatch {
+  position: relative;
+  display: grid;
+  width: 1.5238rem;
+  height: 1.5238rem;
+  min-width: 44px;
+  min-height: 44px;
+  place-items: center;
   border: 2px solid rgba(30, 48, 72, 0.1);
   border-radius: 0.381rem;
-  background: #edf2fb;
-  color: #1e3048;
   box-shadow: 0 3px 8px rgba(42, 63, 96, 0.1);
 }
 
-.beading-color-chip strong {
+.beading-color-swatch strong {
   font-size: 0.4762rem;
   font-weight: 900;
   line-height: 1;
   text-shadow: 0 1px 1px rgba(255, 255, 255, 0.46);
 }
 
-.beading-color-chip > span:not(.beading-color-complete-badge) {
-  font-size: 0.3492rem;
+.beading-color-count {
+  color: #5b6472;
+  font-size: 0.4444rem;
   font-weight: 700;
   line-height: 1;
+  white-space: nowrap;
 }
 
-.beading-color-chip.is-current {
+.beading-color-chip.is-current .beading-color-swatch {
   border-color: #f0a517;
   box-shadow: 0 0 0 0.0635rem #fff7df, 0 0 0 0.127rem #f0a517;
 }
 
 .beading-color-complete-badge {
   position: absolute;
-  top: -5px;
-  right: -5px;
+  top: -0.1587rem;
+  right: -0.1587rem;
   z-index: 2;
   display: grid;
   width: 0.6984rem;

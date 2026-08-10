@@ -58,15 +58,16 @@ export function BeadingColorRail({
           type="button"
           key={item.colorCode}
           className={`beading-color-chip${isCurrent ? ' is-current' : ''}${done ? ' is-complete' : ''}`}
-          style={{ backgroundColor: color, color: resolveTextColor(color) }}
           aria-label={`选择色号 ${item.colorCode}${isCurrent ? '，当前' : ''}${done ? '，已完成' : ''}`}
           aria-current={isCurrent ? 'true' : undefined}
           disabled={false}
           onClick={() => onSelect(item.colorCode)}
         >
-          {done ? <span className="beading-color-complete-badge" aria-label="已完成"><Check /></span> : null}
-          <strong>{item.colorCode}</strong>
-          <span>{item.required}颗</span>
+          <span className="beading-color-swatch" style={{ backgroundColor: color, color: resolveTextColor(color) }}>
+            {done ? <span className="beading-color-complete-badge" aria-label="已完成"><Check /></span> : null}
+            <strong>{item.colorCode}</strong>
+          </span>
+          <span className="beading-color-count">{item.required}颗</span>
         </button>;
       })}
     </div>
@@ -80,7 +81,7 @@ export function BeadingColorRail({
       >
         <SlidersHorizontal /><span>{sortLabels[sortMode].short}</span>
       </button>
-      <button
+      {/* <button
         type="button"
         className={`beading-color-revise${revisionActive ? ' is-active' : ''}`}
         aria-label="修订当前色"
@@ -89,7 +90,7 @@ export function BeadingColorRail({
         onClick={onRevise}
       >
         <RotateCcw /><span>修订</span>
-      </button>
+      </button> */}
       <button
         type="button"
         className="beading-complete-color"

@@ -274,7 +274,7 @@ describe('BeadingSessionPage integration', () => {
     expect(canvasSpy.props).toMatchObject({ codesVisible: true, gridVisible: true });
   });
 
-  it('marks only the current opaque color, revises marks, and blocks pointer writes while locked', async () => {
+  it('marks only the current opaque color and blocks pointer writes while the tool is unavailable', async () => {
     const { renderer } = await renderPage();
     await click(renderer, '标记');
     pointerTap(renderer, 25, 25);
@@ -283,13 +283,6 @@ describe('BeadingSessionPage integration', () => {
     pointerTap(renderer, 125, 125);
     expect(canvasSpy.props?.overlay.markedCellIndexes).toEqual([0]);
 
-    await click(renderer, '修订当前色');
-    pointerTap(renderer, 25, 25);
-    expect(canvasSpy.props?.overlay.markedCellIndexes).toEqual([]);
-    await click(renderer, '锁定画布');
-    expect(renderer.root.findByProps({ className: 'beading-canvas-stage' }).props['data-locked']).toBe('true');
-    pointerTap(renderer, 25, 25);
-    expect(canvasSpy.props?.overlay.markedCellIndexes).toEqual([]);
   });
 
   it('integrates search, sorting, more settings, fit, focus exit, and inventory', async () => {
@@ -612,7 +605,6 @@ describe('BeadingSessionPage integration', () => {
     await click(renderer, '高亮');
     await click(renderer, '标记');
     pointerTap(renderer, 25, 25);
-    await click(renderer, '锁定画布');
     await click(renderer, '更多工具');
     await click(renderer, '显示色号');
     await click(renderer, '显示网格');
@@ -722,18 +714,21 @@ describe('BeadingSessionPage static contracts', () => {
     expectDeclaration(cssBlock(styles, '.beading-toolbar-actions button'), 'min-height', '44px');
     expectDeclaration(cssBlock(styles, '.beading-toolbar-actions button::before'), 'inset', '0.1905rem 0');
     expectDeclaration(cssBlock(styles, '.beading-toolbar-actions button::before'), 'background', '#f7f9fc');
+    expectDeclaration(cssBlock(styles, '.beading-tool-row'), 'display', 'flex');
+    expectDeclaration(cssBlock(styles, '.beading-tool-button'), 'flex', '1 1 0');
     expectDeclaration(cssBlock(styles, '.beading-progress-track'), 'height', /[78]px/);
     expectDeclaration(cssBlock(styles, '.beading-progress-fill'), 'background', /linear-gradient\([^;]*#(?:1268d7|146cff)[^;]*#[0-9a-f]{6}[^;]*\)/i);
     expectDeclaration(cssBlock(styles, '.beading-tool-row'), 'height', '1.7778rem');
-    expectDeclaration(cssBlock(styles, '.beading-tool-button'), 'width', '1.5238rem');
-    expectDeclaration(cssBlock(styles, '.beading-tool-button'), 'height', '1.5238rem');
+    expectDeclaration(cssBlock(styles, '.beading-tool-button'), 'width', 'auto');
+    expectDeclaration(cssBlock(styles, '.beading-tool-button'), 'height', '100%');
     expectDeclaration(cssBlock(styles, '.beading-tool-button'), 'font-size', '0.381rem');
     expectDeclaration(cssBlock(styles, '.beading-color-sort,\n.beading-color-revise'), 'font-size', '0.3492rem');
     const chip = cssBlock(styles, '.beading-color-chip');
-    expectDeclaration(chip, 'width', '1.3968rem');
-    expectDeclaration(chip, 'height', '1.3968rem');
-    expectDeclaration(cssBlock(styles, '.beading-color-chip > span:not(.beading-color-complete-badge)'), 'font-size', '0.3492rem');
-    expectDeclaration(cssBlock(styles, '.beading-color-chip.is-current'), 'box-shadow', /0 0 0 0\.0635rem #fff[^,;]*,\s*0 0 0 0\.127rem #f0a517/);
+    expectDeclaration(chip, 'flex', '0 0 1.7778rem');
+    expectDeclaration(cssBlock(styles, '.beading-color-swatch'), 'width', '1.5238rem');
+    expectDeclaration(cssBlock(styles, '.beading-color-swatch'), 'height', '1.5238rem');
+    expectDeclaration(cssBlock(styles, '.beading-color-count'), 'font-size', '0.4444rem');
+    expectDeclaration(cssBlock(styles, '.beading-color-chip.is-current .beading-color-swatch'), 'box-shadow', /0 0 0 0\.0635rem #fff[^,;]*,\s*0 0 0 0\.127rem #f0a517/);
     expectDeclaration(cssBlock(styles, '.beading-color-complete-badge'), 'background', /#(?:1268d7|146cff)/i);
     expectDeclaration(cssBlock(styles, '.beading-complete-color'), 'min-width', '1.7778rem');
     expectDeclaration(cssBlock(styles, '.beading-complete-color'), 'height', '1.3968rem');

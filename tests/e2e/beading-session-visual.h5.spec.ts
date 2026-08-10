@@ -98,7 +98,7 @@ for (const viewport of VIEWPORTS) {
     expect(overlaps(stage!, tools!)).toBe(false);
     expect(overlaps(stage!, colors!)).toBe(false);
 
-    const currentBorder = await page.locator('.beading-color-chip.is-current').evaluate((node) => (
+    const currentBorder = await page.locator('.beading-color-chip.is-current .beading-color-swatch').evaluate((node) => (
       getComputedStyle(node).boxShadow
     ));
     expect(currentBorder).toContain('240, 165, 23');
