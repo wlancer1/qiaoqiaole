@@ -301,7 +301,7 @@ describe('BeadingSessionPage integration', () => {
     await act(async () => renderer.root.findByProps({ className: 'beading-search-result' }).props.onClick());
     expect(canvasSpy.props?.overlay.currentColorCode).toBe('B2');
 
-    await click(renderer, '切换排序，当前作品顺序');
+    await click(renderer, '切换排序，当前筛选排序');
     expect(button(renderer, '切换排序，当前剩余数量')).toBeTruthy();
     await click(renderer, '更多工具');
     await click(renderer, '显示色号');
@@ -311,11 +311,7 @@ describe('BeadingSessionPage integration', () => {
     await click(renderer, '适应画布');
     expect(viewportSpy.fit).toHaveBeenCalledTimes(1);
 
-    await click(renderer, '进入专注模式');
-    expect(renderer.root.findByType('main').props.className).toContain('is-focus');
-    expect(button(renderer, '退出专注模式')).toBeTruthy();
-    await click(renderer, '退出专注模式');
-    expect(renderer.root.findByType('main').props.className).not.toContain('is-focus');
+    expect(renderer.root.findAllByProps({ className: 'beading-focus-toggle' })).toHaveLength(0);
     await click(renderer, '查看库存');
     expect(props.onOpenInventory).toHaveBeenCalledTimes(1);
   });
@@ -620,8 +616,7 @@ describe('BeadingSessionPage integration', () => {
     await click(renderer, '显示色号');
     await click(renderer, '显示网格');
     await click(renderer, '关闭更多工具');
-    await click(renderer, '切换排序，当前作品顺序');
-    await click(renderer, '进入专注模式');
+    await click(renderer, '切换排序，当前筛选排序');
 
     await act(async () => renderer.update(<BeadingSessionPage {...callbacks({
       session: session({
@@ -639,7 +634,7 @@ describe('BeadingSessionPage integration', () => {
     expect(canvasSpy.props?.overlay).toMatchObject({
       currentColorCode: 'C3', highlightEnabled: true, markedCellIndexes: [],
     });
-    expect(button(renderer, '切换排序，当前作品顺序')).toBeTruthy();
+    expect(button(renderer, '切换排序，当前筛选排序')).toBeTruthy();
     expect(renderer.root.findAllByProps({ role: 'dialog' })).toHaveLength(0);
   });
 
@@ -708,7 +703,6 @@ describe('BeadingSessionPage static contracts', () => {
     expectDeclaration(stage, 'flex', /1(?: 1 auto)?/);
     expectDeclaration(stage, 'min-height', '0');
     expectDeclaration(stage, 'overflow', 'hidden');
-    expectDeclaration(cssBlock(styles, '.beading-focus-toggle'), 'right', /max\(12px, env\(safe-area-inset-right\)\)/);
     const toolRow = cssBlock(styles, '.beading-tool-row');
     expectDeclaration(toolRow, 'padding-left', /max\(3px, env\(safe-area-inset-left\)\)/);
     expectDeclaration(toolRow, 'padding-right', /max\(3px, env\(safe-area-inset-right\)\)/);
@@ -732,7 +726,6 @@ describe('BeadingSessionPage static contracts', () => {
     expectDeclaration(cssBlock(styles, '.beading-tool-button'), 'width', '1.5238rem');
     expectDeclaration(cssBlock(styles, '.beading-tool-button'), 'height', '1.5238rem');
     expectDeclaration(cssBlock(styles, '.beading-tool-button'), 'font-size', '0.381rem');
-    expectDeclaration(cssBlock(styles, '.beading-focus-toggle'), 'font-size', '0.4127rem');
     expectDeclaration(cssBlock(styles, '.beading-color-sort,\n.beading-color-revise'), 'font-size', '0.3492rem');
     const chip = cssBlock(styles, '.beading-color-chip');
     expectDeclaration(chip, 'width', '1.3968rem');
@@ -762,14 +755,12 @@ describe('BeadingSessionPage static contracts', () => {
     expect(styles).not.toMatch(/Math\.min\([^)]*82|82px/);
   });
 
-  it('expands the stage in focus mode while preserving the exit control', () => {
+  it('keeps the unused focus mode styles isolated', () => {
     const styles = cssSource();
-    expectDeclaration(cssBlock(styles, '.beading-focus-toggle'), 'position', 'absolute');
-    expectDeclaration(cssBlock(styles, '.beading-focus-toggle'), 'min-height', '44px');
     expectDeclaration(cssBlock(styles, '.beading-session-page.is-focus .beading-toolbar'), 'display', 'none');
     expectDeclaration(cssBlock(styles, '.beading-session-page.is-focus .beading-progress-bar'), 'display', 'none');
     expectDeclaration(cssBlock(styles, '.beading-session-page.is-focus .beading-canvas-stage'), 'margin', /0/);
-    expect(styles).not.toMatch(/\.beading-session-page\.is-focus[^{}]*\.beading-focus-toggle\s*\{[^}]*display:\s*none/s);
+    expect(styles).not.toContain('.beading-focus-toggle');
   });
 
   it('fits fixed toolbar controls inside a 320px viewport without hiding essential controls', () => {

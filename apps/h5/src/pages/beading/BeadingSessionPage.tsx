@@ -334,14 +334,6 @@ export function BeadingSessionPage({
           overlay={canvasOverlay}
         />
       </BeadingCanvasViewport>
-      <button
-        type="button"
-        className="beading-focus-toggle"
-        aria-label={toolState.focusMode ? '退出专注模式' : '进入专注模式'}
-        onClick={() => dispatch({ type: 'toggle-focus' })}
-      >
-        {toolState.focusMode ? '退出专注' : '专注'}
-      </button>
       {!toolState.focusMode ? <>
         <BeadingToolRow
           interactionMode={toolState.interactionMode}

@@ -110,10 +110,6 @@ for (const viewport of VIEWPORTS) {
       caret: 'hide',
     });
 
-    await page.getByRole('button', { name: '进入专注模式' }).click();
-    await expect(workspace).toHaveClass(/is-focus/);
-    await expect(page.getByRole('button', { name: '退出专注模式' })).toBeVisible();
-    await page.getByRole('button', { name: '退出专注模式' }).click();
-    await expect(workspace).not.toHaveClass(/is-focus/);
+    await expect(page.getByRole('button', { name: '进入专注模式' })).toHaveCount(0);
   });
 }

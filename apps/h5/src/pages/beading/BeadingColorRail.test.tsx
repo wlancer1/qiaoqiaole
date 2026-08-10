@@ -71,14 +71,14 @@ describe('BeadingColorRail', () => {
     let renderer!: ReturnType<typeof create>;
     act(() => { renderer = create(<BeadingColorRail {...baseProps()} pending />); });
     expect(renderer.root.findByProps({ 'aria-label': '选择色号 A1，当前，已完成' }).props.disabled).toBe(false);
-    expect(renderer.root.findByProps({ 'aria-label': '切换排序，当前作品顺序' }).props.disabled).toBe(false);
+    expect(renderer.root.findByProps({ 'aria-label': '切换排序，当前筛选排序' }).props.disabled).toBe(false);
     expect(renderer.root.findByProps({ 'aria-label': '修订当前色' }).props.disabled).toBe(false);
     expect(renderer.root.findByProps({ 'aria-label': '完成当前色' }).props.disabled).toBe(true);
 
     const props = { ...baseProps(), current: 'B2' };
     act(() => { renderer.update(<BeadingColorRail {...props} />); });
     act(() => renderer.root.findByProps({ 'aria-label': '选择色号 B2，当前' }).props.onClick());
-    act(() => renderer.root.findByProps({ 'aria-label': '切换排序，当前作品顺序' }).props.onClick());
+    act(() => renderer.root.findByProps({ 'aria-label': '切换排序，当前筛选排序' }).props.onClick());
     act(() => renderer.root.findByProps({ 'aria-label': '修订当前色' }).props.onClick());
     act(() => renderer.root.findByProps({ 'aria-label': '完成当前色' }).props.onClick());
     expect(props.onSelect).toHaveBeenCalledWith('B2');
