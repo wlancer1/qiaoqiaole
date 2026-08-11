@@ -31,6 +31,10 @@ export function CommunityPatternCard({ pattern, className = '', dataCardIndex, o
       </div>
       <div className="pattern-card-body">
         <h2>{pattern.title}</h2>
+        {pattern.tags?.length ? <div className="pattern-card-tags" aria-label="作品标签">
+          {pattern.tags.slice(0, 2).map((tag) => <span key={tag}>#{tag}</span>)}
+          {pattern.tags.length > 2 ? <span>+{pattern.tags.length - 2}</span> : null}
+        </div> : null}
         <div className="pattern-card-info-row">
           <div className="pattern-author-row">
             <UserAvatar

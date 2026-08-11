@@ -5,6 +5,7 @@ import { BeadListDrawer, type BeadColorItem } from '../flow/H5FlowComponents';
 import { colorCodeOf } from '../utils/h5AppUtils';
 import type { CommunityComment, CommunityNotification } from '../community/communityData';
 import type { FollowingUser, PatternListCard, RecentProject } from '../shared/h5Types';
+import type { ProjectFolder } from '../projects/projectFolders';
 import { UserAvatar } from '../shared/UserAvatar';
 import { CommentAvatar } from './CommentAvatar';
 import { CommunityPatternCard } from '../community/CommunityPatternCard';
@@ -60,6 +61,11 @@ export function MyWorksPage({
   onShare,
   sharingProjectId = '',
   shareFailedProjectIds = new Set<string>(),
+  folders = [],
+  activeFolderId = 'all',
+  onFolderChange,
+  onCreateFolder,
+  onMoveProject,
   actionSheet,
 }: {
   projects: RecentProject[];
@@ -68,6 +74,11 @@ export function MyWorksPage({
   onShare?: (project: RecentProject) => void;
   sharingProjectId?: string;
   shareFailedProjectIds?: Set<string>;
+  folders?: ProjectFolder[];
+  activeFolderId?: string | null | 'all';
+  onFolderChange?: (folderId: string | null | 'all') => void;
+  onCreateFolder?: () => void;
+  onMoveProject?: (projectId: string, folderId: string | null) => void;
   actionSheet?: ReactNode;
 }) {
   const thumbColors = [
@@ -76,6 +87,12 @@ export function MyWorksPage({
     ['#fde4ec', '#e85b94', '#f7d9b5', '#d87855'],
     ['#cfe7ff', '#146cff', '#8bc34a', '#f9c640'],
   ];
+  const visibleProjects = activeFolderId === 'all'
+    ? projects
+    : projects.filter((project) => (project.folderId || null) === activeFolderId);
+  const folderCount = (folderId: string | null | 'all') => folderId === 'all'
+    ? projects.length
+    : projects.filter((project) => (project.folderId || null) === folderId).length;
 
   return (
     <main className="author-profile-page my-works-page" aria-label="我的作品">
@@ -92,20 +109,20 @@ export function MyWorksPage({
         </div>
         <span className="my-works-count">{projects.length} 件</span>
       </section>
-      <section className="author-profile-stats" aria-label="作品统计">
+      <section className="author-profile-stats my-works-stats" aria-label="作品统计">
         <div><strong>{projects.length}</strong><span>作品</span></div>
         <div><strong>0</strong><span>获赞</span></div>
-        <div><strong>0</strong><span>收藏</span></div>
         <div><strong>0</strong><span>浏览</span></div>
       </section>
-      <nav className="author-profile-tabs" aria-label="作品分类">
-        <button className="active" type="button">作品</button>
-        <button type="button">收藏</button>
-        <button type="button">喜欢</button>
+      <nav className="my-work-folder-rail" aria-label="作品文件夹">
+        <button type="button" className={activeFolderId === 'all' ? 'active' : ''} onClick={() => onFolderChange?.('all')}>全部作品 {folderCount('all')}</button>
+        <button type="button" className={activeFolderId === null ? 'active' : ''} onClick={() => onFolderChange?.(null)}>未分类 {folderCount(null)}</button>
+        {folders.map((folder) => <button type="button" key={folder.id} className={activeFolderId === folder.id ? 'active' : ''} onClick={() => onFolderChange?.(folder.id)}>{folder.name} {folderCount(folder.id)}</button>)}
+        {onCreateFolder ? <button type="button" className="my-work-folder-create" onClick={onCreateFolder}>+ 新建文件夹</button> : null}
       </nav>
-      {projects.length > 0 ? (
+      {visibleProjects.length > 0 ? (
         <section className="author-work-grid" aria-label="我的作品列表">
-          {projects.map((project, index) => (
+          {visibleProjects.map((project, index) => (
             <article
               className="author-work-card my-work-card"
               key={project.id}
@@ -132,24 +149,33 @@ export function MyWorksPage({
               )}
               <strong>{project.name.startsWith('wx') ? '未命名作品' : project.name}</strong>
               <small>{project.cols}×{project.rows}</small>
+              {onMoveProject ? <select
+                aria-label={`移动${project.name}到文件夹`}
+                value={project.folderId || ''}
+                onClick={(event) => event.stopPropagation()}
+                onChange={(event) => { event.stopPropagation(); onMoveProject(project.id, event.target.value || null); }}
+              >
+                <option value="">未分类</option>
+                {folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
+              </select> : null}
               <button
                 className={project.sharedToCommunity ? 'my-work-share-state shared' : shareFailedProjectIds.has(project.id) ? 'my-work-share-state failed' : 'my-work-share-state'}
                 type="button"
-                disabled={project.sharedToCommunity || sharingProjectId === project.id}
+                disabled={sharingProjectId === project.id}
                 onClick={(event) => {
                   event.stopPropagation();
                   onShare?.(project);
                 }}
               >
-                {project.sharedToCommunity ? '已分享到社区' : sharingProjectId === project.id ? '分享中...' : shareFailedProjectIds.has(project.id) ? '重试分享' : '分享到社区'}
+                {project.sharedToCommunity ? '编辑标签' : sharingProjectId === project.id ? '分享中...' : shareFailedProjectIds.has(project.id) ? '重试分享' : '分享到社区'}
               </button>
             </article>
           ))}
         </section>
       ) : (
         <section className="author-work-empty" aria-label="暂无作品">
-          <strong>还没有保存的作品</strong>
-          <span>完成创作并保存后，作品会显示在这里</span>
+          <strong>{projects.length ? '这个文件夹里还没有作品' : '还没有保存的作品'}</strong>
+          <span>{projects.length ? '可移动作品到这里，或切换其他文件夹查看' : '完成创作并保存后，作品会显示在这里'}</span>
         </section>
       )}
       {actionSheet}
@@ -184,10 +210,15 @@ export function FollowingPage({ users, loading, error, onBack, onRetry }: { user
   );
 }
 
-export function PatternDiscoverPage({ patterns, activeSort = 'hot', onSortChange, onOpen, onOpenAuthor }: {
+export function PatternDiscoverPage({ patterns, activeSort = 'hot', query = '', selectedTags = [], availableTags = [], onSortChange, onQueryChange, onTagsChange, onOpen, onOpenAuthor }: {
   patterns: PatternListCard[];
   activeSort?: 'hot' | 'latest';
+  query?: string;
+  selectedTags?: string[];
+  availableTags?: string[];
   onSortChange?: (sort: 'hot' | 'latest') => void;
+  onQueryChange?: (query: string) => void;
+  onTagsChange?: (tags: string[]) => void;
   onOpen: (pattern: PatternListCard) => void;
   onOpenAuthor: (pattern: PatternListCard) => void;
 }) {
@@ -201,8 +232,16 @@ export function PatternDiscoverPage({ patterns, activeSort = 'hot', onSortChange
         <header className="pattern-list-head" aria-label="稿件列表页">
           <label className="pattern-search">
             <Search aria-hidden="true" />
-            <input type="search" placeholder="搜索图纸、作者、标签" aria-label="搜索图纸、作者、标签" />
+            <input type="search" value={query} onChange={(event) => onQueryChange?.(event.target.value)} placeholder="搜索图纸、作者、标签" aria-label="搜索图纸、作者、标签" />
           </label>
+
+          <div className="pattern-tag-filter" aria-label="标签筛选">
+            <button type="button" className={selectedTags.length === 0 ? 'active' : ''} aria-pressed={selectedTags.length === 0} onClick={() => onTagsChange?.([])}>全部</button>
+            {availableTags.map((tag) => {
+              const selected = selectedTags.includes(tag);
+              return <button key={tag} type="button" aria-pressed={selected} className={selected ? 'active' : ''} onClick={() => onTagsChange?.(selected ? selectedTags.filter((item) => item !== tag) : [...selectedTags, tag])}>{tag}</button>;
+            })}
+          </div>
 
           <div className="pattern-tabs" role="tablist" aria-label="稿件排序">
             {sortTabs.map((tab) => (
@@ -367,6 +406,7 @@ export function PatternDetailPage({ pattern, currentUserId = '', onBack, onOpenA
 
         <section className="detail-info-card" aria-label="图纸信息">
           <h1>{pattern.title}</h1>
+          {pattern.tags?.length ? <div className="detail-pattern-tags" aria-label="作品标签">{pattern.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div> : null}
           <div className="detail-title-meta">
             <span>发布日期 {pattern.meta}</span>
             <span>浏览次数 未统计</span>

@@ -41,6 +41,7 @@ export type PatternListCard = {
   likesCount: number;
   commentsCount: number;
   likedByMe: boolean;
+  tags?: string[];
 };
 export type RecentProject = {
   id: string;
@@ -56,6 +57,8 @@ export type RecentProject = {
   sharedToCommunity?: boolean;
   sharedAt?: string;
   likesCount?: number;
+  folderId?: string | null;
+  tags?: string[];
 };
 export type FollowingUser = { id: string; name: string; avatarUrl?: string | null };
 export type AuthorProfile = FollowingUser & { postsCount: number; likesCount: number; followersCount: number; isFollowing: boolean };

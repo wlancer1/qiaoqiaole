@@ -1,9 +1,11 @@
 import { Save, X } from 'lucide-react';
 import { useEffect, useRef } from 'react';
+import { ProjectFolderPicker } from '../../projects/ProjectFolderPicker';
+import type { ProjectFolder } from '../../projects/projectFolders';
 
 export type SaveProjectIntent = { startBeading: boolean };
 
-export function SaveProjectDialog({ saveProjectName, setSaveProjectName, shareToCommunity, setShareToCommunity, activeProjectShared, isSaving, onConfirm, onClose }: {
+export function SaveProjectDialog({ saveProjectName, setSaveProjectName, shareToCommunity, setShareToCommunity, activeProjectShared, isSaving, onConfirm, onClose, folders, folderId, onFolderChange, onCreateFolder }: {
   saveProjectName: string;
   setSaveProjectName: (value: string) => void;
   shareToCommunity: boolean;
@@ -12,6 +14,10 @@ export function SaveProjectDialog({ saveProjectName, setSaveProjectName, shareTo
   isSaving: boolean;
   onConfirm: (intent: SaveProjectIntent) => void;
   onClose: () => void;
+  folders?: ProjectFolder[];
+  folderId?: string | null;
+  onFolderChange?: (folderId: string | null) => void;
+  onCreateFolder?: () => void;
 }) {
   const submitLockedRef = useRef(false);
   useEffect(() => {
@@ -37,6 +43,7 @@ export function SaveProjectDialog({ saveProjectName, setSaveProjectName, shareTo
           </div>
           <output>{saveProjectName.length}/30</output>
         </label>
+        {folders && onFolderChange ? <ProjectFolderPicker folders={folders} value={folderId} onChange={onFolderChange} onCreateFolder={onCreateFolder} /> : null}
         <label className="save-project-share-option">
           <input type="checkbox" checked={shareToCommunity} onChange={(event) => setShareToCommunity(event.target.checked)} disabled={isSaving || activeProjectShared} />
           <span><strong>{activeProjectShared ? '已分享到社区' : '分享到社区'}</strong><small>{activeProjectShared ? '保存不会重复分享或刷新分享时间' : '分享后会出现在发现和热门模板'}</small></span>

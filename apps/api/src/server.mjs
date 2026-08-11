@@ -32,6 +32,7 @@ const SESSION_DAYS = 30;
 const MAX_EXTRACT_IMAGE_BYTES = 20 * 1024 * 1024;
 const MAX_PROJECT_IMAGE_BYTES = 20 * 1024 * 1024;
 const PROJECT_ASSET_ACCESS_SECONDS = 15 * 60;
+const COMMUNITY_TAGS = ['动物', '人物', '植物', '食物', '风景', '动漫', '游戏', '节日', '文字', '新手', '其他'];
 const MARD_COLOR_RANGES = {
   A: 26,
   B: 32,
@@ -222,6 +223,7 @@ function initSchema() {
     CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
+      folder_id TEXT,
       name TEXT NOT NULL,
       rows INTEGER NOT NULL,
       cols INTEGER NOT NULL,
@@ -234,6 +236,24 @@ function initSchema() {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS project_folders (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(user_id, name),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS project_tags (
+      project_id TEXT NOT NULL,
+      tag TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, tag),
+      FOREIGN KEY (project_id) REFERENCES projects(id)
     );
 
     CREATE TABLE IF NOT EXISTS beading_sessions (
@@ -328,6 +348,9 @@ function initSchema() {
       // Existing databases already contain the column.
     }
   }
+  try { db.run('ALTER TABLE projects ADD COLUMN folder_id TEXT'); } catch {}
+  db.run('CREATE INDEX IF NOT EXISTS idx_projects_user_folder_updated ON projects(user_id, folder_id, updated_at DESC)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_project_tags_tag_project ON project_tags(tag, project_id)');
   try { db.run('ALTER TABLE projects ADD COLUMN revision INTEGER NOT NULL DEFAULT 1'); } catch {}
   for (const [column, definition] of [
     ['project_id', 'TEXT'],
@@ -453,7 +476,13 @@ async function route(request, response) {
 
   if (request.method === 'GET' && url.pathname === '/api/community/posts') {
     const optionalUser = getOptionalUser(request);
-    return listCommunityPosts(response, optionalUser?.id || '', url.searchParams.get('sort') || 'hot', parsePagination(url.searchParams));
+    return listCommunityPosts(response, optionalUser?.id || '', url.searchParams.get('sort') || 'hot', parsePagination(url.searchParams), {
+      q: url.searchParams.get('q') || '',
+      tags: url.searchParams.get('tags') || '',
+    });
+  }
+  if (request.method === 'GET' && url.pathname === '/api/community/tags') {
+    return sendJson(response, 200, { tags: COMMUNITY_TAGS });
   }
   const publicCommunityCommentsMatch = url.pathname.match(/^\/api\/community\/posts\/([^/]+)\/comments$/);
   if (publicCommunityCommentsMatch && request.method === 'GET') {
@@ -506,6 +535,19 @@ async function route(request, response) {
   }
   if (request.method === 'GET' && url.pathname === '/api/projects') {
     return listProjects(response, user.id);
+  }
+  if (request.method === 'GET' && url.pathname === '/api/project-folders') {
+    return listProjectFolders(response, user.id);
+  }
+  if (request.method === 'POST' && url.pathname === '/api/project-folders') {
+    return createProjectFolder(request, response, user.id);
+  }
+  const projectFolderMatch = url.pathname.match(/^\/api\/project-folders\/([^/]+)$/);
+  if (projectFolderMatch && request.method === 'PATCH') {
+    return renameProjectFolder(request, response, user.id, projectFolderMatch[1]);
+  }
+  if (projectFolderMatch && request.method === 'DELETE') {
+    return deleteProjectFolder(response, user.id, projectFolderMatch[1]);
   }
   const followMatch = url.pathname.match(/^\/api\/community\/users\/([^/]+)\/follow$/);
   if (followMatch && (request.method === 'POST' || request.method === 'DELETE')) {
@@ -573,11 +615,19 @@ async function route(request, response) {
   }
   const projectShareMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/share$/);
   if (projectShareMatch && request.method === 'POST') {
-    return shareProject(response, user.id, projectShareMatch[1]);
+    return shareProject(request, response, user.id, projectShareMatch[1]);
+  }
+  const projectTagsMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/community-tags$/);
+  if (projectTagsMatch && request.method === 'PATCH') {
+    return updateProjectCommunityTags(request, response, user.id, projectTagsMatch[1]);
   }
   const projectCopyMatch = url.pathname.match(/^\/api(?:\/v1)?\/projects\/([^/]+)\/copy$/);
   if (projectCopyMatch && request.method === 'POST') {
     return copyCommunityProject(response, user.id, projectCopyMatch[1]);
+  }
+  const projectFolderAssignmentMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/folder$/);
+  if (projectFolderAssignmentMatch && request.method === 'PATCH') {
+    return moveProjectToFolder(request, response, user.id, projectFolderAssignmentMatch[1]);
   }
   const projectDeleteMatch = url.pathname.match(/^\/api(?:\/v1)?\/projects\/([^/]+)$/);
   if (projectDeleteMatch && request.method === 'DELETE') {
@@ -1268,7 +1318,7 @@ async function uploadProjectImage(input) {
 
 function listProjects(response, userId) {
   const projects = getAll(
-    `SELECT id, name, rows, cols, tone, source_image AS sourceImage, thumbnail_image AS thumbnailImage, canvas_data AS canvasData,
+    `SELECT id, folder_id AS folderId, name, rows, cols, tone, source_image AS sourceImage, thumbnail_image AS thumbnailImage, canvas_data AS canvasData,
             shared_to_community AS sharedToCommunity, shared_at AS sharedAt, likes_count AS likesCount,
             created_at AS createdAt, updated_at AS updatedAt
      FROM projects
@@ -1283,6 +1333,84 @@ function listProjects(response, userId) {
       thumbnailImage: resolveProjectImage(project.thumbnailImage, userId),
     })),
   });
+}
+
+function normalizeFolderName(value) {
+  const name = String(value || '').trim();
+  if (!name || Array.from(name).length > 30) throw new Error('文件夹名称需为 1–30 个字符');
+  return name;
+}
+
+function getOwnedProjectFolder(userId, folderId) {
+  if (folderId === null || folderId === undefined || folderId === '') return null;
+  return getOne('SELECT id, name, created_at AS createdAt, updated_at AS updatedAt FROM project_folders WHERE id = ? AND user_id = ?', [String(folderId), userId]);
+}
+
+function listProjectFolders(response, userId) {
+  const folders = getAll(
+    'SELECT id, name, created_at AS createdAt, updated_at AS updatedAt FROM project_folders WHERE user_id = ? ORDER BY created_at ASC, id ASC',
+    [userId],
+  );
+  sendJson(response, 200, { folders });
+}
+
+async function createProjectFolder(request, response, userId) {
+  const body = await readJson(request);
+  let name;
+  try {
+    name = normalizeFolderName(body.name);
+  } catch (error) {
+    return sendJson(response, 400, { error: 'INVALID_INPUT', message: error.message });
+  }
+  if (getOne('SELECT id FROM project_folders WHERE user_id = ? AND name = ?', [userId, name])) {
+    return sendJson(response, 409, { error: 'DUPLICATE_FOLDER_NAME', message: '已有同名文件夹' });
+  }
+  const now = new Date().toISOString();
+  const folder = { id: randomUUID(), name, createdAt: now, updatedAt: now };
+  db.run('INSERT INTO project_folders (id, user_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)', [folder.id, userId, folder.name, now, now]);
+  await persist();
+  sendJson(response, 201, { folder });
+}
+
+async function renameProjectFolder(request, response, userId, folderId) {
+  const folder = getOwnedProjectFolder(userId, folderId);
+  if (!folder) return sendJson(response, 404, { error: 'NOT_FOUND', message: '文件夹不存在' });
+  const body = await readJson(request);
+  let name;
+  try {
+    name = normalizeFolderName(body.name);
+  } catch (error) {
+    return sendJson(response, 400, { error: 'INVALID_INPUT', message: error.message });
+  }
+  if (name !== folder.name && getOne('SELECT id FROM project_folders WHERE user_id = ? AND name = ?', [userId, name])) {
+    return sendJson(response, 409, { error: 'DUPLICATE_FOLDER_NAME', message: '已有同名文件夹' });
+  }
+  const updatedAt = new Date().toISOString();
+  db.run('UPDATE project_folders SET name = ?, updated_at = ? WHERE id = ? AND user_id = ?', [name, updatedAt, folderId, userId]);
+  await persist();
+  sendJson(response, 200, { folder: { ...folder, name, updatedAt } });
+}
+
+async function deleteProjectFolder(response, userId, folderId) {
+  const folder = getOwnedProjectFolder(userId, folderId);
+  if (!folder) return sendJson(response, 404, { error: 'NOT_FOUND', message: '文件夹不存在' });
+  await withTransaction(async () => {
+    db.run('UPDATE projects SET folder_id = NULL, updated_at = ? WHERE user_id = ? AND folder_id = ?', [new Date().toISOString(), userId, folderId]);
+    db.run('DELETE FROM project_folders WHERE id = ? AND user_id = ?', [folderId, userId]);
+  });
+  sendJson(response, 200, { deleted: true, folderId });
+}
+
+async function moveProjectToFolder(request, response, userId, projectId) {
+  const project = getOne('SELECT id FROM projects WHERE id = ? AND user_id = ?', [projectId, userId]);
+  if (!project) return sendJson(response, 404, { error: 'NOT_FOUND', message: '作品不存在' });
+  const body = await readJson(request);
+  const folderId = body.folderId === null || body.folderId === undefined || body.folderId === '' ? null : String(body.folderId);
+  if (folderId && !getOwnedProjectFolder(userId, folderId)) return sendJson(response, 404, { error: 'NOT_FOUND', message: '文件夹不存在' });
+  const updatedAt = new Date().toISOString();
+  db.run('UPDATE projects SET folder_id = ?, updated_at = ? WHERE id = ? AND user_id = ?', [folderId, updatedAt, projectId, userId]);
+  await persist();
+  sendJson(response, 200, { project: { id: projectId, folderId, updatedAt } });
 }
 
 async function createProject(request, response, userId) {
@@ -1304,15 +1432,17 @@ async function createProject(request, response, userId) {
   if (!name || !Number.isInteger(rows) || !Number.isInteger(cols) || rows < 1 || cols < 1) {
     return sendJson(response, 400, { error: 'INVALID_INPUT', message: '项目名称和画布尺寸无效' });
   }
+  const folderId = body.folderId === null || body.folderId === undefined || body.folderId === '' ? null : String(body.folderId);
+  if (folderId && !getOwnedProjectFolder(userId, folderId)) return sendJson(response, 404, { error: 'NOT_FOUND', message: '文件夹不存在' });
   const now = new Date().toISOString();
   const id = randomUUID();
   db.run(
-    'INSERT INTO projects (id, user_id, name, rows, cols, tone, source_image, thumbnail_image, canvas_data, bead_list, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [id, userId, name, rows, cols, tone, sourceImage, thumbnailImage, canvasData, beadList, now, now],
+    'INSERT INTO projects (id, user_id, folder_id, name, rows, cols, tone, source_image, thumbnail_image, canvas_data, bead_list, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [id, userId, folderId, name, rows, cols, tone, sourceImage, thumbnailImage, canvasData, beadList, now, now],
   );
   await persist();
   sendJson(response, 201, { project: {
-    id, name, rows, cols, tone,
+    id, folderId, name, rows, cols, tone,
     sourceImage: resolveProjectImage(sourceImage, userId),
     thumbnailImage: resolveProjectImage(thumbnailImage, userId),
     canvasData,
@@ -1326,7 +1456,7 @@ async function createProject(request, response, userId) {
 
 async function updateProject(request, response, userId, projectId) {
   const existing = getOne(
-    `SELECT id, user_id, source_image AS sourceImage, thumbnail_image AS thumbnailImage,
+    `SELECT id, user_id, folder_id AS folderId, source_image AS sourceImage, thumbnail_image AS thumbnailImage,
             bead_list AS beadList,
             shared_to_community AS sharedToCommunity, shared_at AS sharedAt, likes_count AS likesCount,
             created_at AS createdAt
@@ -1352,16 +1482,21 @@ async function updateProject(request, response, userId, projectId) {
   if (!name || !Number.isInteger(rows) || !Number.isInteger(cols) || rows < 1 || cols < 1) {
     return sendJson(response, 400, { error: 'INVALID_INPUT', message: '项目名称和画布尺寸无效' });
   }
+  const folderId = Object.hasOwn(body, 'folderId')
+    ? (body.folderId === null || body.folderId === undefined || body.folderId === '' ? null : String(body.folderId))
+    : (existing.folderId || null);
+  if (folderId && !getOwnedProjectFolder(userId, folderId)) return sendJson(response, 404, { error: 'NOT_FOUND', message: '文件夹不存在' });
   const now = new Date().toISOString();
   db.run(
     `UPDATE projects
-     SET name = ?, rows = ?, cols = ?, tone = ?, source_image = ?, thumbnail_image = ?, canvas_data = ?, bead_list = ?, revision = revision + 1, updated_at = ?
+     SET folder_id = ?, name = ?, rows = ?, cols = ?, tone = ?, source_image = ?, thumbnail_image = ?, canvas_data = ?, bead_list = ?, revision = revision + 1, updated_at = ?
      WHERE id = ? AND user_id = ?`,
-    [name, rows, cols, tone, sourceImage, thumbnailImage, canvasData, beadList, now, projectId, userId],
+    [folderId, name, rows, cols, tone, sourceImage, thumbnailImage, canvasData, beadList, now, projectId, userId],
   );
   await persist();
   sendJson(response, 200, { project: {
     id: projectId,
+    folderId,
     name,
     rows,
     cols,
@@ -1467,7 +1602,7 @@ function servePublicAvatar(userId, response) {
 }
 
 function getCommunityPost(userId, projectId) {
-  return getOne(
+  const post = getOne(
     `SELECT p.id, p.name, p.rows, p.cols, p.tone,
             p.source_image AS sourceImage, p.thumbnail_image AS thumbnailImage, p.canvas_data AS canvasData, p.bead_list AS beadList,
             p.shared_at AS sharedAt, p.likes_count AS likesCount,
@@ -1483,6 +1618,8 @@ function getCommunityPost(userId, projectId) {
      GROUP BY p.id, l.user_id`,
     [userId || '', userId, projectId],
   );
+  if (!post) return null;
+  return { ...post, tags: getProjectTags([post.id]).get(post.id) || [] };
 }
 
 function formatCommunityPost(post) {
@@ -1498,6 +1635,42 @@ function formatCommunityPost(post) {
     likesCount: Number(post.likesCount || 0),
     commentsCount: Number(post.commentsCount || 0),
     likedByMe: Boolean(post.likedByMe),
+    tags: Array.isArray(post.tags) ? post.tags : [],
+  };
+}
+
+function getProjectTags(projectIds) {
+  const ids = [...new Set(projectIds.filter(Boolean))];
+  const tagsByProjectId = new Map(ids.map((id) => [id, []]));
+  if (ids.length === 0) return tagsByProjectId;
+  const placeholders = ids.map(() => '?').join(', ');
+  const rows = getAll(
+    `SELECT project_id AS projectId, tag FROM project_tags WHERE project_id IN (${placeholders}) ORDER BY created_at ASC, tag ASC`,
+    ids,
+  );
+  for (const row of rows) tagsByProjectId.get(row.projectId)?.push(row.tag);
+  return tagsByProjectId;
+}
+
+function formatCommunityPosts(posts) {
+  const tagsByProjectId = getProjectTags(posts.map((post) => post.id));
+  return posts.map((post) => formatCommunityPost({ ...post, tags: tagsByProjectId.get(post.id) || [] }));
+}
+
+function normalizeCommunityTags(value) {
+  if (!Array.isArray(value)) throw new Error('请选择 1–3 个标签');
+  const tags = value.map((tag) => String(tag || '').trim());
+  if (tags.length < 1 || tags.length > 3 || tags.some((tag) => !tag) || new Set(tags).size !== tags.length || tags.some((tag) => !COMMUNITY_TAGS.includes(tag))) {
+    throw new Error('请选择 1–3 个预设标签');
+  }
+  return tags;
+}
+
+function parseCommunityTagFilters(value) {
+  const rawTags = String(value || '').split(',').map((tag) => tag.trim()).filter(Boolean);
+  return {
+    tags: [...new Set(rawTags.filter((tag) => COMMUNITY_TAGS.includes(tag)))],
+    hasInvalidTag: rawTags.some((tag) => !COMMUNITY_TAGS.includes(tag)),
   };
 }
 
@@ -1508,8 +1681,24 @@ function parsePagination(searchParams) {
   return { page, pageSize, offset: (page - 1) * pageSize };
 }
 
-function listCommunityPosts(response, userId, sort, pagination = { page: 1, pageSize: 20, offset: 0 }) {
+function listCommunityPosts(response, userId, sort, pagination = { page: 1, pageSize: 20, offset: 0 }, filters = {}) {
   const orderBy = sort === 'latest' ? 'p.shared_at DESC, p.id DESC' : 'p.likes_count DESC, p.shared_at DESC, p.id DESC';
+  const q = String(filters.q || '').trim().slice(0, 60);
+  const tagFilters = parseCommunityTagFilters(filters.tags);
+  const where = ['p.shared_to_community = 1'];
+  const params = [userId || '', userId || ''];
+  if (q) {
+    const like = `%${q}%`;
+    where.push('(p.name LIKE ? OR COALESCE(NULLIF(u.nickname, \'\'), u.username) LIKE ? OR EXISTS (SELECT 1 FROM project_tags search_tags WHERE search_tags.project_id = p.id AND search_tags.tag LIKE ?))');
+    params.push(like, like, like);
+  }
+  if (tagFilters.hasInvalidTag) {
+    where.push('1 = 0');
+  } else if (tagFilters.tags.length > 0) {
+    const placeholders = tagFilters.tags.map(() => '?').join(', ');
+    where.push(`EXISTS (SELECT 1 FROM project_tags filter_tags WHERE filter_tags.project_id = p.id AND filter_tags.tag IN (${placeholders}))`);
+    params.push(...tagFilters.tags);
+  }
   const posts = getAll(
     `SELECT p.id, p.name, p.rows, p.cols, p.tone,
             p.source_image AS sourceImage, p.thumbnail_image AS thumbnailImage, p.canvas_data AS canvasData, p.bead_list AS beadList,
@@ -1522,13 +1711,13 @@ function listCommunityPosts(response, userId, sort, pagination = { page: 1, page
      JOIN users u ON u.id = p.user_id
      LEFT JOIN project_comments c ON c.project_id = p.id
      LEFT JOIN project_likes l ON l.project_id = p.id AND l.user_id = ?
-     WHERE p.shared_to_community = 1
+     WHERE ${where.join(' AND ')}
      GROUP BY p.id, l.user_id
      ORDER BY ${orderBy}
      LIMIT ? OFFSET ?`,
-    [userId || '', userId, pagination.pageSize, pagination.offset],
+    [...params, pagination.pageSize, pagination.offset],
   );
-  sendJson(response, 200, { posts: posts.map(formatCommunityPost), page: pagination.page, pageSize: pagination.pageSize });
+  sendJson(response, 200, { posts: formatCommunityPosts(posts), page: pagination.page, pageSize: pagination.pageSize });
 }
 
 function getAuthorProfile(viewerId, authorId) {
@@ -1573,8 +1762,8 @@ function listAuthorProfile(response, viewerId, authorId, pagination = { page: 1,
      ORDER BY p.shared_at DESC, p.id DESC
      LIMIT ? OFFSET ?`,
     [viewerId || '', viewerId || '', authorId, pagination.pageSize, pagination.offset],
-  ).map(formatCommunityPost);
-  sendJson(response, 200, { profile, posts, page: pagination.page, pageSize: pagination.pageSize });
+  );
+  sendJson(response, 200, { profile, posts: formatCommunityPosts(posts), page: pagination.page, pageSize: pagination.pageSize });
 }
 
 function assertSharedProject(response, userId, projectId) {
@@ -1586,24 +1775,46 @@ function assertSharedProject(response, userId, projectId) {
   return post;
 }
 
-async function shareProject(response, userId, projectId) {
+function replaceProjectTags(projectId, tags, now) {
+  db.run('DELETE FROM project_tags WHERE project_id = ?', [projectId]);
+  for (const tag of tags) db.run('INSERT INTO project_tags (project_id, tag, created_at) VALUES (?, ?, ?)', [projectId, tag, now]);
+}
+
+async function shareProject(request, response, userId, projectId) {
+  const body = await readJson(request);
+  let tags;
+  try {
+    tags = normalizeCommunityTags(body.tags);
+  } catch (error) {
+    return sendJson(response, 400, { error: 'INVALID_INPUT', message: error.message });
+  }
   const project = getOne('SELECT id, user_id, thumbnail_image AS thumbnailImage, source_image AS sourceImage, canvas_data AS canvasData, bead_list AS beadList, shared_to_community AS sharedToCommunity, shared_at AS sharedAt FROM projects WHERE id = ?', [projectId]);
   if (!project || project.user_id !== userId) return sendJson(response, 404, { error: 'NOT_FOUND', message: '作品不存在' });
   if (!String(project.thumbnailImage || project.sourceImage || '').trim()) {
     return sendJson(response, 400, { error: 'INVALID_INPUT', message: '作品缺少有效预览图，无法分享到社区' });
   }
   const beadList = buildBeadList(project.canvasData);
-  if (!project.sharedToCommunity) {
-    const now = new Date().toISOString();
-    db.run('UPDATE projects SET shared_to_community = 1, shared_at = ?, bead_list = ?, updated_at = ? WHERE id = ?', [now, JSON.stringify(beadList), now, projectId]);
-    await persist();
-    return sendJson(response, 200, { shared: true, sharedAt: now, projectId, beadList });
+  const now = new Date().toISOString();
+  const sharedAt = project.sharedToCommunity ? project.sharedAt : now;
+  await withTransaction(async () => {
+    db.run('UPDATE projects SET shared_to_community = 1, shared_at = ?, bead_list = ?, updated_at = ? WHERE id = ?', [sharedAt, JSON.stringify(beadList), now, projectId]);
+    replaceProjectTags(projectId, tags, now);
+  });
+  sendJson(response, 200, { shared: true, sharedAt, projectId, beadList, tags });
+}
+
+async function updateProjectCommunityTags(request, response, userId, projectId) {
+  const project = getOne('SELECT id FROM projects WHERE id = ? AND user_id = ? AND shared_to_community = 1', [projectId, userId]);
+  if (!project) return sendJson(response, 404, { error: 'NOT_FOUND', message: '社区作品不存在' });
+  const body = await readJson(request);
+  let tags;
+  try {
+    tags = normalizeCommunityTags(body.tags);
+  } catch (error) {
+    return sendJson(response, 400, { error: 'INVALID_INPUT', message: error.message });
   }
-  if (!project.beadList) {
-    db.run('UPDATE projects SET bead_list = ? WHERE id = ?', [JSON.stringify(beadList), projectId]);
-    await persist();
-  }
-  sendJson(response, 200, { shared: true, sharedAt: project.sharedAt, projectId, beadList: project.beadList ? parseStoredBeadList(project.beadList) : beadList });
+  await withTransaction(async () => replaceProjectTags(projectId, tags, new Date().toISOString()));
+  sendJson(response, 200, { projectId, tags });
 }
 
 function listProjectComments(response, userId, projectId, pagination = { page: 1, pageSize: 20, offset: 0 }) {

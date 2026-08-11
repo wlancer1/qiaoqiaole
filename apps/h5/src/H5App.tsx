@@ -107,9 +107,11 @@ import {
 import { normalizeProjectPayload, parseProjectCells, serializeProjectCells } from './utils/projectPayload';
 import { cropSize, getAutoCropBounds, splitCropRegion, splitPreviewBackTarget, type CropBounds } from './utils/splitCrop';
 import { defaultSplitImageView } from './utils/splitImageView';
+import { resolveFolderId, type ProjectFolder } from './projects/projectFolders';
 import { AuthorProfilePage, FollowingPage, MyWorksPage, PatternDetailPage, PatternDiscoverPage, PatternMessagesPage } from './patterns/H5PatternPages';
 import { quickTools } from './patterns/h5PatternData';
 import { sortCommunityPosts, toPatternListCard, type CommunityComment, type CommunityNotification, type CommunityPost } from './community/communityData';
+import { ShareCommunityDialog } from './community/ShareCommunityDialog';
 import { WarehousePage } from './pages/warehouse/WarehousePage';
 import { WarehouseListPage } from './pages/warehouse/WarehouseListPage';
 import { SplitCropPage, SplitPreviewPage, SplitSettingsPage } from './pages/split/SplitPages';
@@ -268,6 +270,9 @@ function H5App() {
   };
   const [authToken, setAuthToken] = useState('');
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
+  const [projectFolders, setProjectFolders] = useState<ProjectFolder[]>([]);
+  const [saveFolderId, setSaveFolderId] = useState<string | null>(null);
+  const [activeProjectFolderId, setActiveProjectFolderId] = useState<string | null | 'all'>('all');
   const [activeProjectId, setActiveProjectId] = useState('');
   const [communityPosts, setCommunityPosts] = useState<CommunityPost[]>([]);
   const [communityComments, setCommunityComments] = useState<CommunityComment[]>([]);
@@ -275,6 +280,8 @@ function H5App() {
   const [isCommunityLoading, setIsCommunityLoading] = useState(false);
   const [isCommunityCommentsLoading, setIsCommunityCommentsLoading] = useState(false);
   const [communitySort, setCommunitySort] = useState<'hot' | 'latest'>('hot');
+  const [communityQuery, setCommunityQuery] = useState('');
+  const [communitySelectedTags, setCommunitySelectedTags] = useState<string[]>([]);
   const sortedRecentProjects = useMemo(
     () => [...recentProjects].sort((a, b) => Date.parse(b.updatedAt || b.createdAt) - Date.parse(a.updatedAt || a.createdAt)),
     [recentProjects],
@@ -289,6 +296,8 @@ function H5App() {
   const [showSaveProjectModal, setShowSaveProjectModal] = useState(false);
   const [showSaveLoginPrompt, setShowSaveLoginPrompt] = useState(false);
   const [shareToCommunity, setShareToCommunity] = useState(false);
+  const [shareDialogProject, setShareDialogProject] = useState<RecentProject | null>(null);
+  const [shareDialogTags, setShareDialogTags] = useState<string[]>([]);
   const [sharingProjectId, setSharingProjectId] = useState('');
   const [shareFailedProjectIds, setShareFailedProjectIds] = useState<Set<string>>(() => new Set());
   const [copyingPatternId, setCopyingPatternId] = useState('');
@@ -835,10 +844,60 @@ function H5App() {
       if (!response.ok) throw new Error(payload.message || '最近项目读取失败');
       if (recentProjectsRequestSeqRef.current !== requestSeq) return;
       setRecentProjects(payload.projects as RecentProject[]);
+      void loadProjectFolders(token);
     } catch (error) {
       if (recentProjectsRequestSeqRef.current !== requestSeq) return;
       setRecentProjects([]);
       setStatus(error instanceof Error ? error.message : '最近项目读取失败');
+    }
+  };
+
+  const loadProjectFolders = async (token = authToken) => {
+    if (!token) {
+      setProjectFolders([]);
+      return;
+    }
+    try {
+      const payload = await requestApi<{ folders: ProjectFolder[] }>('/project-folders', { headers: { authorization: `Bearer ${token}` } }, token);
+      setProjectFolders(Array.isArray(payload.folders) ? payload.folders : []);
+    } catch (error) {
+      setProjectFolders([]);
+      setStatus(error instanceof Error ? error.message : '文件夹读取失败');
+    }
+  };
+
+  const createProjectFolder = async () => {
+    if (!authToken) {
+      requireLogin((token) => void loadProjectFolders(token));
+      return;
+    }
+    const name = window.prompt('文件夹名称');
+    if (name === null) return;
+    try {
+      const payload = await requestApi<{ folder: ProjectFolder }>('/project-folders', {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      });
+      setProjectFolders((folders) => [...folders, payload.folder]);
+      setSaveFolderId(payload.folder.id);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : '新建文件夹失败');
+    }
+  };
+
+  const moveProjectToFolder = async (projectId: string, folderId: string | null) => {
+    if (!authToken) {
+      requireLogin((token) => void loadRecentProjects(token));
+      return;
+    }
+    try {
+      const payload = await requestApi<{ project: Pick<RecentProject, 'id' | 'folderId' | 'updatedAt'> }>(`/projects/${projectId}/folder`, {
+        method: 'PATCH',
+        body: JSON.stringify({ folderId }),
+      });
+      setRecentProjects((projects) => projects.map((project) => project.id === projectId ? { ...project, folderId: payload.project.folderId, updatedAt: payload.project.updatedAt } : project));
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : '移动作品失败');
     }
   };
 
@@ -924,7 +983,10 @@ function H5App() {
       let page = 1;
       const pageSize = 50;
       while (page <= 20) {
-        const payload = await requestApi<{ posts: CommunityPost[] }>(`/community/posts?sort=${sort}&page=${page}&pageSize=${pageSize}`, {
+        const params = new URLSearchParams({ sort, page: String(page), pageSize: String(pageSize) });
+        if (activeTab === 'discover' && communityQuery.trim()) params.set('q', communityQuery.trim());
+        if (activeTab === 'discover' && communitySelectedTags.length) params.set('tags', communitySelectedTags.join(','));
+        const payload = await requestApi<{ posts: CommunityPost[] }>(`/community/posts?${params.toString()}`, {
           headers: token ? { authorization: `Bearer ${token}` } : {},
         });
         allPosts.push(...payload.posts);
@@ -943,10 +1005,14 @@ function H5App() {
   };
 
   useEffect(() => {
-    if (activeTab === 'home' || activeTab === 'discover') {
-      void loadCommunityPosts(activeTab === 'discover' ? communitySort : 'hot', authToken);
+    if (activeTab === 'home') {
+      void loadCommunityPosts('hot', authToken);
+      return;
     }
-  }, [activeTab, authToken, communitySort]);
+    if (activeTab !== 'discover') return;
+    const timeout = window.setTimeout(() => void loadCommunityPosts(communitySort, authToken), communityQuery.trim() ? 280 : 0);
+    return () => window.clearTimeout(timeout);
+  }, [activeTab, authToken, communitySort, communityQuery, communitySelectedTags]);
 
   useEffect(() => {
     if (screen === 'following' && authToken) void loadFollowingUsers(authToken);
@@ -1091,6 +1157,7 @@ function H5App() {
           canvasData: serializeProjectCells(cells),
           beadList: beadListColors.map(({ code, count }) => ({ color: code, count })),
           tone,
+          folderId: resolveFolderId(saveFolderId, projectFolders),
         }),
       });
       const payload = await response.json();
@@ -1111,6 +1178,7 @@ function H5App() {
       return;
     }
     setSaveProjectName((activeSavedProject?.name || '未命名作品').slice(0, 30));
+    setSaveFolderId(resolveFolderId(activeSavedProject?.folderId, projectFolders));
     setShareToCommunity(Boolean(activeSavedProject?.sharedToCommunity));
     setShowSaveProjectModal(true);
   };
@@ -1325,7 +1393,7 @@ function H5App() {
     }
   };
 
-  const confirmSaveProject = async () => {
+  const confirmSaveProject = async ({ startBeading = false }: { startBeading?: boolean } = {}) => {
     if (isSavingProject || saveProjectInFlightRef.current) return;
     const name = saveProjectName.trim().slice(0, 30);
     if (!name) {
@@ -1350,18 +1418,13 @@ function H5App() {
         saveAndStartRef.current = false;
         return;
       }
-      const shouldStartBeading = saveAndStartRef.current;
+      const shouldStartBeading = startBeading || saveAndStartRef.current;
       saveAndStartRef.current = false;
-      if (shareToCommunity && !saved.sharedToCommunity) {
-        try {
-          await requestApi(`/projects/${saved.id}/share`, { method: 'POST' });
-          setRecentProjects((projects) => projects.map((project) => project.id === saved.id ? { ...project, sharedToCommunity: true, sharedAt: new Date().toISOString() } : project));
-          await loadCommunityPosts('hot');
-        } catch (error) {
-          setStatus(error instanceof Error ? `${error.message}，作品已保存，可稍后重试分享。` : '分享失败，作品已保存，可稍后重试分享。');
-        }
-      }
       setShowSaveProjectModal(false);
+      if (shareToCommunity && !saved.sharedToCommunity) {
+        setShareDialogProject(saved);
+        setShareDialogTags(saved.tags || []);
+      }
       if (shouldStartBeading) await startBeadingProject(saved);
    } catch (error) {
       saveAndStartRef.current = false;
@@ -1374,6 +1437,10 @@ function H5App() {
 
   const saveAndStartProject = () => {
     saveAndStartRef.current = true;
+    if (showSaveProjectModal) {
+      void confirmSaveProject({ startBeading: true });
+      return;
+    }
     saveCurrentProject();
   };
 
@@ -1382,12 +1449,20 @@ function H5App() {
       requireLogin((nextToken) => void shareSavedProject(project, nextToken));
       return;
     }
-    if (project.sharedToCommunity || sharingProjectId) return;
+    setShareDialogProject(project);
+    setShareDialogTags(project.tags || []);
+  };
+
+  const confirmShareCommunity = async (tags: string[]) => {
+    const project = shareDialogProject;
+    if (!project || !authToken || sharingProjectId) return;
     setSharingProjectId(project.id);
     try {
-      const payload = await requestApi<{ sharedAt: string }>(`/projects/${project.id}/share`, { method: 'POST', headers: { authorization: `Bearer ${token}` } });
+      const payload: { tags: string[]; sharedAt?: string } = project.sharedToCommunity
+        ? await requestApi<{ tags: string[] }>(`/projects/${project.id}/community-tags`, { method: 'PATCH', body: JSON.stringify({ tags }) })
+        : await requestApi<{ sharedAt: string; tags: string[] }>(`/projects/${project.id}/share`, { method: 'POST', body: JSON.stringify({ tags }) });
       setRecentProjects((projects) => projects.map((item) => (
-        item.id === project.id ? { ...item, sharedToCommunity: true, sharedAt: payload.sharedAt } : item
+        item.id === project.id ? { ...item, sharedToCommunity: true, sharedAt: payload.sharedAt ?? item.sharedAt, tags: payload.tags } : item
       )));
       setShareFailedProjectIds((current) => {
         const next = new Set(current);
@@ -1395,6 +1470,7 @@ function H5App() {
         return next;
       });
       await loadCommunityPosts('hot');
+      setShareDialogProject(null);
     } catch (error) {
       setShareFailedProjectIds((current) => new Set(current).add(project.id));
       setStatus(error instanceof Error ? `${error.message}，可在我的作品中重试分享。` : '分享失败，可在我的作品中重试分享。');
@@ -2719,9 +2795,19 @@ function H5App() {
       showLogoutConfirm={showLogoutConfirm} setShowLogoutConfirm={setShowLogoutConfirm}
     />
   ) : null;
+  const shareCommunityDialog = shareDialogProject ? <ShareCommunityDialog
+    project={shareDialogProject}
+    tags={shareDialogTags}
+    onTagsChange={setShareDialogTags}
+    onConfirm={(tags) => { void confirmShareCommunity(tags); }}
+    onClose={() => { if (!sharingProjectId) setShareDialogProject(null); }}
+    isSaving={sharingProjectId === shareDialogProject.id}
+    isShared={Boolean(shareDialogProject.sharedToCommunity)}
+  /> : null;
   const withLoginModalFallback = (content: ReactNode) => (
     <>
       {content}
+      {shareCommunityDialog}
       {loginModalFallback}
     </>
   );
@@ -2880,6 +2966,10 @@ function H5App() {
       confirmSaveProject={confirmSaveProject}
       shareToCommunity={shareToCommunity}
       setShareToCommunity={setShareToCommunity}
+      projectFolders={projectFolders}
+      saveFolderId={saveFolderId}
+      setSaveFolderId={setSaveFolderId}
+      createProjectFolder={createProjectFolder}
       activeProjectShared={Boolean(activeSavedProject?.sharedToCommunity)}
       selectedCode={selectedCode}
       selectedColor={selectedColor}
@@ -3083,6 +3173,11 @@ function H5App() {
     return (
       <MyWorksPage
         projects={sortedRecentProjects}
+        folders={projectFolders}
+        activeFolderId={activeProjectFolderId}
+        onFolderChange={setActiveProjectFolderId}
+        onCreateFolder={createProjectFolder}
+        onMoveProject={(projectId, folderId) => { void moveProjectToFolder(projectId, folderId); }}
         onBack={() => { setScreen('home'); setActiveTab('home'); }}
         onOpen={(project) => setProjectActionTarget(project)}
         onShare={shareSavedProject}
@@ -3125,6 +3220,7 @@ function H5App() {
     warehouses={warehouses} stockedColorCount={stockedColorCount} totalWarehouseStock={totalWarehouseStock}
     activeWarehouse={activeWarehouse} mardColors={MARD_221_COLORS} openWarehouse={openWarehouse}
     setActiveTab={setActiveTab} communitySort={communitySort} setCommunitySort={setCommunitySort}
+    communityQuery={communityQuery} setCommunityQuery={setCommunityQuery} communitySelectedTags={communitySelectedTags} setCommunitySelectedTags={setCommunitySelectedTags}
     authRequestSeqRef={authRequestSeqRef} pendingAuthActionRef={pendingAuthActionRef}
     setIsAuthenticating={setIsAuthenticating} setIsLoggedIn={setIsLoggedIn} setAuthToken={setAuthToken}
     phoneNumber={phoneNumber} setPhoneNumber={setPhoneNumber} phoneCode={phoneCode} setPhoneCode={setPhoneCode}

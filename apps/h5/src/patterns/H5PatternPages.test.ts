@@ -10,7 +10,12 @@ describe('PatternDiscoverPage', () => {
     const markup = renderToStaticMarkup(createElement(PatternDiscoverPage, {
       patterns: [],
       activeSort: 'latest',
+      query: '小猫',
+      selectedTags: ['动物'],
+      availableTags: ['动物', '风景'],
       onSortChange: vi.fn(),
+      onQueryChange: vi.fn(),
+      onTagsChange: vi.fn(),
       onOpen: vi.fn(),
       onOpenAuthor: vi.fn(),
     }));
@@ -18,10 +23,10 @@ describe('PatternDiscoverPage', () => {
     expect(markup).toContain('aria-selected="true">最新</button>');
     expect(markup).toContain('aria-selected="false">热门</button>');
     expect(markup).not.toContain('>推荐</button>');
-    expect(markup).not.toContain('>全部</button>');
-    expect(markup).not.toContain('>动物</button>');
-    expect(markup).not.toContain('>人物</button>');
-    expect(markup).not.toContain('>植物</button>');
+    expect(markup).toContain('value="小猫"');
+    expect(markup).toContain('>全部</button>');
+    expect(markup).toContain('aria-pressed="true" class="active">动物</button>');
+    expect(markup).toContain('aria-pressed="false" class="">风景</button>');
   });
 });
 
@@ -79,7 +84,29 @@ describe('MyWorksPage', () => {
     expect(markup).toContain('分享到社区');
     expect(markup).toContain('重试分享');
     expect(markup).toContain('分享中...');
-    expect(markup).toContain('已分享到社区');
+    expect(markup).toContain('编辑标签');
+  });
+
+  it('shows folder counts and a move target for each saved work', () => {
+    const projects = [
+      { id: 'animals-work', name: '小猫', rows: 2, cols: 2, tone: 'recent-flower', createdAt: '', updatedAt: '', folderId: 'animals' },
+      { id: 'uncategorized-work', name: '小熊', rows: 2, cols: 2, tone: 'recent-flower', createdAt: '', updatedAt: '', folderId: null },
+    ];
+    const markup = renderToStaticMarkup(createElement(MyWorksPage, {
+      projects,
+      folders: [{ id: 'animals', name: '动物作品', createdAt: '', updatedAt: '' }],
+      activeFolderId: 'animals',
+      onFolderChange: vi.fn(),
+      onCreateFolder: vi.fn(),
+      onMoveProject: vi.fn(),
+      onBack: vi.fn(), onOpen: vi.fn(),
+    }));
+
+    expect(markup).toContain('全部作品 2');
+    expect(markup).toContain('未分类 1');
+    expect(markup).toContain('动物作品 1');
+    expect(markup).toContain('aria-label="移动小猫到文件夹"');
+    expect(markup).not.toContain('小熊</strong>');
   });
 });
 

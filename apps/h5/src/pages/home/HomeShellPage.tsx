@@ -362,6 +362,11 @@ export function HomeShellPage(props: HomeShellPageProps) {
           patterns={patternListCards}
           activeSort={communitySort}
           onSortChange={setCommunitySort}
+          query={props.communityQuery}
+          onQueryChange={props.setCommunityQuery}
+          selectedTags={props.communitySelectedTags}
+          onTagsChange={props.setCommunitySelectedTags}
+          availableTags={['动物', '人物', '植物', '食物', '风景', '动漫', '游戏', '节日', '文字', '新手', '其他']}
           onOpen={(pattern: any) => {
             setActivePattern(pattern);
             setScreen('pattern-detail');

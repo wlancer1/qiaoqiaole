@@ -17,6 +17,7 @@ export type CommunityPost = {
   commentsCount: number;
   likedByMe: boolean;
   sharedAt: string;
+  tags?: string[];
 };
 
 export type CommunityComment = {
@@ -91,5 +92,6 @@ export function toPatternListCard(post: CommunityPost): PatternListCard {
     likesCount: post.likesCount,
     commentsCount: post.commentsCount,
     likedByMe: post.likedByMe,
+    tags: post.tags || [],
   };
 }
