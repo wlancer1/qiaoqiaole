@@ -58,29 +58,21 @@ export function MyWorksPage({
   projects,
   onBack,
   onOpen,
-  onShare,
-  sharingProjectId = '',
-  shareFailedProjectIds = new Set<string>(),
   actionSheet,
   folders = [],
   activeFolderId = 'all',
   onFolderChange,
   onCreateFolder,
-  onMoveProject,
   onDeleteFolder,
 }: {
   projects: RecentProject[];
   onBack: () => void;
   onOpen: (project: RecentProject) => void;
-  onShare?: (project: RecentProject) => void;
-  sharingProjectId?: string;
-  shareFailedProjectIds?: Set<string>;
   actionSheet?: ReactNode;
   folders?: ProjectFolder[];
   activeFolderId?: string | null | 'all';
   onFolderChange?: (folderId: string | null | 'all') => void;
   onCreateFolder?: () => void;
-  onMoveProject?: (project: RecentProject, folderId: string | null) => void;
   onDeleteFolder?: (folder: ProjectFolder) => void;
 }) {
   const thumbColors = [
@@ -94,6 +86,7 @@ export function MyWorksPage({
     ? projects
     : projects.filter((project) => (activeFolderId === null ? !project.folderId : project.folderId === activeFolderId));
   const uncategorizedCount = projects.filter((project) => !project.folderId).length;
+  const [activeContentTab, setActiveContentTab] = useState<'works' | 'likes'>('works');
 
   return (
     <main className="author-profile-page my-works-page" aria-label="我的作品">
@@ -116,15 +109,16 @@ export function MyWorksPage({
         <div><strong>0</strong><span>浏览</span></div>
       </section>
       <nav className="author-profile-tabs" aria-label="作品分类">
-        <button className="active" type="button">作品</button>
+        <button className={activeContentTab === 'works' ? 'active' : ''} type="button" onClick={() => setActiveContentTab('works')}>作品</button>
+        <button className={activeContentTab === 'likes' ? 'active' : ''} type="button" onClick={() => setActiveContentTab('likes')}>喜欢</button>
       </nav>
-      <section className="my-works-folder-filter" aria-label="作品文件夹">
+      {activeContentTab === 'works' ? <section className="my-works-folder-filter" aria-label="作品文件夹">
         <button type="button" className={activeFolderId === 'all' ? 'active' : ''} onClick={() => onFolderChange?.('all')}>全部作品 <span>{projects.length}</span></button>
         <button type="button" className={activeFolderId === null ? 'active' : ''} onClick={() => onFolderChange?.(null)}>未分类 <span>{uncategorizedCount}</span></button>
         {folders.map((folder) => <span className="my-works-folder-item" key={folder.id}><button type="button" className={activeFolderId === folder.id ? 'active' : ''} onClick={() => onFolderChange?.(folder.id)}>{folder.name} <span>{projects.filter((project) => project.folderId === folder.id).length}</span></button>{onDeleteFolder ? <button className="my-works-delete-folder" type="button" aria-label={`删除文件夹 ${folder.name}`} onClick={() => onDeleteFolder(folder)}><X aria-hidden="true" /></button> : null}</span>)}
         {onCreateFolder ? <button type="button" className="my-works-create-folder" onClick={onCreateFolder}><FolderPlus aria-hidden="true" />新建文件夹</button> : null}
-      </section>
-      {visibleProjects.length > 0 ? (
+      </section> : null}
+      {activeContentTab === 'works' && visibleProjects.length > 0 ? (
         <section className="author-work-grid" aria-label="我的作品列表">
           {visibleProjects.map((project, index) => (
             <article
@@ -153,31 +147,13 @@ export function MyWorksPage({
               )}
               <strong>{project.name.startsWith('wx') ? '未命名作品' : project.name}</strong>
               <small>{project.cols}×{project.rows}</small>
-              <button
-                className={project.sharedToCommunity ? 'my-work-share-state shared' : shareFailedProjectIds.has(project.id) ? 'my-work-share-state failed' : 'my-work-share-state'}
-                type="button"
-                disabled={sharingProjectId === project.id}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onShare?.(project);
-                }}
-              >
-                {project.sharedToCommunity ? '编辑标签' : sharingProjectId === project.id ? '分享中...' : shareFailedProjectIds.has(project.id) ? '重试分享' : '分享到社区'}
-              </button>
-              {onMoveProject ? <label className="my-work-folder-select" onClick={(event) => event.stopPropagation()}>
-                <span className="sr-only">移动到文件夹</span>
-                <select aria-label={`移动 ${project.name} 到文件夹`} value={project.folderId || ''} onChange={(event) => onMoveProject(project, event.target.value || null)}>
-                  <option value="">移动到：未分类</option>
-                  {folders.map((folder) => <option key={folder.id} value={folder.id}>移动到：{folder.name}</option>)}
-                </select>
-              </label> : null}
             </article>
           ))}
         </section>
       ) : (
         <section className="author-work-empty" aria-label="暂无作品">
-          <strong>{projects.length ? '这个文件夹里还没有作品' : '还没有保存的作品'}</strong>
-          <span>{projects.length ? '把作品移动到这里后会显示在这里' : '完成创作并保存后，作品会显示在这里'}</span>
+          <strong>{activeContentTab === 'likes' ? '还没有喜欢的作品' : projects.length ? '这个文件夹里还没有作品' : '还没有保存的作品'}</strong>
+          <span>{activeContentTab === 'likes' ? '去发现页看看喜欢的作品吧' : projects.length ? '把作品移动到这里后会显示在这里' : '完成创作并保存后，作品会显示在这里'}</span>
         </section>
       )}
       {actionSheet}

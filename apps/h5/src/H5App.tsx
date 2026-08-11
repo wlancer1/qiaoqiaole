@@ -461,9 +461,29 @@ function H5App() {
   const splitAlignFrameRef = useRef(0);
   const splitPreviewJobRef = useRef(0);
 
+  const hasBlockingModal = Boolean(
+    confirmDialogRequest
+      || showProfileEditModal
+      || showLoginModal
+      || showSaveLoginPrompt
+      || showSaveProjectModal
+      || showUploadModal
+      || showCreateCanvasModal
+      || showProjectFolderCreate
+      || showLogoutConfirm
+      || shareDialogProject
+      || projectActionTarget
+      || showPaletteSearch,
+  );
+
   useEffect(() => {
     cellsRef.current = cells;
   }, [cells]);
+
+  useEffect(() => {
+    document.body.classList.toggle('h5-modal-open', hasBlockingModal);
+    return () => document.body.classList.remove('h5-modal-open');
+  }, [hasBlockingModal]);
 
   useEffect(() => {
     activeWarehouseIdRef.current = activeWarehouseId;
@@ -2959,17 +2979,18 @@ function H5App() {
       showLogoutConfirm={showLogoutConfirm} setShowLogoutConfirm={setShowLogoutConfirm}
     />
   ) : null;
+  const projectFolderCreateDialog = showProjectFolderCreate ? <div className="save-project-modal" role="dialog" aria-modal="true" aria-labelledby="project-folder-create-title" onClick={() => { if (!isCreatingProjectFolder) setShowProjectFolderCreate(false); }}>
+    <form className="save-project-panel project-folder-create-panel" onSubmit={(event) => { event.preventDefault(); void createProjectFolder(); }} onClick={(event) => event.stopPropagation()}>
+      <h2 id="project-folder-create-title">新建文件夹</h2>
+      <label className="save-project-field"><span>文件夹名称</span><input autoFocus aria-label="文件夹名称" maxLength={30} value={projectFolderName} onChange={(event) => setProjectFolderName(event.target.value)} /></label>
+      <div className="h5-modal-actions"><button className="cancel-btn" type="button" disabled={isCreatingProjectFolder} onClick={() => setShowProjectFolderCreate(false)}>取消</button><button className="confirm-btn" type="submit" disabled={isCreatingProjectFolder || !projectFolderName.trim()}>{isCreatingProjectFolder ? '创建中…' : '创建文件夹'}</button></div>
+    </form>
+  </div> : null;
   const withLoginModalFallback = (content: ReactNode) => (
     <>
       {content}
       {shareDialogProject ? <ShareCommunityDialog project={shareDialogProject} tags={shareDialogTags} onTagsChange={setShareDialogTags} onConfirm={(tags) => { void confirmShareCommunity(tags); }} onClose={() => { if (!sharingProjectId) setShareDialogProject(null); }} isSaving={sharingProjectId === shareDialogProject.id} isShared={Boolean(shareDialogProject.sharedToCommunity)} /> : null}
-      {showProjectFolderCreate ? <div className="save-project-modal" role="dialog" aria-modal="true" aria-labelledby="project-folder-create-title" onClick={() => { if (!isCreatingProjectFolder) setShowProjectFolderCreate(false); }}>
-        <form className="save-project-panel project-folder-create-panel" onSubmit={(event) => { event.preventDefault(); void createProjectFolder(); }} onClick={(event) => event.stopPropagation()}>
-          <h2 id="project-folder-create-title">新建文件夹</h2>
-          <label className="save-project-field"><span>文件夹名称</span><input autoFocus aria-label="文件夹名称" maxLength={30} value={projectFolderName} onChange={(event) => setProjectFolderName(event.target.value)} /></label>
-          <div className="h5-modal-actions"><button className="cancel-btn" type="button" disabled={isCreatingProjectFolder} onClick={() => setShowProjectFolderCreate(false)}>取消</button><button className="confirm-btn" type="submit" disabled={isCreatingProjectFolder || !projectFolderName.trim()}>{isCreatingProjectFolder ? '创建中…' : '创建文件夹'}</button></div>
-        </form>
-      </div> : null}
+      {projectFolderCreateDialog}
       {loginModalFallback}
     </>
   );
@@ -2990,6 +3011,8 @@ function H5App() {
         void shareSavedProject(target);
         setProjectActionTarget(null);
       }}
+      folders={projectFolders}
+      onMove={(folderId) => { void moveProjectToFolder(target.id, folderId); setProjectActionTarget(null); }}
       onDelete={async () => {
         requestConfirm({
           title: '删除作品？',
@@ -3347,16 +3370,12 @@ function H5App() {
         projects={sortedRecentProjects}
           onBack={() => { setScreen('home'); setActiveTab(myWorksBackTargetRef.current); }}
         onOpen={(project) => setProjectActionTarget(project)}
-        onShare={shareSavedProject}
-        sharingProjectId={sharingProjectId}
-        shareFailedProjectIds={shareFailedProjectIds}
         folders={projectFolders}
         activeFolderId={activeProjectFolderId}
         onFolderChange={setActiveProjectFolderId}
         onCreateFolder={() => { setProjectFolderName(''); setShowProjectFolderCreate(true); }}
-        onMoveProject={(project, folderId) => { void moveProjectToFolder(project.id, folderId); }}
         onDeleteFolder={deleteProjectFolder}
-        actionSheet={<>{projectActionSheet}{confirmDialog}</>}
+        actionSheet={<>{projectActionSheet}{confirmDialog}{projectFolderCreateDialog}</>}
       />
     );
   }

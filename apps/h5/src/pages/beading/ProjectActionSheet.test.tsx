@@ -47,13 +47,17 @@ describe('ProjectActionSheet', () => {
     const onEdit = vi.fn();
     const onShare = vi.fn();
     const onDelete = vi.fn();
-    const sheet = ProjectActionSheet({ project, hasSession: false, onClose, onStart, onEdit, onShare, onDelete });
+    const onMove = vi.fn();
+    const sheet = ProjectActionSheet({ project, hasSession: false, onClose, onStart, onEdit, onShare, onDelete, folders: [{ id: 'animals', name: '动物', createdAt: '2026-08-01T00:00:00.000Z', updatedAt: '2026-08-01T00:00:00.000Z' }], onMove });
     const markup = renderToStaticMarkup(sheet);
 
     expect(markup).toContain('开始拼豆');
     expect(markup).toContain('编辑作品');
     expect(markup).toContain('分享作品');
     expect(markup).toContain('删除作品');
+    expect(markup).toContain('移动到文件夹');
+    expect(markup).toContain('移动到：动物');
+    expect(markup).toContain('project-action-grid');
     const expectedIconClasses = ['lucide-circle-play', 'lucide-pencil', 'lucide-share-2', 'lucide-trash-2'];
     for (const iconClass of expectedIconClasses) {
       const iconMarkup = markup.match(new RegExp(`<svg(?=[^>]*class="[^"]*\\b${iconClass}\\b[^"]*")(?=[^>]*aria-hidden="true")[^>]*>`, 'g')) ?? [];
@@ -64,10 +68,11 @@ describe('ProjectActionSheet', () => {
     const editButton = findButton(sheet, '编辑作品');
     const shareButton = findButton(sheet, '分享作品');
     const deleteButton = findButton(sheet, '删除作品');
-    expect(startButton.props.className).toContain('beading-primary-btn');
-    expect(editButton.props.className).toContain('beading-secondary-btn');
-    expect(shareButton.props.className).toContain('beading-secondary-btn');
-    expect(deleteButton.props.className).toContain('beading-secondary-btn');
+    expect(startButton.props.className).toContain('project-action-tile');
+    expect(startButton.props.className).toContain('is-primary');
+    expect(editButton.props.className).toContain('project-action-tile');
+    expect(shareButton.props.className).toContain('project-action-tile');
+    expect(deleteButton.props.className).toContain('project-action-tile');
     expect(deleteButton.props.className).toContain('is-danger');
 
     startButton.props.onClick?.();
@@ -93,6 +98,7 @@ describe('ProjectActionSheet', () => {
     expect(onEdit).toHaveBeenCalledTimes(1);
     expect(onShare).toHaveBeenCalledTimes(1);
     expect(onDelete).toHaveBeenCalledTimes(1);
+    expect(onMove).toHaveBeenCalledTimes(0);
     expect(onClose).not.toHaveBeenCalled();
   });
 });
