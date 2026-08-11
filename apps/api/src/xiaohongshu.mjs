@@ -389,7 +389,7 @@ export function mobileHeaders(url = '', { includeCookie = true } = {}) {
 function shouldSendXhsCookie(url) {
   try {
     const parsed = new URL(url);
-    return isXiaohongshuCookieHost(parsed.hostname);
+    return parsed.protocol === 'https:' && isXiaohongshuCookieHost(parsed.hostname);
   } catch {
     return false;
   }

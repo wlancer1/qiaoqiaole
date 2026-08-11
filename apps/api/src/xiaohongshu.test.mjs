@@ -197,7 +197,10 @@ describe('xiaohongshu extraction helpers', () => {
     const previous = process.env.XHS_COOKIE;
     process.env.XHS_COOKIE = 'web_session=abc';
     try {
+      expect(mobileHeaders('http://www.xiaohongshu.com/explore/1')).not.toHaveProperty('cookie');
       expect(mobileHeaders('https://www.xiaohongshu.com/explore/1')).toMatchObject({ cookie: 'web_session=abc' });
+      expect(mobileHeaders('http://xhslink.cn/o/1')).not.toHaveProperty('cookie');
+      expect(mobileHeaders('https://attacker.example/path')).not.toHaveProperty('cookie');
       expect(mobileHeaders('https://www.xiaohongshu.com/explore/1', { includeCookie: false })).not.toHaveProperty('cookie');
       expect(mobileHeaders('https://xhslink.com/o/abc')).not.toHaveProperty('cookie');
     } finally {
