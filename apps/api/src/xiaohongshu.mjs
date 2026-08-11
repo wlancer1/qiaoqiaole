@@ -404,6 +404,7 @@ export function isSupportedXiaohongshuUrl(url) {
   try {
     const parsed = new URL(url);
     if (!['http:', 'https:'].includes(parsed.protocol)) return false;
+    if (parsed.hostname.toLowerCase() === 'xhslink.cn') return parsed.port === '';
     return isSupportedXiaohongshuHost(parsed.hostname);
   } catch {
     return false;
@@ -415,7 +416,8 @@ export function isSupportedXiaohongshuHost(hostname) {
   return normalized === 'xiaohongshu.com'
     || normalized.endsWith('.xiaohongshu.com')
     || normalized === 'xhslink.com'
-    || normalized.endsWith('.xhslink.com');
+    || normalized.endsWith('.xhslink.com')
+    || normalized === 'xhslink.cn';
 }
 
 export function createXhsLogger(scope = 'xhs') {

@@ -24,6 +24,26 @@ describe('xiaohongshu extraction helpers', () => {
     expect(isSupportedXiaohongshuUrl('https://xiaohongshu.com.attacker.example/item/1')).toBe(false);
   });
 
+  test('accepts only the xhslink.cn root domain on standard HTTP(S) ports', () => {
+    const supported = [
+      'http://xhslink.cn/o/1',
+      'https://xhslink.cn/o/1',
+      'http://xhslink.cn:80/o/1',
+      'https://xhslink.cn:443/o/1',
+    ];
+    const unsupported = [
+      'https://sub.xhslink.cn/o/1',
+      'https://xhslink.cn.attacker.example/o/1',
+      'https://xhslink.cn@attacker.example/o/1',
+      'https://xhslink.cn:8443/o/1',
+      'https://attacker.example/xhslink.cn/o/1',
+      'https://attacker.example/?next=https://xhslink.cn/o/1',
+    ];
+
+    for (const url of supported) expect(isSupportedXiaohongshuUrl(url), url).toBe(true);
+    for (const url of unsupported) expect(isSupportedXiaohongshuUrl(url), url).toBe(false);
+  });
+
   test('returns note images only from noteDetailMap[noteId].note.imageList', () => {
     const html = String.raw`<script>window.__INITIAL_STATE__={
       "comments":{"list":[{"imageList":[

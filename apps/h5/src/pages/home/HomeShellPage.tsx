@@ -323,7 +323,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
                       <input
                         type="url"
                         aria-label="小红书链接"
-                        placeholder="粘贴 xiaohongshu.com 或 xhslink.com 链接"
+                        placeholder="粘贴小红书笔记链接或分享口令"
                         value={xhsLink}
                         onChange={(event) => setXhsLink(event.target.value)}
                       />

@@ -99,6 +99,7 @@ export function isSupportedXiaohongshuUrl(url: string): boolean {
     const parsed = new URL(url);
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
     const hostname = parsed.hostname.toLowerCase();
+    if (hostname === 'xhslink.cn') return parsed.port === '';
     return hostname === 'xiaohongshu.com' || hostname.endsWith('.xiaohongshu.com') || hostname === 'xhslink.com' || hostname.endsWith('.xhslink.com');
   } catch {
     return false;

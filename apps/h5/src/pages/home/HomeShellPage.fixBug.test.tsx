@@ -161,3 +161,12 @@ describe('recent project stale action handling', () => {
     expect(source.match(/setProjectActionTarget\(\(current\) => current\?\.id === target\.id \? null : current\)/g) ?? []).toHaveLength(2);
   });
 });
+
+describe('Xiaohongshu link input guidance', () => {
+  it('accepts links and share text without listing stale domains', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/pages/home/HomeShellPage.tsx'), 'utf8');
+
+    expect(source).toContain('placeholder="粘贴小红书笔记链接或分享口令"');
+    expect(source).not.toContain('placeholder="粘贴 xiaohongshu.com 或 xhslink.com 链接"');
+  });
+});

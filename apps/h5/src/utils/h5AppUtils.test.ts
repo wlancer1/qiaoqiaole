@@ -20,12 +20,36 @@ describe('extractUrlFromText', () => {
   it('returns empty for text without an HTTP(S) URL', () => {
     expect(extractUrlFromText('这是一段没有链接的分享文案')).toBe('');
   });
+
+  it('extracts the new xhslink.cn URL from complete share text', () => {
+    expect(extractUrlFromText('拼豆图纸 http://xhslink.cn/o/AYw80EYloim 把口令复制下来')).toBe('http://xhslink.cn/o/AYw80EYloim');
+  });
 });
 
 describe('isSupportedXiaohongshuUrl', () => {
   it('uses exact hostname boundaries', () => {
     expect(isSupportedXiaohongshuUrl('https://www.xiaohongshu.com/explore/1')).toBe(true);
     expect(isSupportedXiaohongshuUrl('https://attacker.example/?next=xiaohongshu.com')).toBe(false);
+  });
+
+  it('accepts only the xhslink.cn root domain on standard HTTP(S) ports', () => {
+    const supported = [
+      'http://xhslink.cn/o/1',
+      'https://xhslink.cn/o/1',
+      'http://xhslink.cn:80/o/1',
+      'https://xhslink.cn:443/o/1',
+    ];
+    const unsupported = [
+      'https://sub.xhslink.cn/o/1',
+      'https://xhslink.cn.attacker.example/o/1',
+      'https://xhslink.cn@attacker.example/o/1',
+      'https://xhslink.cn:8443/o/1',
+      'https://attacker.example/xhslink.cn/o/1',
+      'https://attacker.example/?next=https://xhslink.cn/o/1',
+    ];
+
+    for (const url of supported) expect(isSupportedXiaohongshuUrl(url), url).toBe(true);
+    for (const url of unsupported) expect(isSupportedXiaohongshuUrl(url), url).toBe(false);
   });
 });
 
