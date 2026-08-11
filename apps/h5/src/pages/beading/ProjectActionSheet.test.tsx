@@ -43,15 +43,15 @@ function findButton(root: ReactNode, label: string): TestElement {
 }
 
 describe('ProjectActionSheet', () => {
-  it('uses the compact saved-work modal scale instead of the beading bottom sheet', () => {
+  it('uses the standard bottom-sheet scale with a compact action grid', () => {
     const styles = fs.readFileSync(path.resolve('apps/h5/src/styles.css'), 'utf8');
     const actionSheet = styles.match(/\.project-action-sheet\s*\{([^}]*)\}/)?.[1] ?? '';
     const actionTile = styles.match(/\.project-action-tile\s*\{([^}]*)\}/)?.[1] ?? '';
 
-    expect(actionSheet).toContain('width: min(100%, 15.2381rem)');
-    expect(actionSheet).toContain('border-radius: .9524rem');
-    expect(actionTile).toContain('min-height: 2.2857rem');
-    expect(actionTile).toContain('border-radius: .4444rem');
+    expect(actionSheet).toContain('padding: 10px 18px');
+    expect(actionSheet).toContain('border-radius: 24px 24px 0 0');
+    expect(actionTile).toContain('min-height: 78px');
+    expect(actionTile).toContain('border-radius: 14px');
   });
 
   it('renders consistent action buttons with project icons and isolated callbacks', () => {
@@ -64,8 +64,8 @@ describe('ProjectActionSheet', () => {
     const sheet = ProjectActionSheet({ project, hasSession: false, onClose, onStart, onEdit, onShare, onDelete, folders: [{ id: 'animals', name: '动物', createdAt: '2026-08-01T00:00:00.000Z', updatedAt: '2026-08-01T00:00:00.000Z' }], onMove });
     const markup = renderToStaticMarkup(sheet);
 
-    expect(markup).toContain('project-action-modal');
-    expect(markup).not.toContain('beading-sheet-backdrop');
+    expect(markup).toContain('beading-sheet-backdrop');
+    expect(markup).toContain('beading-sheet project-action-sheet');
     expect(markup).toContain('开始拼豆');
     expect(markup).toContain('编辑作品');
     expect(markup).toContain('分享作品');

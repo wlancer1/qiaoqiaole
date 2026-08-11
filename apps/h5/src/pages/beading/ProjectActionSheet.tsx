@@ -13,10 +13,11 @@ export function ProjectActionSheet({ project, hasSession, onClose, onStart, onEd
   folders?: ProjectFolder[];
   onMove?: (folderId: string | null) => void;
 }) {
-  return <div className="save-project-modal project-action-modal" role="presentation" onClick={onClose}>
-    <section className="project-action-sheet" role="dialog" aria-modal="true" aria-label="作品操作" onClick={(event) => event.stopPropagation()}>
-      <header className="project-action-header">
-        <div><p>我的作品</p><h2>{project.name}</h2></div>
+  return <div className="beading-sheet-backdrop project-action-modal" role="presentation" onClick={onClose}>
+    <section className="beading-sheet project-action-sheet" role="dialog" aria-modal="true" aria-label="作品操作" onClick={(event) => event.stopPropagation()}>
+      <span className="beading-sheet-handle" aria-hidden="true" />
+      <header className="beading-sheet-header project-action-header">
+        <div><p className="beading-eyebrow">我的作品</p><h2>{project.name}</h2></div>
         <button type="button" aria-label="关闭作品操作" onClick={onClose}>×</button>
       </header>
       <div className="project-action-grid">
