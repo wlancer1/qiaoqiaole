@@ -41,7 +41,7 @@ beforeAll(async () => {
   userId = login.body.user.id;
   const project = await request('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ name: '通知测试作品', rows: 1, cols: 1, thumbnailImagePath: 'data:image/png;base64,AA==', canvasData: '[]' }) });
   projectId = project.body.project.id;
-  await request(`/api/projects/${projectId}/share`, { method: 'POST', headers: { authorization: `Bearer ${token}` } });
+  await request(`/api/projects/${projectId}/share`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ tags: ['其他'] }) });
 });
 
 afterAll(async () => {

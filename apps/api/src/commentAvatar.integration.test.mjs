@@ -162,7 +162,8 @@ describe('comment author avatars', () => {
     expect(projectId).toBeTruthy();
     const shared = await request(`/api/projects/${projectId}/share`, {
       method: 'POST',
-      headers: { authorization: `Bearer ${token}` },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ tags: ['其他'] }),
     });
     expect(shared.status).toBe(200);
 
