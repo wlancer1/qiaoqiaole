@@ -248,6 +248,20 @@ describe('xiaohongshu extraction helpers', () => {
     expect(summary).toContain('xsec_token=%5BREDACTED%5D');
     expect(summary).toContain('signature=%5BREDACTED%5D');
     expect(summary).not.toMatch(/user|supersecret|verysecret|signed|private/);
+
+    expect(redactUrl('https://xhslink.cn/o/abc?tag=one&tag=two')).toBe(
+      'https://xhslink.cn/o/abc?tag=%5BREDACTED%5D&tag=%5BREDACTED%5D',
+    );
+  });
+
+  test('conservatively redacts malformed diagnostic urls instead of returning their secrets', () => {
+    const summary = redactUrl(
+      'https://user:supersecret@xhslink.cn:bad/o?token=verysecret#private',
+    );
+
+    expect(summary).toContain('https://xhslink.cn/o');
+    expect(summary).toContain('token=%5BREDACTED%5D');
+    expect(summary).not.toMatch(/user|supersecret|verysecret|private/);
   });
 
   test('redacts urls embedded in diagnostic error messages without dropping context or cause codes', () => {
@@ -264,13 +278,24 @@ describe('xiaohongshu extraction helpers', () => {
     expect(summary.causeCode).toBe('UND_ERR_INVALID_ARG');
   });
 
+  test('limits the entire redacted diagnostic error message to 180 characters', () => {
+    const error = new TypeError(
+      `Request failed for https://user:supersecret@xhslink.cn/o/abc?access_token=verysecret#private while ${'collecting upstream context '.repeat(12)}`,
+    );
+
+    const summary = summarizeXhsError(error);
+
+    expect(summary.message.length).toBeLessThanOrEqual(180);
+    expect(summary.message.endsWith('...')).toBe(true);
+    expect(summary.message).not.toMatch(/user|supersecret|verysecret|private/);
+  });
+
   test('keeps ordinary urls readable and safely truncates long or invalid diagnostic values', () => {
     expect(redactUrl('https://xhslink.cn/o/abc')).toBe('https://xhslink.cn/o/abc');
 
-    for (const value of [`https://xhslink.cn/${'a'.repeat(220)}`, `not-a-url-${'b'.repeat(220)}`]) {
-      const summary = redactUrl(value);
-      expect(summary.length).toBeLessThanOrEqual(180);
-      expect(summary.endsWith('...')).toBe(true);
-    }
+    const summary = redactUrl(`https://xhslink.cn/${'a'.repeat(220)}`);
+    expect(summary.length).toBeLessThanOrEqual(180);
+    expect(summary.endsWith('...')).toBe(true);
+    expect(redactUrl(`not-a-url-${'b'.repeat(220)}`)).toBe('[REDACTED_URL]');
   });
 });

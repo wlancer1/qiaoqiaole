@@ -445,7 +445,7 @@ export function summarizeXhsError(error) {
   const cause = error && typeof error === 'object' ? error.cause : null;
   return {
     name: error instanceof Error ? error.name : typeof error,
-    message: redactText(error instanceof Error ? error.message : String(error)),
+    message: truncateDiagnosticValue(redactText(error instanceof Error ? error.message : String(error))),
     causeCode: cause && typeof cause === 'object' && 'code' in cause ? String(cause.code || '') : '',
   };
 }
@@ -459,19 +459,39 @@ export function redactUrl(url) {
     parsed.password = '';
     parsed.hash = '';
 
-    const redactedParams = new URLSearchParams();
-    for (const [name] of parsed.searchParams) {
-      redactedParams.append(name, '[REDACTED]');
-    }
-    parsed.search = redactedParams.toString();
+    parsed.search = redactSearchParams(parsed.searchParams);
     return truncateDiagnosticValue(parsed.toString());
   } catch {
-    return truncateDiagnosticValue(value);
+    return redactMalformedUrl(value);
   }
 }
 
 function redactText(value) {
   return String(value).replace(/https?:\/\/[^\s]+/gi, (url) => redactUrl(url));
+}
+
+function redactMalformedUrl(value) {
+  const match = value.match(/^(https?:\/\/)([^/?#\s]+)([^?#\s]*)(?:\?([^#\s]*))?(?:#[^\s]*)?$/i);
+  if (!match) return '[REDACTED_URL]';
+
+  const [, scheme, authority, path, query] = match;
+  const hostAndPort = authority.slice(authority.lastIndexOf('@') + 1);
+  const host = hostAndPort.split(':', 1)[0];
+  if (!/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(host)) {
+    return '[REDACTED_URL]';
+  }
+
+  const redactedQuery = query === undefined ? '' : redactSearchParams(new URLSearchParams(query));
+  const safeUrl = `${scheme.toLowerCase()}${host}${path}${redactedQuery ? `?${redactedQuery}` : ''}`;
+  return truncateDiagnosticValue(safeUrl);
+}
+
+function redactSearchParams(searchParams) {
+  const redactedParams = new URLSearchParams();
+  for (const [name] of searchParams) {
+    redactedParams.append(name, '[REDACTED]');
+  }
+  return redactedParams.toString();
 }
 
 function truncateDiagnosticValue(value) {
