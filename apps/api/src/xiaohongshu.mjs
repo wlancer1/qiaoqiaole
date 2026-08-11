@@ -429,6 +429,25 @@ export function createXhsLogger(scope = 'xhs') {
   };
 }
 
+export function summarizeXhsUpstreamResponse(response) {
+  return {
+    status: Number(response?.status || 0),
+    ok: Boolean(response?.ok),
+    finalUrl: redactUrl(response?.url || ''),
+    contentType: response?.headers?.get?.('content-type') || '',
+    contentLength: Number(response?.headers?.get?.('content-length') || 0),
+  };
+}
+
+export function summarizeXhsError(error) {
+  const cause = error && typeof error === 'object' ? error.cause : null;
+  return {
+    name: error instanceof Error ? error.name : typeof error,
+    message: error instanceof Error ? error.message : String(error),
+    causeCode: cause && typeof cause === 'object' && 'code' in cause ? String(cause.code || '') : '',
+  };
+}
+
 export function redactUrl(url) {
   if (!url) return '';
   return url.length > 180 ? `${url.slice(0, 180)}...` : url;

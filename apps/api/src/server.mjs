@@ -15,6 +15,8 @@ import {
   mobileHeaders,
   normalizeExtractedImagePayload,
   redactUrl,
+  summarizeXhsError,
+  summarizeXhsUpstreamResponse,
 } from './xiaohongshu.mjs';
 import { loadEnvFile } from './env.mjs';
 import { loadTencentCosConfig, resolveCosAssetUrl, uploadToTencentCos } from './tencentCos.mjs';
@@ -819,10 +821,7 @@ async function extractXiaohongshu(request, response, { useCookie = false } = {})
     logger.info('page_fetch_start', { url: redactUrl(noteUrl) });
     const pageResponse = await fetchXiaohongshuPage(noteUrl, logger, { useCookie });
     logger.info('page_fetch_response', {
-      status: pageResponse.status,
-      ok: pageResponse.ok,
-      finalUrl: redactUrl(pageResponse.url),
-      contentType: pageResponse.headers.get('content-type') || '',
+      ...summarizeXhsUpstreamResponse(pageResponse),
     });
     if (!isSupportedXiaohongshuUrl(pageResponse.url)) {
       logger.info('request_rejected', {
@@ -895,47 +894,61 @@ async function extractXiaohongshu(request, response, { useCookie = false } = {})
     logger.info('extract_success', { imageCount: reachableImageUrls.length, rejectedImageCount: imageUrls.length - reachableImageUrls.length, url: payload.imageUrl });
     sendJson(response, 200, payload);
   } catch (error) {
-    logger.error('extract_failed', { message: error instanceof Error ? error.message : String(error) });
+    logger.error('extract_failed', summarizeXhsError(error));
     sendJson(response, 502, { error: 'EXTRACT_FAILED', message: error instanceof Error ? error.message : '小红书图片提取失败' });
   }
 }
 
 async function filterReachableImageUrls(imageUrls, logger) {
   const checks = await Promise.all(imageUrls.map(async (imageUrl) => {
-    const reachable = await isFetchableImageUrl(imageUrl);
-    if (!reachable) logger.info('image_probe_failed', { url: redactUrl(imageUrl) });
-    return reachable ? imageUrl : '';
+    const startedAt = Date.now();
+    const result = await probeImageUrl(imageUrl);
+    logger.info(result.reachable ? 'image_probe_success' : 'image_probe_failed', {
+      url: redactUrl(imageUrl),
+      durationMs: Date.now() - startedAt,
+      ...result.details,
+    });
+    return result.reachable ? imageUrl : '';
   }));
   return checks.filter(Boolean);
 }
 
-async function isFetchableImageUrl(imageUrl) {
+async function probeImageUrl(imageUrl) {
   try {
     const response = await fetch(imageUrl, {
       headers: imageRequestHeaders(),
     });
-    if (!response.ok) return false;
+    const details = summarizeXhsUpstreamResponse(response);
+    if (!response.ok) return { reachable: false, details };
     const reader = response.body?.getReader?.();
+    let firstChunkBytes = 0;
     if (reader) {
-      await reader.read();
+      const firstChunk = await reader.read();
+      firstChunkBytes = firstChunk.value?.byteLength || 0;
       await reader.cancel();
     }
-    return true;
-  } catch {
-    return false;
+    return { reachable: true, details: { ...details, firstChunkBytes } };
+  } catch (error) {
+    return { reachable: false, details: summarizeXhsError(error) };
   }
 }
 
 async function downloadXiaohongshuImage(request, response) {
+  const requestId = randomUUID().slice(0, 8);
+  const logger = createXhsLogger(`xhs-image:${requestId}`);
   const body = await readJson(request);
   const imageUrl = String(body.imageUrl || '').trim();
+  logger.info('download_request_received', { url: redactUrl(imageUrl) });
   if (!isSupportedXiaohongshuImageUrl(imageUrl)) {
+    logger.info('download_request_rejected', { reason: 'invalid_image_url' });
     return sendJson(response, 400, { error: 'INVALID_INPUT', message: '图片链接无效' });
   }
   try {
-    const imageDataUrl = await fetchImageDataUrl(imageUrl);
+    const imageDataUrl = await fetchImageDataUrl(imageUrl, logger);
+    logger.info('download_success', { encodedBytes: Buffer.byteLength(imageDataUrl) });
     return sendJson(response, 200, { imageDataUrl });
   } catch (error) {
+    logger.error('download_failed', summarizeXhsError(error));
     return sendJson(response, 502, {
       error: 'EXTRACT_FAILED',
       message: error instanceof Error ? error.message : '小红书图片读取失败',
@@ -944,14 +957,19 @@ async function downloadXiaohongshuImage(request, response) {
 }
 
 async function proxyXiaohongshuImage(url, response) {
+  const requestId = randomUUID().slice(0, 8);
+  const logger = createXhsLogger(`xhs-proxy:${requestId}`);
   const imageUrl = String(url.searchParams.get('url') || '').trim();
+  logger.info('proxy_request_received', { url: redactUrl(imageUrl) });
   if (!isSupportedXiaohongshuImageUrl(imageUrl)) {
+    logger.info('proxy_request_rejected', { reason: 'invalid_image_url' });
     return sendJson(response, 400, { error: 'INVALID_INPUT', message: '图片链接无效' });
   }
   try {
     const imageResponse = await fetch(imageUrl, {
       headers: imageRequestHeaders(),
     });
+    logger.info('proxy_upstream_response', summarizeXhsUpstreamResponse(imageResponse));
     if (!imageResponse.ok) {
       return sendJson(response, 502, { error: 'EXTRACT_FAILED', message: `小红书图片读取失败: ${imageResponse.status}` });
     }
@@ -971,13 +989,16 @@ async function proxyXiaohongshuImage(url, response) {
       const buffer = Buffer.from(chunk);
       totalBytes += buffer.length;
       if (totalBytes > MAX_EXTRACT_IMAGE_BYTES) {
+        logger.error('proxy_failed', { reason: 'image_too_large', totalBytes });
         response.destroy(new Error('小红书图片超过大小限制'));
         return;
       }
       response.write(buffer);
     }
+    logger.info('proxy_success', { totalBytes, contentType });
     response.end();
-  } catch {
+  } catch (error) {
+    logger.error('proxy_failed', summarizeXhsError(error));
     if (!response.headersSent) {
       return sendJson(response, 502, { error: 'EXTRACT_FAILED', message: '小红书图片读取失败' });
     }
@@ -985,9 +1006,14 @@ async function proxyXiaohongshuImage(url, response) {
   }
 }
 
-async function fetchImageDataUrl(imageUrl) {
+async function fetchImageDataUrl(imageUrl, logger) {
+  const startedAt = Date.now();
   const imageResponse = await fetch(imageUrl, {
     headers: imageRequestHeaders(),
+  });
+  logger.info('download_upstream_response', {
+    ...summarizeXhsUpstreamResponse(imageResponse),
+    durationMs: Date.now() - startedAt,
   });
   if (!imageResponse.ok) {
     throw new Error(`小红书图片读取失败: ${imageResponse.status}`);
@@ -1008,6 +1034,7 @@ async function fetchImageDataUrl(imageUrl) {
     chunks.push(buffer);
   }
   const contentType = normalizeImageContentType(imageResponse.headers.get('content-type') || 'image/webp');
+  logger.info('download_body_loaded', { totalBytes, contentType });
   return `data:${contentType};base64,${Buffer.concat(chunks).toString('base64')}`;
 }
 

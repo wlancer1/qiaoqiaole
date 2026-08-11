@@ -8,6 +8,8 @@ import {
   isSupportedXiaohongshuUrl,
   mobileHeaders,
   normalizeExtractedImagePayload,
+  summarizeXhsError,
+  summarizeXhsUpstreamResponse,
 } from './xiaohongshu.mjs';
 
 describe('xiaohongshu extraction helpers', () => {
@@ -182,5 +184,34 @@ describe('xiaohongshu extraction helpers', () => {
       if (previous === undefined) delete process.env.XHS_COOKIE;
       else process.env.XHS_COOKIE = previous;
     }
+  });
+
+  test('summarizes upstream responses with the fields needed to diagnose expired links', () => {
+    const response = new Response('', {
+      status: 403,
+      headers: {
+        'content-type': 'text/html; charset=utf-8',
+        'content-length': '321',
+      },
+    });
+    Object.defineProperty(response, 'url', { value: 'https://www.xiaohongshu.com/404?source=share' });
+
+    expect(summarizeXhsUpstreamResponse(response)).toEqual({
+      status: 403,
+      ok: false,
+      finalUrl: 'https://www.xiaohongshu.com/404?source=share',
+      contentType: 'text/html; charset=utf-8',
+      contentLength: 321,
+    });
+  });
+
+  test('summarizes upstream exceptions without dropping transport error codes', () => {
+    const error = new TypeError('fetch failed', { cause: { code: 'UND_ERR_CONNECT_TIMEOUT' } });
+
+    expect(summarizeXhsError(error)).toEqual({
+      name: 'TypeError',
+      message: 'fetch failed',
+      causeCode: 'UND_ERR_CONNECT_TIMEOUT',
+    });
   });
 });
