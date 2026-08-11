@@ -70,6 +70,14 @@ describe('profile API', () => {
     expect(response.body).toMatchObject({ users: [] });
   });
 
+  it('lists the followers of the authenticated user', async () => {
+    const response = await request('/api/community/followers', {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ users: [] });
+  });
+
   it('returns the public profile and shared work summary for an author', async () => {
     const me = await request('/api/me', { headers: { authorization: `Bearer ${token}` } });
     const response = await request(`/api/community/users/${me.body.user.id}/profile`, {

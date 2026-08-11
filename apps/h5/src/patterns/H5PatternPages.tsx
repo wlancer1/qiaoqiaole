@@ -92,15 +92,13 @@ export function MyWorksPage({
         </div>
         <span className="my-works-count">{projects.length} 件</span>
       </section>
-      <section className="author-profile-stats" aria-label="作品统计">
+      <section className="author-profile-stats my-works-stats" aria-label="作品统计">
         <div><strong>{projects.length}</strong><span>作品</span></div>
         <div><strong>0</strong><span>获赞</span></div>
-        <div><strong>0</strong><span>收藏</span></div>
         <div><strong>0</strong><span>浏览</span></div>
       </section>
       <nav className="author-profile-tabs" aria-label="作品分类">
         <button className="active" type="button">作品</button>
-        <button type="button">收藏</button>
         <button type="button">喜欢</button>
       </nav>
       {projects.length > 0 ? (
@@ -157,31 +155,39 @@ export function MyWorksPage({
   );
 }
 
-export function FollowingPage({ users, loading, error, onBack, onRetry }: { users: FollowingUser[]; loading: boolean; error: string; onBack: () => void; onRetry: () => void }) {
+type FollowListPageProps = { users: FollowingUser[]; loading: boolean; error: string; onBack: () => void; onRetry: () => void; onOpenUser?: (user: FollowingUser) => void; mode?: 'following' | 'followers' };
+
+export function FollowingPage({ users, loading, error, onBack, onRetry, onOpenUser, mode = 'following' }: FollowListPageProps) {
+  const isFollowers = mode === 'followers';
+  const title = isFollowers ? '粉丝列表' : '关注列表';
   return (
-    <main className="author-profile-page following-list-page" aria-label="关注列表">
+    <main className="author-profile-page following-list-page" aria-label={title}>
       <header className="author-profile-header">
         <button type="button" aria-label="返回我的页面" onClick={onBack}><ArrowLeft aria-hidden="true" /></button>
-        <h1>关注列表</h1>
+        <h1>{title}</h1>
         <span aria-hidden="true" />
       </header>
       <section className="following-list-summary" aria-label="关注说明">
-        <strong>我关注的人</strong>
-        <span>关注喜欢的创作者，随时查看他们的作品</span>
+        <strong>{isFollowers ? '关注我的人' : '我关注的人'}</strong>
+        <span>{isFollowers ? '关注你的人会出现在这里，点击头像查看主页' : '关注喜欢的创作者，随时查看他们的作品'}</span>
       </section>
       {loading ? <p className="following-list-state" role="status">正在读取关注列表...</p> : error ? (
         <div className="following-list-state"><strong>{error}</strong><button type="button" onClick={onRetry}>重新加载</button></div>
       ) : users.length > 0 ? (
-        <section className="following-user-list" aria-label="已关注用户">
-          {users.map((user) => <article className="following-user-row" key={user.id}>
+        <section className="following-user-list" aria-label={isFollowers ? '粉丝用户' : '已关注用户'}>
+          {users.map((user) => <button className="following-user-row" key={user.id} type="button" aria-label={`查看${user.name}的主页`} onClick={() => onOpenUser?.(user)}>
             <UserAvatar className="following-user-avatar" avatarUrl={user.avatarUrl} />
             <strong>{user.name}</strong>
-            <span aria-hidden="true">已关注</span>
-          </article>)}
+            <span aria-hidden="true">{isFollowers ? '粉丝' : '已关注'}</span>
+          </button>)}
         </section>
-      ) : <div className="following-list-state"><strong>还没有关注任何人</strong><span>去发现页看看喜欢的创作者吧</span></div>}
+      ) : <div className="following-list-state"><strong>{isFollowers ? '还没有粉丝' : '还没有关注任何人'}</strong><span>{isFollowers ? '有人关注你后会显示在这里' : '去发现页看看喜欢的创作者吧'}</span></div>}
     </main>
   );
+}
+
+export function FollowersPage(props: Omit<FollowListPageProps, 'mode'>) {
+  return <FollowingPage {...props} mode="followers" />;
 }
 
 export function PatternDiscoverPage({ patterns, activeSort = 'hot', onSortChange, onOpen, onOpenAuthor }: {
@@ -306,7 +312,7 @@ function formatMessageTime(value: string) {
     : date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
 }
 
-export function PatternDetailPage({ pattern, currentUserId = '', onBack, onOpenAuthor, isLoggedIn, comments, isLoadingComments, onLoadComments, onLike, onFollow, onShare, onCopyToRepository, copyingToRepository = false, onComment, onLogin }: {
+export function PatternDetailPage({ pattern, currentUserId = '', onBack, onOpenAuthor, isLoggedIn, comments, isLoadingComments, onLoadComments, onLike, onFollow, onShare, onCopyToRepository, copyingToRepository = false, onComment, onReply, onDeleteComment, commentSubmitting = false, commentReplyPendingId = '', commentDeletePendingId = '', onLogin }: {
   pattern: PatternListCard;
   currentUserId?: string;
   onBack: () => void;
@@ -321,9 +327,16 @@ export function PatternDetailPage({ pattern, currentUserId = '', onBack, onOpenA
   onCopyToRepository?: () => void;
   copyingToRepository?: boolean;
   onComment: (content: string) => void;
+  onReply?: (commentId: string, content: string) => void;
+  onDeleteComment?: (commentId: string) => void;
+  commentSubmitting?: boolean;
+  commentReplyPendingId?: string;
+  commentDeletePendingId?: string;
   onLogin: () => void;
 }) {
   const [commentDraft, setCommentDraft] = useState('');
+  const [replyTarget, setReplyTarget] = useState<CommunityComment | null>(null);
+  const [expandedReplyCommentIds, setExpandedReplyCommentIds] = useState<Set<string>>(() => new Set());
   const [showFullBeadList, setShowFullBeadList] = useState(false);
   useEffect(() => { onLoadComments(); }, [pattern.id]);
 
@@ -331,8 +344,10 @@ export function PatternDetailPage({ pattern, currentUserId = '', onBack, onOpenA
     if (!isLoggedIn) return onLogin();
     const content = limitCommentContent(commentDraft.trim());
     if (!content) return;
-    onComment(content);
+    if (replyTarget && onReply) onReply(replyTarget.id, content);
+    else onComment(content);
     setCommentDraft('');
+    setReplyTarget(null);
   };
 
   const beadItems = pattern.beadList ?? [];
@@ -403,25 +418,55 @@ export function PatternDetailPage({ pattern, currentUserId = '', onBack, onOpenA
         </section>
 
         <section className="detail-comments-card" aria-label="部分评论">
-          <div className="detail-section-title"><h2>评论</h2><span>({comments.length})</span></div>
+          <div className="detail-section-title"><h2>评论</h2><span>({pattern.commentsCount})</span></div>
           <div className="detail-comment-list">
             {isLoadingComments ? <p className="community-empty">评论加载中…</p> : null}
             {!isLoadingComments && comments.length === 0 ? <p className="community-empty">还没有评论，来留下第一条吧。</p> : null}
-            {comments.map((comment) => (
-              <article className="detail-comment" key={comment.id}>
-                <CommentAvatar avatarUrl={comment.authorAvatar} />
-                <div>
-                  <div className="detail-comment-head"><strong>{comment.author}</strong></div>
-                  <p>{comment.content}</p>
-                  <small>{new Date(comment.createdAt).toLocaleString('zh-CN')}</small>
-                </div>
-              </article>
-            ))}
+            {comments.map((comment) => {
+              const replies = comment.replies ?? [];
+              const isRepliesExpanded = expandedReplyCommentIds.has(comment.id);
+              const visibleReplies = isRepliesExpanded ? replies : replies.slice(0, 2);
+              const hiddenReplyCount = replies.length - visibleReplies.length;
+              const renderComment = (item: CommunityComment, isReply = false) => (
+                <article className={isReply ? 'detail-comment detail-comment-reply' : 'detail-comment'} key={item.id}>
+                  <CommentAvatar avatarUrl={item.authorAvatar} />
+                  <div>
+                    <div className="detail-comment-head"><strong>{item.author}</strong>{item.replyToUserName ? <span> 回复 @{item.replyToUserName}</span> : null}</div>
+                    <p>{item.content}</p>
+                    <div className="detail-comment-actions">
+                      <small>{new Date(item.createdAt).toLocaleString('zh-CN')}</small>
+                      {onReply ? <button className="detail-comment-reply-action" type="button" disabled={Boolean(commentReplyPendingId) || commentSubmitting} onClick={() => { if (!isLoggedIn) return onLogin(); setReplyTarget(item); }}>{commentReplyPendingId === item.id ? '回复中…' : '回复'}</button> : null}
+                      {isLoggedIn && Boolean(item.authorId) && item.authorId === currentUserId && onDeleteComment ? <button className="detail-comment-delete-action" type="button" aria-label={`删除评论：${item.author}`} disabled={commentDeletePendingId === item.id} onClick={() => onDeleteComment(item.id)}>{commentDeletePendingId === item.id ? '删除中…' : '删除'}</button> : null}
+                    </div>
+                  </div>
+                </article>
+              );
+              return <div className="detail-comment-thread" key={comment.id}>
+                {renderComment(comment)}
+                {visibleReplies.map((reply) => renderComment(reply, true))}
+                {replies.length > 2 ? (
+                  <button
+                    className="detail-comment-toggle-replies"
+                    type="button"
+                    aria-expanded={isRepliesExpanded}
+                    onClick={() => setExpandedReplyCommentIds((expandedIds) => {
+                      const next = new Set(expandedIds);
+                      if (next.has(comment.id)) next.delete(comment.id);
+                      else next.add(comment.id);
+                      return next;
+                    })}
+                  >
+                    {isRepliesExpanded ? '收起回复' : `展开 ${hiddenReplyCount} 条回复`}
+                  </button>
+                ) : null}
+              </div>;
+            })}
           </div>
           <div className="detail-comment-compose">
-            <input value={commentDraft} onChange={(event) => setCommentDraft(limitCommentContent(event.target.value))} onFocus={() => { if (!isLoggedIn) onLogin(); }} placeholder={isLoggedIn ? '写下你的评论…' : '登录后参与评论'} aria-label="评论内容" />
-            <button type="button" onClick={submitComment} disabled={!commentDraft.trim()}>发布</button>
+            <input value={commentDraft} onChange={(event) => setCommentDraft(limitCommentContent(event.target.value))} onFocus={() => { if (!isLoggedIn) onLogin(); }} placeholder={replyTarget ? `回复 @${replyTarget.author}…` : isLoggedIn ? '写下你的评论…' : '登录后参与评论'} aria-label="评论内容" />
+            <button type="button" onClick={submitComment} disabled={!commentDraft.trim() || commentSubmitting || Boolean(commentReplyPendingId)}>{commentSubmitting ? '发布中…' : '发布'}</button>
           </div>
+          {replyTarget ? <button className="detail-comment-cancel-reply" type="button" onClick={() => setReplyTarget(null)}>取消回复</button> : null}
         </section>
       </div>
 

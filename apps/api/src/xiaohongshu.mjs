@@ -11,8 +11,8 @@ const XHS_IMAGE_FORMAT = 'webp';
 // 4. ci.xiaohongshu.com 链接会被统一改写为无水印、压缩后的固定宽度 webp。
 
 export function extractUrlFromText(text) {
-  const match = text.match(/https?:\/\/[^\s"'<>]+/i);
-  return match?.[0]?.trim() || text.trim();
+  const match = String(text || '').match(/https?:\/\/[^\s"'<>。，“”！？；：）》】]+/i);
+  return match?.[0]?.replace(/[.,!?;:)\]}。！？；：）》】]+$/g, '') || '';
 }
 
 export function findFirstImageUrl(html, baseUrl) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatCommunityTime, formatPatternSizeCm, sortCommunityPosts, toPatternListCard } from './communityData';
+import { formatCommunityTime, formatPatternSizeCm, insertCommentReply, removeCommentTree, sortCommunityPosts, toPatternListCard, type CommunityCommentThread } from './communityData';
 
 describe('formatCommunityTime', () => {
   it('formats ISO timestamps for community cards and detail metadata', () => {
@@ -55,5 +55,34 @@ describe('community data helpers', () => {
     ];
 
     expect(sortCommunityPosts(posts).map((post) => post.id)).toEqual(['top', 'new', 'old']);
+  });
+
+  it('inserts reply-to-reply comments into the visible top-level thread', () => {
+    const threads: CommunityCommentThread[] = [{
+      id: 'top', projectId: 'project-1', author: '作者', authorAvatar: null, content: '顶层', createdAt: '2026-08-11T00:00:00.000Z',
+      replies: [{ id: 'reply-1', projectId: 'project-1', author: '回复者', authorAvatar: null, content: '回复', createdAt: '2026-08-11T00:01:00.000Z', parentId: 'top' }],
+    }];
+
+    const next = insertCommentReply(threads, {
+      id: 'reply-2', projectId: 'project-1', author: '二级回复者', authorAvatar: null, content: '回复回复', createdAt: '2026-08-11T00:02:00.000Z', parentId: 'reply-1',
+    });
+
+    expect(next[0]?.replies.map((reply) => reply.id)).toEqual(['reply-1', 'reply-2']);
+    expect(next[0]?.replies[1]?.parentId).toBe('reply-1');
+  });
+
+  it('removes nested reply descendants from the visible thread', () => {
+    const threads: CommunityCommentThread[] = [{
+      id: 'top', projectId: 'project-1', author: '作者', authorAvatar: null, content: '顶层', createdAt: '2026-08-11T00:00:00.000Z',
+      replies: [
+        { id: 'reply-1', projectId: 'project-1', author: '回复者', authorAvatar: null, content: '回复', createdAt: '2026-08-11T00:01:00.000Z', parentId: 'top' },
+        { id: 'reply-2', projectId: 'project-1', author: '二级回复者', authorAvatar: null, content: '回复回复', createdAt: '2026-08-11T00:02:00.000Z', parentId: 'reply-1' },
+        { id: 'reply-3', projectId: 'project-1', author: '另一位', authorAvatar: null, content: '其他回复', createdAt: '2026-08-11T00:03:00.000Z', parentId: 'top' },
+      ],
+    }];
+
+    const next = removeCommentTree(threads, 'reply-1');
+
+    expect(next[0]?.replies.map((reply) => reply.id)).toEqual(['reply-3']);
   });
 });

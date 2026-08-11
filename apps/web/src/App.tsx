@@ -4,6 +4,7 @@ import {
   bucketFill,
   buildCellsFromSamples,
   cropTransparentBounds,
+  removeFlatBackground,
   DEFAULT_SETTINGS,
   MARD_221_COLORS,
   MARD_221_HEX,
@@ -904,7 +905,7 @@ async function loadImageFile(file: File): Promise<UploadedImage> {
 
   context.drawImage(image, 0, 0);
   const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-  removeFlatBackground(imageData);
+  imageData.data.set(removeFlatBackground(imageData.data, imageData.width, imageData.height));
   context.putImageData(imageData, 0, 0);
 
   const alpha = Array.from({ length: canvas.width * canvas.height }, (_, index) => imageData.data[index * 4 + 3]);
@@ -922,26 +923,6 @@ async function loadImageFile(file: File): Promise<UploadedImage> {
   };
 }
 
-function removeFlatBackground(imageData: ImageData) {
-  const { data, width, height } = imageData;
-  const samples = [
-    0,
-    (width - 1) * 4,
-    ((height - 1) * width) * 4,
-    ((height - 1) * width + width - 1) * 4,
-  ];
-  const background = samples.reduce(
-    (sum, index) => [sum[0] + data[index], sum[1] + data[index + 1], sum[2] + data[index + 2]],
-    [0, 0, 0],
-  ).map((value) => value / samples.length);
-
-  for (let i = 0; i < data.length; i += 4) {
-    const distance = Math.hypot(data[i] - background[0], data[i + 1] - background[1], data[i + 2] - background[2]);
-    if (distance < 42) {
-      data[i + 3] = 0;
-    }
-  }
-}
 
 function cellsFromImageData(imageData: ImageData, crop: UploadedImage['crop'], rows: number, cols: number): Cell[] {
   const cells: Cell[] = [];

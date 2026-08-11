@@ -125,7 +125,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
     setStatus, patternListCards, homeTemplateCards, setActivePattern, setScreen, openAuthorProfile, warehouses, stockedColorCount, totalWarehouseStock,
     activeWarehouse, mardColors, openWarehouse, setActiveTab, communitySort, setCommunitySort, authRequestSeqRef, pendingAuthActionRef,
     setIsAuthenticating, logoutPhone, showLogoutConfirm, setShowLogoutConfirm, notifications, loadNotifications, openNotification,
-    profileAvatarUrl, followingCount = 0, showProfileEditModal, openProfileEdit, profileEditModal, confirmDialog, requestConfirm,
+    profileAvatarUrl, followingCount = 0, followersCount = 0, showProfileEditModal, openProfileEdit, profileEditModal, confirmDialog, requestConfirm, openMyWorks,
   } = props;
   const unreadNotificationCount = (notifications ?? []).filter((item: { isRead?: boolean }) => !item.isRead).length;
   return (
@@ -161,7 +161,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
               <div className="home-section-heading">
                 <h2 id="home-recent-title">最近项目</h2>
                 {isLoggedIn && recentProjects.length > 0 ? (
-                  <button type="button" aria-label="查看全部最近项目" onClick={() => setScreen('my-works')}>
+                  <button type="button" aria-label="查看全部最近项目" onClick={() => openMyWorks ? openMyWorks('home') : setScreen('my-works')}>
                     全部
                     <span aria-hidden="true">›</span>
                   </button>
@@ -409,10 +409,10 @@ export function HomeShellPage(props: HomeShellPageProps) {
             </div>
             {isLoggedIn ? (
               <div className="profile-account-stats" aria-label="账号统计">
-                <button type="button" aria-label="查看我的作品" onClick={() => requireLogin(() => setScreen('my-works'))}><strong>{recentProjects.length}</strong><span>作品</span></button>
+                <button type="button" aria-label="查看我的作品" onClick={() => requireLogin(() => openMyWorks ? openMyWorks('profile') : setScreen('my-works'))}><strong>{recentProjects.length}</strong><span>作品</span></button>
                 <button type="button" aria-label="查看获赞列表" onClick={() => requireLogin(() => setStatus('获赞列表功能即将开放。'))}><strong>0</strong><span>获赞</span></button>
                 <button type="button" aria-label="查看关注列表" onClick={() => requireLogin(() => setScreen('following'))}><strong>{followingCount}</strong><span>关注</span></button>
-                <button type="button" aria-label="查看粉丝列表" onClick={() => requireLogin(() => setStatus('粉丝列表功能即将开放。'))}><strong>0</strong><span>粉丝</span></button>
+                <button type="button" aria-label="查看粉丝列表" onClick={() => requireLogin(() => setScreen('followers'))}><strong>{followersCount}</strong><span>粉丝</span></button>
               </div>
             ) : null}
           </section>
@@ -422,12 +422,6 @@ export function HomeShellPage(props: HomeShellPageProps) {
             <span className="profile-warehouse-copy">
               <strong>豆子仓库</strong>
               <small>{isLoggedIn ? `管理 ${activeWarehouse?.name ?? 'MARD 221 色库存'}` : '登录后查看豆子仓库'}</small>
-              <span className="profile-swatch-row" aria-hidden="true">
-                {mardColors.slice(0, 5).map((color: { code: string; hex: string }) => (
-                  <i key={color.code} style={{ background: color.hex }} />
-                ))}
-                <em>+{Math.max(0, mardColors.length - 5)}</em>
-              </span>
               <span className="profile-progress-track" aria-hidden="true">
                 <i style={{ width: `${Math.max(4, Math.min(100, (stockedColorCount / mardColors.length) * 100))}%` }} />
               </span>

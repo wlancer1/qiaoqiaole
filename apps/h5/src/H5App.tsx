@@ -69,16 +69,12 @@ import {
   SplitPreviewCanvas,
   cellsFromAlignedGrid,
   cellsFromAlignedGridAsync,
-  cellsFromImage,
   cellsFromImageAsync,
-  centeredAlignmentOffset,
-  centeredGridControlOrigin,
   clampSplitImageScale,
   createBlankCells,
   fitSplitImageRect,
   getImageCrop,
   gridSizeFromAlignment,
-  initialAlignCellSize,
   scaleRectFromCenter,
   touchDistance,
 } from './canvas/H5CanvasPreview';
@@ -92,6 +88,7 @@ import {
   downloadBlob,
   downloadText,
   extractUrlFromText,
+  isSupportedXiaohongshuUrl,
   fileToDataUrl,
   imageDataToUrl,
   loadImageData,
@@ -107,9 +104,10 @@ import {
 import { normalizeProjectPayload, parseProjectCells, serializeProjectCells } from './utils/projectPayload';
 import { cropSize, getAutoCropBounds, splitCropRegion, splitPreviewBackTarget, type CropBounds } from './utils/splitCrop';
 import { defaultSplitImageView } from './utils/splitImageView';
-import { AuthorProfilePage, FollowingPage, MyWorksPage, PatternDetailPage, PatternDiscoverPage, PatternMessagesPage } from './patterns/H5PatternPages';
+import { AuthorProfilePage, FollowersPage, FollowingPage, MyWorksPage, PatternDetailPage, PatternDiscoverPage, PatternMessagesPage } from './patterns/H5PatternPages';
 import { quickTools } from './patterns/h5PatternData';
-import { sortCommunityPosts, toPatternListCard, type CommunityComment, type CommunityNotification, type CommunityPost } from './community/communityData';
+import { insertCommentReply, removeCommentTree, sortCommunityPosts, toPatternListCard, type CommunityComment, type CommunityCommentsResponse, type CommunityNotification, type CommunityPost } from './community/communityData';
+import { nextAuthorBackTarget, nextDetailBackTarget } from './community/communityNavigation';
 import { WarehousePage } from './pages/warehouse/WarehousePage';
 import { WarehouseListPage } from './pages/warehouse/WarehouseListPage';
 import { SplitCropPage, SplitPreviewPage, SplitSettingsPage } from './pages/split/SplitPages';
@@ -120,6 +118,9 @@ import { ProjectActionSheet } from './pages/beading/ProjectActionSheet';
 import type { BeadingSession, InventoryCheck } from './beading/beadingSessionClient';
 import type { Complete, Prepare, Resume, SessionMutation, SessionTransition } from './pages/beading/useBeadingSessionActions';
 import { HomeShellPage, PhoneLoginModal, ProfileEditModal } from './pages/home/HomeShellPage';
+import { refreshHomeData } from './pages/home/homeRefresh';
+import { cloneImageData, deriveSplitImage } from './pages/split/splitImageProcessing';
+import { defaultSplitGeometryFromCrop, scaleCropBoundsToGrid } from './pages/split/splitImageState';
 import { resolveRestoredDisplayName } from './utils/authDisplayName';
 import { createNonce, createRequestId, getPhoneDeviceId, normalizePhone, showTencentCaptcha, signWebSmsRequest } from './utils/phoneAuthClient';
 import { passwordValidationMessage, validatePasswordLength } from './utils/passwordValidation';
@@ -150,7 +151,6 @@ import {
   MAX_SPLIT_LONG_SIDE,
   MIN_SPLIT_LONG_SIDE,
   clampSplitLongSide,
-  defaultSplitLongSideFromBounds,
   gridSizeFromSplitBounds,
 } from './utils/splitConfig';
 
@@ -213,7 +213,7 @@ function H5App() {
   const [authorProfilePosts, setAuthorProfilePosts] = useState<PatternListCard[]>([]);
   const [authorProfileError, setAuthorProfileError] = useState('');
   const [isAuthorProfileLoading, setIsAuthorProfileLoading] = useState(false);
-  const authorProfileBackTargetRef = useRef<'discover' | 'detail'>('discover');
+  const authorProfileBackTargetRef = useRef<'discover' | 'detail' | 'following' | 'followers'>('discover');
   const [rows, setRows] = useState<number>(32);
   const [cols, setCols] = useState<number>(32);
   const [cells, setCells] = useState<Cell[]>(() => createBlankCells(32, 32));
@@ -232,9 +232,13 @@ function H5App() {
   const [loginName, setLoginName] = useState('');
   const [profileAvatarUrl, setProfileAvatarUrl] = useState('');
   const [followingCount, setFollowingCount] = useState(0);
+  const [followersCount, setFollowersCount] = useState(0);
   const [followingUsers, setFollowingUsers] = useState<FollowingUser[]>([]);
+  const [followersUsers, setFollowersUsers] = useState<FollowingUser[]>([]);
   const [isFollowingLoading, setIsFollowingLoading] = useState(false);
+  const [isFollowersLoading, setIsFollowersLoading] = useState(false);
   const [followingError, setFollowingError] = useState('');
+  const [followersError, setFollowersError] = useState('');
   const [showProfileEditModal, setShowProfileEditModal] = useState(false);
   const [profileEditName, setProfileEditName] = useState('');
   const [profileEditAvatar, setProfileEditAvatar] = useState('');
@@ -270,10 +274,13 @@ function H5App() {
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
   const [activeProjectId, setActiveProjectId] = useState('');
   const [communityPosts, setCommunityPosts] = useState<CommunityPost[]>([]);
-  const [communityComments, setCommunityComments] = useState<CommunityComment[]>([]);
+  const [communityComments, setCommunityComments] = useState<CommunityCommentsResponse['comments']>([]);
   const [notifications, setNotifications] = useState<CommunityNotification[]>([]);
   const [isCommunityLoading, setIsCommunityLoading] = useState(false);
   const [isCommunityCommentsLoading, setIsCommunityCommentsLoading] = useState(false);
+  const [commentSubmitting, setCommentSubmitting] = useState(false);
+  const [commentReplyPendingId, setCommentReplyPendingId] = useState('');
+  const [commentDeletePendingId, setCommentDeletePendingId] = useState('');
   const [communitySort, setCommunitySort] = useState<'hot' | 'latest'>('hot');
   const sortedRecentProjects = useMemo(
     () => [...recentProjects].sort((a, b) => Date.parse(b.updatedAt || b.createdAt) - Date.parse(a.updatedAt || a.createdAt)),
@@ -298,6 +305,7 @@ function H5App() {
   const [projectActionTarget, setProjectActionTarget] = useState<RecentProject | null>(null);
   const [confirmDialogRequest, setConfirmDialogRequest] = useState<ConfirmDialogRequest | null>(null);
   const requestConfirm = (request: ConfirmDialogRequest) => setConfirmDialogRequest(request);
+  const myWorksBackTargetRef = useRef<'home' | 'profile'>('profile');
   const patternDetailBackTargetRef = useRef<'home' | 'author-profile'>('home');
   const authorProfileReturnPatternRef = useRef<PatternListCard | null>(null);
   const closeConfirmDialog = () => setConfirmDialogRequest(null);
@@ -325,6 +333,7 @@ function H5App() {
   const [beadStock, setBeadStock] = useState<Record<string, number>>({});
   const [uploadedSplitImage, setUploadedSplitImage] = useState<UploadedSplitImage | null>(null);
   const [uploadedSourceImageDataUrl, setUploadedSourceImageDataUrl] = useState('');
+  const [isBackgroundProcessing, setIsBackgroundProcessing] = useState(false);
   const [splitMode, setSplitMode] = useState<SplitMode>('quick');
   const [splitLongSide, setSplitLongSide] = useState(DEFAULT_SPLIT_LONG_SIDE);
   const [splitRows, setSplitRows] = useState(DEFAULT_SPLIT_LONG_SIDE);
@@ -365,11 +374,12 @@ function H5App() {
   const activeWarehouseIdRef = useRef('');
   const communityPostsRequestSeqRef = useRef(0);
   const communityCommentsRequestSeqRef = useRef(0);
+  const notificationsRequestSeqRef = useRef(0);
+  const warehousesRequestSeqRef = useRef(0);
   const inventoryRequestSeqRef = useRef(0);
   const recentProjectsRequestSeqRef = useRef(0);
   const authorProfileRequestSeqRef = useRef(0);
   const saveProjectInFlightRef = useRef(false);
-  const saveAndStartRef = useRef(false);
   const cellsRef = useRef(cells);
   const canvasArtboardRef = useRef<HTMLDivElement | null>(null);
   const suppressCanvasClickRef = useRef(false);
@@ -447,8 +457,33 @@ function H5App() {
   }, [activeWarehouseId]);
 
   useEffect(() => {
-    if (screen !== 'pattern-detail' && screen !== 'author-profile') patternDetailBackTargetRef.current = 'home';
+    if (screen !== 'pattern-detail' && screen !== 'author-profile') patternDetailBackTargetRef.current = nextDetailBackTarget(screen);
   }, [screen]);
+
+  useLayoutEffect(() => {
+    const resetScrollPositions = () => {
+      try {
+        window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      } catch {
+        window.scrollTo(0, 0);
+      }
+      document.querySelectorAll<HTMLElement>('*').forEach((element) => {
+        const style = window.getComputedStyle(element);
+        if ((style.overflowY === 'auto' || style.overflowY === 'scroll' || style.overflow === 'auto' || style.overflow === 'scroll') && element.scrollTop > 0) {
+          element.scrollTop = 0;
+        }
+      });
+    };
+
+    resetScrollPositions();
+    const frame = window.requestAnimationFrame(resetScrollPositions);
+    return () => window.cancelAnimationFrame(frame);
+  }, [screen, activeTab]);
+
+  const openMyWorks = (backTarget: 'home' | 'profile' = 'profile') => {
+    myWorksBackTargetRef.current = backTarget;
+    setScreen('my-works');
+  };
 
   useEffect(() => {
     splitLiveLongSideRef.current = splitLongSide;
@@ -513,6 +548,7 @@ function H5App() {
         setLoginName(resolveRestoredDisplayName(payload.user, stored.username));
         setProfileAvatarUrl(String(payload.user.avatarUrl || ''));
         setFollowingCount(Number(payload.followingCount || 0));
+        setFollowersCount(Number(payload.followersCount || 0));
         setIsLoggedIn(true);
         await loadRecentProjects(stored.token);
         await loadCommunityPosts('hot', stored.token);
@@ -824,7 +860,7 @@ function H5App() {
     return body as T;
   };
 
-  const loadRecentProjects = async (token: string) => {
+  const loadRecentProjects = async (token: string, { preserveOnError = false } = {}) => {
     const requestSeq = recentProjectsRequestSeqRef.current + 1;
     recentProjectsRequestSeqRef.current = requestSeq;
     try {
@@ -837,17 +873,19 @@ function H5App() {
       setRecentProjects(payload.projects as RecentProject[]);
     } catch (error) {
       if (recentProjectsRequestSeqRef.current !== requestSeq) return;
-      setRecentProjects([]);
+      if (!preserveOnError) setRecentProjects([]);
       setStatus(error instanceof Error ? error.message : '最近项目读取失败');
     }
   };
 
   const loadFollowingCount = async (token: string) => {
     try {
-      const payload = await requestApi<{ followingCount?: number }>('/me', {}, token);
+      const payload = await requestApi<{ followingCount?: number; followersCount?: number }>('/me', {}, token);
       setFollowingCount(typeof payload.followingCount === 'number' ? payload.followingCount : 0);
+      setFollowersCount(typeof payload.followersCount === 'number' ? payload.followersCount : 0);
     } catch {
       setFollowingCount(0);
+      setFollowersCount(0);
     }
   };
 
@@ -863,6 +901,21 @@ function H5App() {
       setFollowingError(error instanceof Error ? error.message : '关注列表读取失败');
     } finally {
       setIsFollowingLoading(false);
+    }
+  };
+
+  const loadFollowersUsers = async (token = authToken) => {
+    if (!token) return;
+    setIsFollowersLoading(true);
+    setFollowersError('');
+    try {
+      const payload = await requestApi<{ users: FollowingUser[] }>('/community/followers', { headers: { authorization: `Bearer ${token}` } }, token);
+      setFollowersUsers(Array.isArray(payload.users) ? payload.users : []);
+    } catch (error) {
+      setFollowersUsers([]);
+      setFollowersError(error instanceof Error ? error.message : '粉丝列表读取失败');
+    } finally {
+      setIsFollowersLoading(false);
     }
   };
 
@@ -897,15 +950,15 @@ function H5App() {
     }
   };
 
-  const openAuthorProfile = (pattern: PatternListCard, backTarget: 'discover' | 'detail' = 'discover') => {
+  const openAuthorProfile = (pattern: PatternListCard, backTarget: 'discover' | 'detail' | 'following' | 'followers' = 'discover') => {
     if (pattern.authorId && pattern.authorId === authUserId) {
       setActiveTab('profile');
-      setScreen('my-works');
+      openMyWorks('profile');
       return;
     }
     if (!pattern.authorId) return;
     authorProfileRequestSeqRef.current += 1;
-    authorProfileBackTargetRef.current = backTarget;
+    authorProfileBackTargetRef.current = nextAuthorBackTarget(backTarget === 'detail' ? 'pattern-detail' : backTarget);
     authorProfileReturnPatternRef.current = backTarget === 'detail' ? pattern : null;
     setActivePattern(pattern);
     setAuthorProfile(null);
@@ -915,7 +968,28 @@ function H5App() {
     void loadAuthorProfile(pattern.authorId);
   };
 
-  const loadCommunityPosts = async (sort: 'hot' | 'latest' = communitySort, token = authToken) => {
+  const openFollowUserProfile = (user: FollowingUser, from: 'following' | 'followers') => {
+    openAuthorProfile({
+      id: `user-${user.id}`,
+      title: user.name,
+      author: user.name,
+      authorId: user.id,
+      authorAvatar: user.avatarUrl,
+      size: '',
+      meta: '',
+      likes: '0',
+      comments: '0',
+      downloads: '0',
+      tone: 'recent-flower',
+      beads: [],
+      image: '',
+      likesCount: 0,
+      commentsCount: 0,
+      likedByMe: false,
+    }, from);
+  };
+
+  const loadCommunityPosts = async (sort: 'hot' | 'latest' = communitySort, token = authToken, { preserveOnError = false } = {}) => {
     const requestSeq = communityPostsRequestSeqRef.current + 1;
     communityPostsRequestSeqRef.current = requestSeq;
     setIsCommunityLoading(true);
@@ -935,7 +1009,7 @@ function H5App() {
       setCommunityPosts(sort === 'hot' ? sortCommunityPosts(allPosts) : allPosts);
     } catch (error) {
       if (communityPostsRequestSeqRef.current !== requestSeq) return;
-      setCommunityPosts([]);
+      if (!preserveOnError) setCommunityPosts([]);
       setStatus(error instanceof Error ? error.message : '社区稿件读取失败');
     } finally {
       if (communityPostsRequestSeqRef.current === requestSeq) setIsCommunityLoading(false);
@@ -943,13 +1017,12 @@ function H5App() {
   };
 
   useEffect(() => {
-    if (activeTab === 'home' || activeTab === 'discover') {
-      void loadCommunityPosts(activeTab === 'discover' ? communitySort : 'hot', authToken);
-    }
+    if (activeTab === 'discover') void loadCommunityPosts(communitySort, authToken);
   }, [activeTab, authToken, communitySort]);
 
   useEffect(() => {
     if (screen === 'following' && authToken) void loadFollowingUsers(authToken);
+    if (screen === 'followers' && authToken) void loadFollowersUsers(authToken);
   }, [screen, authToken]);
 
   const communityCards = useMemo(() => communityPosts.map(toPatternListCard), [communityPosts]);
@@ -961,7 +1034,7 @@ function H5App() {
     setCommunityComments([]);
     setIsCommunityCommentsLoading(true);
     try {
-      const payload = await requestApi<{ comments: CommunityComment[] }>(`/community/posts/${projectId}/comments`);
+      const payload = await requestApi<CommunityCommentsResponse>(`/community/posts/${projectId}/comments`);
       if (communityCommentsRequestSeqRef.current !== requestSeq) return;
       setCommunityComments(payload.comments);
     } catch (error) {
@@ -973,18 +1046,20 @@ function H5App() {
     }
   };
 
-  const loadNotifications = async (token = authToken) => {
+  const loadNotifications = async (token = authToken, { preserveOnError = false } = {}) => {
     if (!token) {
-      setNotifications([]);
+      if (!preserveOnError) setNotifications([]);
       return;
     }
+    const requestSeq = notificationsRequestSeqRef.current + 1;
+    notificationsRequestSeqRef.current = requestSeq;
     try {
       const payload = await requestApi<{ notifications: CommunityNotification[] }>('/notifications', {
         headers: { authorization: `Bearer ${token}` },
       });
-      setNotifications(payload.notifications || []);
+      if (notificationsRequestSeqRef.current === requestSeq) setNotifications(payload.notifications || []);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : '消息读取失败');
+      if (notificationsRequestSeqRef.current === requestSeq) setStatus(error instanceof Error ? error.message : '消息读取失败');
     }
   };
 
@@ -1051,22 +1126,50 @@ function H5App() {
     }
   };
 
-  const addCommunityComment = async (projectId: string, content: string, token = authToken) => {
+  const addCommunityComment = async (projectId: string, content: string, parentId?: string, token = authToken) => {
     if (!token) {
-      requireLogin((nextToken) => void addCommunityComment(projectId, content, nextToken));
+      requireLogin((nextToken) => void addCommunityComment(projectId, content, parentId, nextToken));
       return;
     }
+    if (parentId) setCommentReplyPendingId(parentId);
+    else setCommentSubmitting(true);
     try {
       const payload = await requestApi<{ comment: CommunityComment }>(`/community/posts/${projectId}/comments`, {
         method: 'POST',
         headers: { authorization: `Bearer ${token}` },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, ...(parentId ? { parentId } : {}) }),
       });
-      setCommunityComments((comments) => [payload.comment, ...comments]);
+      setCommunityComments((comments) => parentId
+        ? insertCommentReply(comments, payload.comment)
+        : [{ ...payload.comment, replies: payload.comment.replies || [] }, ...comments]);
       setCommunityPosts((posts) => posts.map((post) => post.id === projectId ? { ...post, commentsCount: post.commentsCount + 1 } : post));
       setActivePattern((pattern) => pattern?.id === projectId ? { ...pattern, comments: String(pattern.commentsCount + 1), commentsCount: pattern.commentsCount + 1 } : pattern);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : '评论发布失败');
+    } finally {
+      if (parentId) setCommentReplyPendingId('');
+      else setCommentSubmitting(false);
+    }
+  };
+
+  const deleteCommunityComment = async (projectId: string, commentId: string, token = authToken) => {
+    if (!token) {
+      requireLogin((nextToken) => void deleteCommunityComment(projectId, commentId, nextToken));
+      return;
+    }
+    setCommentDeletePendingId(commentId);
+    try {
+      const payload = await requestApi<{ deletedCount: number }>(`/community/posts/${projectId}/comments/${commentId}`, {
+        method: 'DELETE',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      setCommunityComments((comments) => removeCommentTree(comments, commentId));
+      setCommunityPosts((posts) => posts.map((post) => post.id === projectId ? { ...post, commentsCount: Math.max(0, post.commentsCount - payload.deletedCount) } : post));
+      setActivePattern((pattern) => pattern?.id === projectId ? { ...pattern, comments: String(Math.max(0, pattern.commentsCount - payload.deletedCount)), commentsCount: Math.max(0, pattern.commentsCount - payload.deletedCount) } : pattern);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : '评论删除失败');
+    } finally {
+      setCommentDeletePendingId('');
     }
   };
 
@@ -1152,7 +1255,7 @@ function H5App() {
       });
       await loadRecentProjects(token);
       setStatus('已复制到仓库，可在我的作品中查看。');
-      setScreen('my-works');
+      openMyWorks('home');
     } catch (error) {
       setStatus(error instanceof Error ? error.message : '复制到仓库失败，请稍后重试。');
     } finally {
@@ -1325,7 +1428,7 @@ function H5App() {
     }
   };
 
-  const confirmSaveProject = async () => {
+  const confirmSaveProject = async ({ startBeading = false }: { startBeading?: boolean } = {}) => {
     if (isSavingProject || saveProjectInFlightRef.current) return;
     const name = saveProjectName.trim().slice(0, 30);
     if (!name) {
@@ -1347,11 +1450,8 @@ function H5App() {
       });
       const saved = await saveRecentProject(name, rows, cols, uploadedSplitImage ? 'recent-dog' : 'recent-flower', imagePayload);
       if (!saved) {
-        saveAndStartRef.current = false;
         return;
       }
-      const shouldStartBeading = saveAndStartRef.current;
-      saveAndStartRef.current = false;
       if (shareToCommunity && !saved.sharedToCommunity) {
         try {
           await requestApi(`/projects/${saved.id}/share`, { method: 'POST' });
@@ -1362,19 +1462,13 @@ function H5App() {
         }
       }
       setShowSaveProjectModal(false);
-      if (shouldStartBeading) await startBeadingProject(saved);
+      if (startBeading) await startBeadingProject(saved);
    } catch (error) {
-      saveAndStartRef.current = false;
      setStatus(error instanceof Error ? error.message : '作品保存失败，请稍后重试。');
     } finally {
       saveProjectInFlightRef.current = false;
       setIsSavingProject(false);
     }
-  };
-
-  const saveAndStartProject = () => {
-    saveAndStartRef.current = true;
-    saveCurrentProject();
   };
 
   const shareSavedProject = async (project: RecentProject, token = authToken) => {
@@ -1403,22 +1497,49 @@ function H5App() {
     }
   };
 
-  const loadWarehouses = async (token = authToken) => {
+  const loadWarehouses = async (token = authToken, { preserveOnError = false } = {}) => {
     if (!token) return;
-    const payload = await fetch(`${API_BASE}/warehouses`, {
-      headers: { authorization: `Bearer ${token}` },
-    }).then(async (response) => {
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.message || '仓库读取失败');
-      return data as { warehouses: Warehouse[] };
-    });
-    setWarehouses(payload.warehouses);
-    if (!activeWarehouseId && payload.warehouses[0]) {
-      activeWarehouseIdRef.current = payload.warehouses[0].id;
-      setActiveWarehouseId(payload.warehouses[0].id);
-      await loadInventory(payload.warehouses[0].id, token);
+    const requestSeq = warehousesRequestSeqRef.current + 1;
+    warehousesRequestSeqRef.current = requestSeq;
+    try {
+      const payload = await fetch(`${API_BASE}/warehouses`, { headers: { authorization: `Bearer ${token}` } }).then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || '仓库读取失败');
+        return data as { warehouses: Warehouse[] };
+      });
+      if (warehousesRequestSeqRef.current !== requestSeq) return;
+      setWarehouses(payload.warehouses);
+      if (!activeWarehouseId && payload.warehouses[0]) {
+        activeWarehouseIdRef.current = payload.warehouses[0].id;
+        setActiveWarehouseId(payload.warehouses[0].id);
+        await loadInventory(payload.warehouses[0].id, token);
+      }
+    } catch (error) {
+      if (!preserveOnError || warehousesRequestSeqRef.current === requestSeq) setStatus(error instanceof Error ? error.message : '仓库读取失败');
     }
   };
+
+  const refreshCurrentHome = () => refreshHomeData({
+    token: authToken,
+    loadCommunity: () => loadCommunityPosts('hot', authToken, { preserveOnError: true }),
+    loadRecentProjects: () => authToken ? loadRecentProjects(authToken, { preserveOnError: true }) : Promise.resolve(),
+    loadNotifications: () => authToken ? loadNotifications(authToken, { preserveOnError: true }) : Promise.resolve(),
+    loadWarehouses: () => authToken ? loadWarehouses(authToken, { preserveOnError: true }) : Promise.resolve(),
+    loadProfile: () => authToken ? loadFollowingCount(authToken) : Promise.resolve(),
+  });
+
+  useEffect(() => {
+    if (screen !== 'home' || activeTab !== 'home') return;
+    void refreshCurrentHome();
+  }, [screen, activeTab, authToken]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && screen === 'home' && activeTab === 'home') void refreshCurrentHome();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [screen, activeTab, authToken]);
 
   const loadInventory = async (warehouseId = activeWarehouseId, token = authToken) => {
     if (!warehouseId || !token) return;
@@ -1621,6 +1742,9 @@ function H5App() {
     setLoginName('');
     setProfileAvatarUrl('');
     setFollowingCount(0);
+    setFollowersCount(0);
+    setFollowingUsers([]);
+    setFollowersUsers([]);
     setRecentProjects([]);
     setCommunityPosts([]);
     setCommunityComments([]);
@@ -2179,37 +2303,43 @@ function H5App() {
     setScreen(splitPreviewBackTarget());
   };
 
-  const loadSplitImage = (name: string, imageData: ImageData): number => {
-    const crop = getImageCrop(imageData);
-    const url = imageDataToUrl(imageData);
-    const defaultLongSide = defaultSplitLongSideFromBounds(crop.width, crop.height);
-    const { rows: defaultRows, cols: defaultCols } = gridSizeFromSplitBounds(crop.width, crop.height, defaultLongSide);
-    setUploadedSplitImage({ name, imageData, crop, url });
-    setActiveProjectId('');
+  const applyDefaultSplitGeometry = (crop: UploadedSplitImage['crop'], { resetCrop = true } = {}) => {
+    const geometry = defaultSplitGeometryFromCrop(crop);
     setSplitMode('quick');
-    setSplitLongSide(defaultLongSide);
-    setSplitRows(defaultRows);
-    setSplitCols(defaultCols);
-    setSplitMergeThreshold(0);
+    setSplitLongSide(geometry.longSide);
+    setSplitRows(geometry.rows);
+    setSplitCols(geometry.cols);
     setSplitPreviewTab('settings');
     setLockedAlignedGrid(null);
-    const defaultCellSize = initialAlignCellSize(crop, defaultCols, defaultRows);
-    const defaultOffset = centeredAlignmentOffset(crop, defaultCellSize);
-    splitLiveAlignCellSizeRef.current = defaultCellSize;
-    splitLiveAlignOffsetRef.current = defaultOffset;
-    const defaultFrameOrigin = centeredGridControlOrigin(crop, defaultCellSize, defaultOffset);
-    splitLiveGridFrameOriginRef.current = defaultFrameOrigin;
-    setAlignCellSize(defaultCellSize);
-    setAlignOffsetX(defaultOffset.x);
-    setAlignOffsetY(defaultOffset.y);
-    setGridFrameOrigin(defaultFrameOrigin);
+    splitLiveAlignCellSizeRef.current = geometry.alignCellSize;
+    splitLiveAlignOffsetRef.current = geometry.alignOffset;
+    splitLiveGridFrameOriginRef.current = geometry.gridFrameOrigin;
+    setAlignCellSize(geometry.alignCellSize);
+    setAlignOffsetX(geometry.alignOffset.x);
+    setAlignOffsetY(geometry.alignOffset.y);
+    setGridFrameOrigin(geometry.gridFrameOrigin);
+    if (resetCrop) {
+      setIsSplitCropped(false);
+      setSplitCropBounds({ top: 0, right: geometry.cols, bottom: geometry.rows, left: 0 });
+    }
     setSplitImageScale(1);
     updateSplitImageOffset({ x: 0, y: 0 });
     splitImagePinchRef.current.active = false;
+    return geometry;
+  };
+
+  const loadSplitImage = (name: string, imageData: ImageData): number => {
+    const originalImageData = cloneImageData(imageData);
+    const derived = deriveSplitImage(originalImageData, false, { toUrl: imageDataToUrl, getCrop: getImageCrop });
+    const { crop, url } = derived;
+    setUploadedSplitImage({ name, originalImageData, imageData: derived.imageData, crop, url, originalUrl: url, backgroundRemoved: false });
+    setActiveProjectId('');
+    setSplitMergeThreshold(0);
+    const defaultGeometry = applyDefaultSplitGeometry(crop);
     setHistory([]);
     setFuture([]);
     setScreen('split');
-    return defaultLongSide;
+    return defaultGeometry.longSide;
   };
 
   const handleUpload = async (file: File | undefined) => {
@@ -2225,13 +2355,42 @@ function H5App() {
 
     try {
       const imageData = await loadImageData(file);
-      const sourceImageDataUrl = await fileToDataUrl(file);
-      setUploadedSourceImageDataUrl(sourceImageDataUrl);
       loadSplitImage(file.name, imageData);
+      setUploadedSourceImageDataUrl(imageDataToUrl(imageData));
     } catch {
       setStatus('图片读取失败，请换一张图片。');
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const toggleSplitBackground = async () => {
+    if (!uploadedSplitImage || isBackgroundProcessing) return;
+    setIsBackgroundProcessing(true);
+    const preservePreviewCrop = screen === 'split-preview' && isSplitCropped;
+    const previousCropBounds = splitCropBounds;
+    const previousGridSize = { cols: activeSplitCols, rows: activeSplitRows };
+    const jobId = splitPreviewJobRef.current + 1;
+    splitPreviewJobRef.current = jobId;
+    try {
+      await yieldToBrowser();
+      const backgroundRemoved = !uploadedSplitImage.backgroundRemoved;
+      const derived = deriveSplitImage(uploadedSplitImage.originalImageData, backgroundRemoved, { toUrl: imageDataToUrl, getCrop: getImageCrop });
+      if (splitPreviewJobRef.current !== jobId) return;
+      setUploadedSplitImage((current) => current ? { ...current, ...derived } : current);
+      setUploadedSourceImageDataUrl(derived.url);
+      const geometry = applyDefaultSplitGeometry(derived.crop, { resetCrop: !preservePreviewCrop });
+      if (preservePreviewCrop) {
+        setIsSplitCropped(true);
+        setSplitCropBounds(scaleCropBoundsToGrid(previousCropBounds, previousGridSize, { cols: geometry.cols, rows: geometry.rows }));
+        setSplitPreviewLoading(true);
+      }
+      setSplitPreviewRawCells([]);
+      setSplitPreviewCells([]);
+    } catch {
+      setStatus('图片去背景失败，请重试。');
+    } finally {
+      if (splitPreviewJobRef.current === jobId) setIsBackgroundProcessing(false);
     }
   };
 
@@ -2266,8 +2425,12 @@ function H5App() {
       return;
     }
     const url = extractUrlFromText(xhsLink);
-    if (!url || !/xiaohongshu\.com|xhslink\.com/i.test(url)) {
-      setStatus('请输入有效的小红书链接。');
+    if (!url) {
+      setStatus('未识别到链接。');
+      return;
+    }
+    if (!isSupportedXiaohongshuUrl(url)) {
+      setStatus('不支持的链接域名。');
       return;
     }
     const requestSeq = xhsRequestSeqRef.current + 1;
@@ -2315,8 +2478,8 @@ function H5App() {
       }
       const imageData = await loadImageDataFromUrl(source);
       if (xhsImportSeqRef.current !== requestSeq || !showUploadModal) return;
-      setUploadedSourceImageDataUrl(source);
       loadSplitImage(safeImageFilename(title || 'xiaohongshu-drawing', 'image/png'), imageData);
+      setUploadedSourceImageDataUrl(imageDataToUrl(imageData));
       setShowUploadModal(false);
       setShowXhsInput(false);
       setXhsLink('');
@@ -2699,11 +2862,9 @@ function H5App() {
     authRequestSeqRef.current += 1;
     setIsAuthenticating(false);
     pendingAuthActionRef.current = null;
-    saveAndStartRef.current = false;
     setShowLoginModal(false);
   };
   const dismissSaveLoginPrompt = () => {
-    saveAndStartRef.current = false;
     setShowSaveLoginPrompt(false);
   };
   const loginModalFallback = showLoginModal && !(screen === 'home' && (activeTab === 'home' || activeTab === 'profile')) ? (
@@ -2728,7 +2889,8 @@ function H5App() {
   const projectActionSheet = projectActionTarget ? (() => {
     const target = projectActionTarget;
     const hasSession = Boolean(beadingSession?.projectId === target.id && beadingSession != null && ['in_progress', 'paused', 'pending_completion'].includes(beadingSession.status));
-    return <ProjectActionSheet
+    return <>
+      <ProjectActionSheet
       project={target}
       hasSession={hasSession}
       onClose={() => setProjectActionTarget(null)}
@@ -2761,7 +2923,9 @@ function H5App() {
           },
         });
       }}
-    />;
+      />
+      {screen === 'my-works' ? confirmDialog : null}
+    </>;
   })() : null;
 
   if (screen === 'split' && uploadedSplitImage) {
@@ -2837,6 +3001,9 @@ function H5App() {
       splitLoadingStage={splitLoadingStage}
       splitLoadingProgress={splitLoadingProgress}
       splitColorList={splitColorList}
+      backgroundRemoved={Boolean(uploadedSplitImage.backgroundRemoved)}
+      isBackgroundProcessing={isBackgroundProcessing}
+      onToggleBackground={toggleSplitBackground}
       setSplitPreviewTab={setSplitPreviewTab}
       splitPreviewTab={splitPreviewTab}
       previewCols={previewSplitSize.cols}
@@ -2865,7 +3032,6 @@ function H5App() {
       workMode={workMode}
       exportStl={exportStl}
       saveCurrentProject={saveCurrentProject}
-      saveAndStartProject={saveAndStartProject}
       showSaveProjectModal={showSaveProjectModal}
       setShowSaveProjectModal={setShowSaveProjectModal}
       showSaveLoginPrompt={showSaveLoginPrompt}
@@ -3040,6 +3206,11 @@ function H5App() {
         onCopyToRepository={() => activePattern && void copyCommunityPattern(activePattern.id)}
         copyingToRepository={copyingPatternId === activePattern?.id}
         onComment={(content) => activePattern && void addCommunityComment(activePattern.id, content)}
+        onReply={(commentId, content) => activePattern && void addCommunityComment(activePattern.id, content, commentId)}
+        onDeleteComment={(commentId) => activePattern && void deleteCommunityComment(activePattern.id, commentId)}
+        commentSubmitting={commentSubmitting}
+        commentReplyPendingId={commentReplyPendingId}
+        commentDeletePendingId={commentDeletePendingId}
         onLogin={() => setShowLoginModal(true)}
         onBack={() => {
           if (patternDetailBackTargetRef.current === 'author-profile') {
@@ -3064,10 +3235,11 @@ function H5App() {
         onRetry={() => activePattern?.authorId && void loadAuthorProfile(activePattern.authorId)}
         currentUserId={authUserId}
         onBack={() => {
-          const returnToDetail = authorProfileBackTargetRef.current === 'detail';
+          const returnTarget = authorProfileBackTargetRef.current;
+          const returnToDetail = returnTarget === 'detail';
           if (returnToDetail && authorProfileReturnPatternRef.current) setActivePattern(authorProfileReturnPatternRef.current);
-          setScreen(returnToDetail ? 'pattern-detail' : 'home');
-          setActiveTab('discover');
+          setScreen(returnToDetail ? 'pattern-detail' : returnTarget === 'following' ? 'following' : returnTarget === 'followers' ? 'followers' : 'home');
+          setActiveTab(returnTarget === 'discover' || returnTarget === 'detail' ? 'discover' : 'profile');
         }}
         onOpen={(pattern) => {
           patternDetailBackTargetRef.current = 'author-profile';
@@ -3083,7 +3255,7 @@ function H5App() {
     return (
       <MyWorksPage
         projects={sortedRecentProjects}
-        onBack={() => { setScreen('home'); setActiveTab('home'); }}
+          onBack={() => { setScreen('home'); setActiveTab(myWorksBackTargetRef.current); }}
         onOpen={(project) => setProjectActionTarget(project)}
         onShare={shareSavedProject}
         sharingProjectId={sharingProjectId}
@@ -3101,6 +3273,20 @@ function H5App() {
         error={followingError}
         onBack={() => { setScreen('home'); setActiveTab('profile'); }}
         onRetry={() => void loadFollowingUsers()}
+        onOpenUser={(user) => openFollowUserProfile(user, 'following')}
+      />
+    );
+  }
+
+  if (screen === 'followers') {
+    return (
+      <FollowersPage
+        users={followersUsers}
+        loading={isFollowersLoading}
+        error={followersError}
+        onBack={() => { setScreen('home'); setActiveTab('profile'); }}
+        onRetry={() => void loadFollowersUsers()}
+        onOpenUser={(user) => openFollowUserProfile(user, 'followers')}
       />
     );
   }
@@ -3137,7 +3323,7 @@ function H5App() {
     logoutPhone={logoutPhone}
     confirmDialog={confirmDialog}
     requestConfirm={requestConfirm}
-    profileAvatarUrl={profileAvatarUrl} followingCount={followingCount} showProfileEditModal={showProfileEditModal} openProfileEdit={openProfileEdit}
+    profileAvatarUrl={profileAvatarUrl} followingCount={followingCount} followersCount={followersCount} showProfileEditModal={showProfileEditModal} openProfileEdit={openProfileEdit} openMyWorks={openMyWorks}
     profileEditModal={<ProfileEditModal
       profileEditName={profileEditName} setProfileEditName={setProfileEditName}
       profileEditAvatar={profileEditAvatar} profileEditError={profileEditError} profileEditSaving={profileEditSaving}

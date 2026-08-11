@@ -90,8 +90,19 @@ export async function loadImageDataFromUrl(imageUrl: string): Promise<ImageData>
 }
 
 export function extractUrlFromText(text: string): string {
-  const match = text.match(/https?:\/\/[^\s"'<>]+/i);
-  return match?.[0]?.trim() ?? text.trim();
+  const match = String(text || '').match(/https?:\/\/[^\s"'<>。，“”！？；：）》】]+/i);
+  return match?.[0]?.replace(/[.,!?;:)\]}。！？；：）》】]+$/g, '') ?? '';
+}
+
+export function isSupportedXiaohongshuUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+    const hostname = parsed.hostname.toLowerCase();
+    return hostname === 'xiaohongshu.com' || hostname.endsWith('.xiaohongshu.com') || hostname === 'xhslink.com' || hostname.endsWith('.xhslink.com');
+  } catch {
+    return false;
+  }
 }
 
 export function xhsPreviewSrc(image: XhsExtractedImage): string {
@@ -110,14 +121,14 @@ export function safeImageFilename(filename: string, type: string): string {
   return `${base}.${extension}`;
 }
 
-export function imageDataToUrl(imageData: ImageData): string {
+export function imageDataToUrl(imageData: ImageData, type = 'image/webp', quality = 0.86): string {
   const canvas = document.createElement('canvas');
   canvas.width = imageData.width;
   canvas.height = imageData.height;
   const context = canvas.getContext('2d');
   if (!context) return '';
   context.putImageData(imageData, 0, 0);
-  return canvas.toDataURL('image/png');
+  return canvas.toDataURL(type, quality);
 }
 
 export function colorCodeOf(hex: string): string {

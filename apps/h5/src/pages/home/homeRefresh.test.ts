@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { refreshHomeData } from './homeRefresh';
 
-const deps = () => ({ loadCommunity: vi.fn().mockResolvedValue('community'), loadRecentProjects: vi.fn().mockResolvedValue('projects'), loadNotifications: vi.fn().mockResolvedValue('notifications'), loadWarehouses: vi.fn().mockResolvedValue('warehouses') });
+const deps = () => ({
+  loadCommunity: vi.fn().mockResolvedValue('community'),
+  loadRecentProjects: vi.fn().mockResolvedValue('projects'),
+  loadNotifications: vi.fn().mockResolvedValue('notifications'),
+  loadWarehouses: vi.fn().mockResolvedValue('warehouses'),
+  loadProfile: vi.fn().mockResolvedValue('profile'),
+});
 
 describe('refreshHomeData', () => {
   it('refreshes only public community data anonymously', async () => {
@@ -11,6 +17,7 @@ describe('refreshHomeData', () => {
     expect(input.loadRecentProjects).not.toHaveBeenCalled();
     expect(input.loadNotifications).not.toHaveBeenCalled();
     expect(input.loadWarehouses).not.toHaveBeenCalled();
+    expect(input.loadProfile).not.toHaveBeenCalled();
   });
 
   it('refreshes all home resources independently for a logged-in user', async () => {
@@ -21,7 +28,8 @@ describe('refreshHomeData', () => {
     expect(input.loadRecentProjects).toHaveBeenCalledTimes(1);
     expect(input.loadNotifications).toHaveBeenCalledTimes(1);
     expect(input.loadWarehouses).toHaveBeenCalledTimes(1);
-    expect(results).toHaveLength(4);
+    expect(input.loadProfile).toHaveBeenCalledTimes(1);
+    expect(results).toHaveLength(5);
     expect(results.some((result) => result.status === 'rejected')).toBe(true);
   });
 });

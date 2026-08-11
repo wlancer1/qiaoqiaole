@@ -17,4 +17,14 @@ describe('H5App canvas authentication fallback', () => {
     expect(source).toContain('onClick={() => saveCurrentProject()}');
     expect(source).not.toContain('onClick={saveCurrentProject}');
   });
+
+  it('clears all follow-related profile state on logout', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+    const logoutBody = source.match(/const logoutPhone = async \(\) => \{([\s\S]*?)\n  \};/)?.[1] ?? '';
+
+    expect(logoutBody).toContain('setFollowingCount(0);');
+    expect(logoutBody).toContain('setFollowersCount(0);');
+    expect(logoutBody).toContain('setFollowingUsers([]);');
+    expect(logoutBody).toContain('setFollowersUsers([]);');
+  });
 });

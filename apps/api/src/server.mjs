@@ -288,9 +288,13 @@ function initSchema() {
       project_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
       content TEXT NOT NULL,
+      parent_id TEXT,
+      reply_to_user_id TEXT,
       created_at TEXT NOT NULL,
       FOREIGN KEY (project_id) REFERENCES projects(id),
-      FOREIGN KEY (user_id) REFERENCES users(id)
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (parent_id) REFERENCES project_comments(id),
+      FOREIGN KEY (reply_to_user_id) REFERENCES users(id)
     );
 
     CREATE TABLE IF NOT EXISTS follows (
@@ -329,6 +333,10 @@ function initSchema() {
     }
   }
   try { db.run('ALTER TABLE projects ADD COLUMN revision INTEGER NOT NULL DEFAULT 1'); } catch {}
+  for (const [column, definition] of [['parent_id', 'TEXT'], ['reply_to_user_id', 'TEXT']]) {
+    try { db.run(`ALTER TABLE project_comments ADD COLUMN ${column} ${definition}`); } catch {}
+  }
+  db.run('CREATE INDEX IF NOT EXISTS idx_project_comments_project_parent_created ON project_comments(project_id, parent_id, created_at DESC)');
   for (const [column, definition] of [
     ['project_id', 'TEXT'],
     ['beading_session_id', 'TEXT'],
@@ -514,6 +522,9 @@ async function route(request, response) {
   if (request.method === 'GET' && url.pathname === '/api/community/following') {
     return listFollowing(response, user.id);
   }
+  if (request.method === 'GET' && url.pathname === '/api/community/followers') {
+    return listFollowers(response, user.id);
+  }
   if (request.method === 'GET' && url.pathname === '/api/notifications') {
     return listNotifications(response, user.id, url);
   }
@@ -566,6 +577,10 @@ async function route(request, response) {
   const communityCommentsMatch = url.pathname.match(/^\/api\/community\/posts\/([^/]+)\/comments$/);
   if (communityCommentsMatch && request.method === 'POST') {
     return createProjectComment(request, response, user.id, communityCommentsMatch[1]);
+  }
+  const communityCommentDeleteMatch = url.pathname.match(/^\/api\/community\/posts\/([^/]+)\/comments\/([^/]+)$/);
+  if (communityCommentDeleteMatch && request.method === 'DELETE') {
+    return deleteProjectComment(response, user.id, communityCommentDeleteMatch[1], communityCommentDeleteMatch[2]);
   }
   const communityLikeMatch = url.pathname.match(/^\/api\/community\/posts\/([^/]+)\/like$/);
   if (communityLikeMatch && request.method === 'POST') {
@@ -1608,15 +1623,73 @@ async function shareProject(response, userId, projectId) {
 
 function listProjectComments(response, userId, projectId, pagination = { page: 1, pageSize: 20, offset: 0 }) {
   if (!assertSharedProject(response, userId, projectId)) return;
+  const totalTopLevel = Number(getOne('SELECT COUNT(*) AS count FROM project_comments WHERE project_id = ? AND parent_id IS NULL', [projectId])?.count || 0);
+  const totalComments = Number(getOne('SELECT COUNT(*) AS count FROM project_comments WHERE project_id = ?', [projectId])?.count || 0);
+  const formatComment = (comment) => ({
+    ...comment,
+    authorAvatar: publicAvatarUrl(comment.authorId, comment.authorAvatar),
+    replies: comment.replies || [],
+  });
   const comments = getAll(
-    `SELECT c.id, c.project_id AS projectId, c.content, c.created_at AS createdAt, u.id AS authorId,
-            COALESCE(NULLIF(u.nickname, ''), u.username) AS author, u.avatar_url AS authorAvatar
+    `SELECT c.id, c.project_id AS projectId, c.content, c.parent_id AS parentId,
+            c.reply_to_user_id AS replyToUserId, c.created_at AS createdAt, u.id AS authorId,
+            COALESCE(NULLIF(u.nickname, ''), u.username) AS author, u.avatar_url AS authorAvatar,
+            COALESCE(NULLIF(ru.nickname, ''), ru.username) AS replyToUserName
      FROM project_comments c JOIN users u ON u.id = c.user_id
-     WHERE c.project_id = ? ORDER BY c.created_at DESC, c.id DESC
+     LEFT JOIN users ru ON ru.id = c.reply_to_user_id
+     WHERE c.project_id = ? AND c.parent_id IS NULL ORDER BY c.created_at DESC, c.id DESC
      LIMIT ? OFFSET ?`,
     [projectId, pagination.pageSize, pagination.offset],
-  ).map((comment) => ({ ...comment, authorAvatar: publicAvatarUrl(comment.authorId, comment.authorAvatar) }));
-  sendJson(response, 200, { comments, page: pagination.page, pageSize: pagination.pageSize });
+  ).map((comment) => formatComment(comment));
+  if (comments.length) {
+    const placeholders = comments.map(() => '?').join(', ');
+    const replies = getAll(
+      `SELECT c.id, c.project_id AS projectId, c.content, c.parent_id AS parentId,
+              c.reply_to_user_id AS replyToUserId, c.created_at AS createdAt, u.id AS authorId,
+              COALESCE(NULLIF(u.nickname, ''), u.username) AS author, u.avatar_url AS authorAvatar,
+              COALESCE(NULLIF(ru.nickname, ''), ru.username) AS replyToUserName
+       FROM project_comments c JOIN users u ON u.id = c.user_id
+       LEFT JOIN users ru ON ru.id = c.reply_to_user_id
+       WHERE c.project_id = ? AND c.parent_id IS NOT NULL ORDER BY c.created_at ASC, c.id ASC`,
+      [projectId],
+    ).map((comment) => formatComment(comment));
+    const topLevelIds = new Set(comments.map((comment) => comment.id));
+    const repliesById = new Map(replies.map((reply) => [reply.id, reply]));
+    const childrenByParent = new Map();
+    for (const reply of replies) {
+      const list = childrenByParent.get(reply.parentId) || [];
+      list.push(reply);
+      childrenByParent.set(reply.parentId, list);
+    }
+    const appendDescendants = (parentId, output) => {
+      for (const child of childrenByParent.get(parentId) || []) {
+        output.push(child);
+        appendDescendants(child.id, output);
+      }
+    };
+    const findTopLevelParent = (reply) => {
+      let current = reply;
+      const visited = new Set();
+      while (current?.parentId && !topLevelIds.has(current.parentId) && !visited.has(current.parentId)) {
+        visited.add(current.parentId);
+        current = repliesById.get(current.parentId);
+      }
+      return current?.parentId || null;
+    }
+    for (const comment of comments) {
+      const flattened = [];
+      appendDescendants(comment.id, flattened);
+      comment.replies = flattened.filter((reply) => findTopLevelParent(reply) === comment.id);
+    }
+  }
+  sendJson(response, 200, {
+    comments,
+    page: pagination.page,
+    pageSize: pagination.pageSize,
+    hasMore: pagination.offset + comments.length < totalTopLevel,
+    totalTopLevel,
+    totalComments,
+  });
 }
 
 async function createProjectComment(request, response, userId, projectId) {
@@ -1625,24 +1698,56 @@ async function createProjectComment(request, response, userId, projectId) {
   const body = await readJson(request);
   const content = String(body.content || '').trim();
   if (!content || [...content].length > 300) return sendJson(response, 400, { error: 'INVALID_INPUT', message: '评论内容不能为空且不能超过 300 个字' });
+  const requestedParentId = String(body.parentId || '').trim() || null;
+  let parentId = null;
+  let replyToUserId = null;
+  if (requestedParentId) {
+    const target = getOne('SELECT id, project_id AS projectId, user_id AS userId, parent_id AS parentId FROM project_comments WHERE id = ?', [requestedParentId]);
+    if (!target || target.projectId !== projectId) return sendJson(response, 400, { error: 'INVALID_INPUT', message: '回复目标不存在' });
+    parentId = target.id;
+    replyToUserId = target.userId;
+  }
   const author = getOne(
     `SELECT u.id, u.username, u.nickname, u.avatar_url AS avatarUrl, i.identifier_last4 AS phoneLast4
      FROM users u LEFT JOIN user_identities i ON i.user_id = u.id AND i.provider = 'PHONE'
      WHERE u.id = ?`,
     [userId],
   );
-  const comment = { id: randomUUID(), projectId, authorId: userId, author: safeDisplayName(author), authorAvatar: safeAvatarUrl(author?.avatarUrl), content, createdAt: new Date().toISOString() };
+  const replyToAuthor = replyToUserId ? getOne("SELECT COALESCE(NULLIF(nickname, ''), username) AS name FROM users WHERE id = ?", [replyToUserId]) : null;
+  const comment = { id: randomUUID(), projectId, authorId: userId, author: safeDisplayName(author), authorAvatar: safeAvatarUrl(author?.avatarUrl), content, parentId, replyToUserId, replyToUserName: replyToAuthor?.name || null, createdAt: new Date().toISOString(), replies: [] };
   await withTransaction(async () => {
-    db.run('INSERT INTO project_comments (id, project_id, user_id, content, created_at) VALUES (?, ?, ?, ?, ?)', [comment.id, projectId, userId, comment.content, comment.createdAt]);
-    if (post.authorId !== userId) {
+    db.run('INSERT INTO project_comments (id, project_id, user_id, content, parent_id, reply_to_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', [comment.id, projectId, userId, comment.content, parentId, replyToUserId, comment.createdAt]);
+    const receiverId = replyToUserId || post.authorId;
+    if (receiverId !== userId) {
       db.run(
         `INSERT INTO notifications (id, receiver_id, sender_id, type, project_id, comment_id, content, created_at, read_at)
          VALUES (?, ?, ?, 'comment', ?, ?, ?, ?, NULL)`,
-        [randomUUID(), post.authorId, userId, projectId, comment.id, `${comment.author} 评论了你的作品「${post.name}」`, comment.createdAt],
+        [randomUUID(), receiverId, userId, projectId, comment.id, parentId ? `${comment.author} 回复了你的评论` : `${comment.author} 评论了你的作品「${post.name}」`, comment.createdAt],
       );
     }
   });
   sendJson(response, 201, { comment });
+}
+
+async function deleteProjectComment(response, userId, projectId, commentId) {
+  const comment = getOne('SELECT id, project_id AS projectId, user_id AS userId, parent_id AS parentId FROM project_comments WHERE id = ?', [commentId]);
+  if (!comment || comment.projectId !== projectId || comment.userId !== userId) return sendJson(response, 404, { error: 'NOT_FOUND', message: '评论不存在' });
+  const idsToDelete = getAll(
+    `WITH RECURSIVE comment_tree(id) AS (
+       SELECT id FROM project_comments WHERE id = ?
+       UNION ALL
+       SELECT c.id FROM project_comments c JOIN comment_tree t ON c.parent_id = t.id
+     )
+     SELECT id FROM comment_tree`,
+    [commentId],
+  ).map((item) => item.id);
+  const deletedCount = idsToDelete.length;
+  const placeholders = idsToDelete.map(() => '?').join(', ');
+  await withTransaction(async () => {
+    db.run(`DELETE FROM notifications WHERE comment_id IN (${placeholders})`, idsToDelete);
+    db.run(`DELETE FROM project_comments WHERE id IN (${placeholders})`, idsToDelete);
+  });
+  sendJson(response, 200, { deletedCount });
 }
 
 async function followUser(response, followerId, followingId, shouldFollow) {
@@ -1669,6 +1774,17 @@ function listFollowing(response, userId) {
     `SELECT u.id, COALESCE(NULLIF(u.nickname, ''), u.username) AS name, u.avatar_url AS avatarUrl
      FROM follows f JOIN users u ON u.id = f.following_id
      WHERE f.follower_id = ? AND u.status = 'ACTIVE'
+     ORDER BY f.created_at DESC, u.id DESC`,
+    [userId],
+  ).map((user) => ({ ...user, avatarUrl: publicAvatarUrl(user.id, user.avatarUrl) }));
+  sendJson(response, 200, { users });
+}
+
+function listFollowers(response, userId) {
+  const users = getAll(
+    `SELECT u.id, COALESCE(NULLIF(u.nickname, ''), u.username) AS name, u.avatar_url AS avatarUrl
+     FROM follows f JOIN users u ON u.id = f.follower_id
+     WHERE f.following_id = ? AND u.status = 'ACTIVE'
      ORDER BY f.created_at DESC, u.id DESC`,
     [userId],
   ).map((user) => ({ ...user, avatarUrl: publicAvatarUrl(user.id, user.avatarUrl) }));

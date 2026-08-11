@@ -27,7 +27,72 @@ export type CommunityComment = {
   content: string;
   createdAt: string;
   authorId?: string;
+  parentId?: string | null;
+  replyToUserId?: string | null;
+  replyToUserName?: string | null;
+  replies?: CommunityComment[];
 };
+
+export type CommunityCommentThread = Omit<CommunityComment, 'replies'> & {
+  replies: CommunityComment[];
+};
+
+export type CommunityCommentsResponse = {
+  comments: CommunityCommentThread[];
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+  totalTopLevel: number;
+  totalComments: number;
+};
+
+function topLevelThreadIdForReply(threads: readonly CommunityCommentThread[], reply: CommunityComment): string | null {
+  if (!reply.parentId) return null;
+  const topLevelIds = new Set(threads.map((thread) => thread.id));
+  if (topLevelIds.has(reply.parentId)) return reply.parentId;
+  const repliesById = new Map<string, CommunityComment>();
+  for (const thread of threads) for (const child of thread.replies) repliesById.set(child.id, child);
+  let currentParentId: string | null | undefined = reply.parentId;
+  const visited = new Set<string>();
+  while (currentParentId && !topLevelIds.has(currentParentId) && !visited.has(currentParentId)) {
+    visited.add(currentParentId);
+    currentParentId = repliesById.get(currentParentId)?.parentId;
+  }
+  return currentParentId && topLevelIds.has(currentParentId) ? currentParentId : null;
+}
+
+export function insertCommentReply(threads: readonly CommunityCommentThread[], reply: CommunityComment): CommunityCommentThread[] {
+  const threadId = topLevelThreadIdForReply(threads, reply);
+  if (!threadId) return [...threads];
+  return threads.map((thread) => (
+    thread.id === threadId
+      ? { ...thread, replies: [...thread.replies, { ...reply, replies: reply.replies || [] }] }
+      : thread
+  ));
+}
+
+export function removeCommentTree(threads: readonly CommunityCommentThread[], commentId: string): CommunityCommentThread[] {
+  const collectReplyIds = (replies: readonly CommunityComment[], rootId: string) => {
+    const ids = new Set([rootId]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const reply of replies) {
+        if (reply.parentId && ids.has(reply.parentId) && !ids.has(reply.id)) {
+          ids.add(reply.id);
+          changed = true;
+        }
+      }
+    }
+    return ids;
+  };
+  return threads
+    .filter((thread) => thread.id !== commentId)
+    .map((thread) => {
+      const idsToRemove = collectReplyIds(thread.replies, commentId);
+      return { ...thread, replies: thread.replies.filter((reply) => !idsToRemove.has(reply.id)) };
+    });
+}
 
 export type CommunityNotification = {
   id: string;

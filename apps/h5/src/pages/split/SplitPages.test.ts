@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { SplitCropPage } from './SplitPages';
+import { SplitCropPage, SplitPreviewPage } from './SplitPages';
 
 describe('SplitCropPage', () => {
   it('renders the entire crop workspace as one canvas without DOM image or handle layers', () => {
@@ -43,5 +43,33 @@ describe('SplitCropPage', () => {
     expect(markup).not.toContain('<img');
     expect(markup).not.toContain('split-crop-grid-overlay');
     expect(markup).not.toContain('data-crop-handle');
+  });
+});
+
+describe('SplitPreviewPage', () => {
+  it('disables importing while background processing is pending', () => {
+    const markup = renderToStaticMarkup(createElement(SplitPreviewPage, {
+      setScreen: vi.fn(),
+      splitPreviewLoading: false,
+      splitMergeThreshold: 0,
+      deferredSplitMergeThreshold: 0,
+      splitPreviewCells: [{ x: 0, y: 0, color: '#ff0000', transparent: false }],
+      importSplitToCanvas: vi.fn(),
+      activeSplitCols: 1,
+      activeSplitRows: 1,
+      splitLoadingStage: '',
+      splitLoadingProgress: 100,
+      splitColorList: [],
+      setSplitPreviewTab: vi.fn(),
+      splitPreviewTab: 'settings',
+      backgroundRemoved: false,
+      isBackgroundProcessing: true,
+      onToggleBackground: vi.fn(),
+      previewCols: 1,
+      previewRows: 1,
+      onBackToCrop: vi.fn(),
+    }));
+
+    expect(markup).toContain('<button class="split-action-btn split-action-btn--primary" type="button" disabled="">导入画布</button>');
   });
 });

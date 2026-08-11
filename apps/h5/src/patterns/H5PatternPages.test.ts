@@ -2,6 +2,7 @@ import { createElement } from 'react';
 import fs from 'node:fs';
 import path from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { act, create } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
 import { AuthorProfilePage, limitCommentContent, MyWorksPage, PatternDetailPage, PatternDiscoverPage, PatternMessagesPage } from './H5PatternPages';
 
@@ -44,18 +45,18 @@ describe('PatternDetailPage layout contract', () => {
     const imageRule = styles.match(/\.detail-comment-avatar-image\s*\{([^}]*)\}/)?.[1] ?? '';
     const fallbackRule = styles.match(/\.detail-comment-avatar\s*>\s*svg\s*\{([^}]*)\}/)?.[1] ?? '';
 
-    expect(avatarRule).toContain('width: 0.635rem');
-    expect(avatarRule).toContain('height: 0.635rem');
+    expect(avatarRule).toContain('width: 1.1rem');
+    expect(avatarRule).toContain('height: 1.1rem');
     expect(avatarRule).toContain('overflow: hidden');
     expect(avatarRule).toContain('border-radius: 50%');
-    expect(avatarRule).toContain('background: #eef2f7');
-    expect(avatarRule).toContain('color: #64748b');
+    expect(avatarRule).toContain('background: linear-gradient(145deg, #146cff, #071c48)');
+    expect(avatarRule).toContain('color: #fff');
     expect(imageRule).toContain('display: block');
     expect(imageRule).toContain('width: 100%');
     expect(imageRule).toContain('height: 100%');
     expect(imageRule).toContain('object-fit: cover');
-    expect(fallbackRule).toContain('width: 0.349rem');
-    expect(fallbackRule).toContain('height: 0.349rem');
+    expect(fallbackRule).toContain('width: 0.58rem');
+    expect(fallbackRule).toContain('height: 0.58rem');
   });
 });
 
@@ -80,6 +81,7 @@ describe('MyWorksPage', () => {
     expect(markup).toContain('重试分享');
     expect(markup).toContain('分享中...');
     expect(markup).toContain('已分享到社区');
+    expect(markup).not.toContain('收藏');
   });
 });
 
@@ -177,6 +179,67 @@ describe('PatternDetailPage', () => {
 
     expect(markup.match(/class="detail-comment-avatar-image"/g)).toHaveLength(1);
     expect(markup.match(/data-comment-avatar-fallback="true"/g)).toHaveLength(1);
+  });
+
+  it('collapses replies after the first two and shows an expand control', () => {
+    const replies = Array.from({ length: 4 }, (_, index) => ({
+      id: `reply-${index + 1}`, projectId: 'project-1', author: `回复用户${index + 1}`, authorId: `user-${index + 2}`,
+      authorAvatar: null, content: `回复内容${index + 1}`, createdAt: '2026-08-09T12:00:00.000Z', parentId: 'parent-1',
+    }));
+    const markup = renderToStaticMarkup(createElement(PatternDetailPage, {
+      pattern: { id: 'project-1', title: '回复收起', author: '作者', size: '1 × 1', meta: '刚刚', likes: '0', comments: '5', downloads: '0', tone: 'recent-flower', beads: [], image: '', likesCount: 0, commentsCount: 5, likedByMe: false },
+      onBack: vi.fn(), isLoggedIn: true,
+      comments: [{ id: 'parent-1', projectId: 'project-1', author: '主评论用户', authorId: 'user-1', authorAvatar: null, content: '主评论内容', createdAt: '2026-08-09T12:00:00.000Z', replies }],
+      isLoadingComments: false, onLoadComments: vi.fn(), onLike: vi.fn(), onComment: vi.fn(), onReply: vi.fn(), onLogin: vi.fn(),
+    }));
+
+    expect(markup).toContain('回复内容1');
+    expect(markup).toContain('回复内容2');
+    expect(markup).not.toContain('回复内容3');
+    expect(markup).toContain('展开 2 条回复');
+    expect(markup).toContain('aria-expanded="false"');
+  });
+
+  it('expands and collapses a reply thread on demand', () => {
+    const replies = Array.from({ length: 3 }, (_, index) => ({
+      id: `toggle-reply-${index + 1}`, projectId: 'project-1', author: `回复用户${index + 1}`, authorId: `user-${index + 2}`,
+      authorAvatar: null, content: `可切换回复${index + 1}`, createdAt: '2026-08-09T12:00:00.000Z', parentId: 'toggle-parent',
+    }));
+    let renderer!: ReturnType<typeof create>;
+    act(() => {
+      renderer = create(createElement(PatternDetailPage, {
+        pattern: { id: 'project-1', title: '回复展开', author: '作者', size: '1 × 1', meta: '刚刚', likes: '0', comments: '4', downloads: '0', tone: 'recent-flower', beads: [], image: '', likesCount: 0, commentsCount: 4, likedByMe: false },
+        onBack: vi.fn(), isLoggedIn: true,
+        comments: [{ id: 'toggle-parent', projectId: 'project-1', author: '主评论用户', authorId: 'user-1', authorAvatar: null, content: '主评论内容', createdAt: '2026-08-09T12:00:00.000Z', replies }],
+        isLoadingComments: false, onLoadComments: vi.fn(), onLike: vi.fn(), onComment: vi.fn(), onReply: vi.fn(), onLogin: vi.fn(),
+      }));
+    });
+    const hasReply = (content: string) => renderer.root.findAllByType('p').some((node) => node.children.join('') === content);
+
+    expect(hasReply('可切换回复3')).toBe(false);
+    act(() => renderer.root.findByProps({ className: 'detail-comment-toggle-replies' }).props.onClick());
+    expect(hasReply('可切换回复3')).toBe(true);
+    expect(renderer.root.findByProps({ className: 'detail-comment-toggle-replies' }).children).toEqual(['收起回复']);
+    act(() => renderer.root.findByProps({ className: 'detail-comment-toggle-replies' }).props.onClick());
+    expect(hasReply('可切换回复3')).toBe(false);
+    renderer.unmount();
+  });
+
+  it('only renders delete for the logged-in comment author', () => {
+    const markup = renderToStaticMarkup(createElement(PatternDetailPage, {
+      pattern: {
+        id: 'project-1', title: '评论权限', author: '作者', size: '1 × 1', meta: '刚刚',
+        likes: '0', comments: '2', downloads: '0', tone: 'recent-flower', beads: [], image: '',
+        likesCount: 0, commentsCount: 2, likedByMe: false,
+      },
+      currentUserId: 'user-1', onBack: vi.fn(), isLoggedIn: true, comments: [
+        { id: 'mine', projectId: 'project-1', author: '我', authorId: 'user-1', authorAvatar: null, content: '我的评论', createdAt: '2026-08-09T12:00:00.000Z' },
+        { id: 'other', projectId: 'project-1', author: '别人', authorId: 'user-2', authorAvatar: null, content: '别人的评论', createdAt: '2026-08-09T12:01:00.000Z' },
+      ],
+      isLoadingComments: false, onLoadComments: vi.fn(), onLike: vi.fn(), onComment: vi.fn(), onDeleteComment: vi.fn(), onLogin: vi.fn(),
+    }));
+
+    expect(markup.match(/aria-label="删除评论：/g)).toHaveLength(1);
   });
 });
 

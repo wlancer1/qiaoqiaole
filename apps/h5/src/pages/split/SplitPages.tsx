@@ -262,7 +262,7 @@ export function SplitPreviewPage(props: SplitPageProps) {
   const {
     setScreen, splitPreviewLoading, splitMergeThreshold, setSplitMergeThreshold, deferredSplitMergeThreshold, splitPreviewCells,
     importSplitToCanvas, activeSplitCols, activeSplitRows, splitLoadingStage, splitLoadingProgress,
-    splitColorList, setSplitPreviewTab, splitPreviewTab,
+    splitColorList, setSplitPreviewTab, splitPreviewTab, backgroundRemoved, isBackgroundProcessing, onToggleBackground,
     previewCols, previewRows,
     onBackToCrop,
   } = props;
@@ -273,7 +273,7 @@ return (
       backLabel="返回分割"
       onBack={onBackToCrop}
       action={getImportAction(
-        splitPreviewLoading || splitMergeThreshold !== deferredSplitMergeThreshold ? 0 : splitPreviewCells.length,
+        splitPreviewLoading || isBackgroundProcessing || splitMergeThreshold !== deferredSplitMergeThreshold ? 0 : splitPreviewCells.length,
         importSplitToCanvas,
       )}
     />
@@ -311,6 +311,11 @@ return (
           max={20}
           onChange={setSplitMergeThreshold}
         />
+        <div className="split-background-actions" aria-label="图片背景处理">
+          <button type="button" onClick={onToggleBackground} disabled={isBackgroundProcessing}>
+            {isBackgroundProcessing ? '处理中…' : backgroundRemoved ? '恢复原图' : '去除背景'}
+          </button>
+        </div>
          <button className="split-bead-list-entry" type="button" aria-label="查看豆子清单" onClick={() => setSplitPreviewTab('beads')}>
           <span className="split-bead-list-entry-title">豆子清单</span>
           <span className="split-bead-list-entry-meta">

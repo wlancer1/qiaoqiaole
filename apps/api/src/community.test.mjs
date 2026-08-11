@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { createMockPhoneUser } from './testPhoneUser.mjs';
 
 const port = 3400 + Math.floor(Math.random() * 300);
 const root = await mkdtemp(path.join(os.tmpdir(), 'qiaoqiaole-community-'));
@@ -11,6 +12,8 @@ let serverProcess;
 let token;
 let userId;
 let projectId;
+let secondUserToken;
+let secondUserId;
 
 async function request(url, options = {}) {
   const response = await fetch(`http://127.0.0.1:${port}${url}`, options);
@@ -24,6 +27,11 @@ beforeAll(async () => {
       ...process.env,
       PORT: String(port),
       SQLITE_PATH: dbPath,
+      REDIS_URL: 'redis://127.0.0.1:6380',
+      AUTH_SMS_PROVIDER: 'mock',
+      AUTH_TEST_FIXED_CODE: '123456',
+      AUTH_PHONE_PEPPER: 'community-phone-pepper',
+      AUTH_JWT_SECRET: 'community-jwt-secret',
       QIAOQIAOLE_USERNAME: 'test-user',
       QIAOQIAOLE_PASSWORD: 'test-password',
       TENCENT_COS_ENABLED: 'false',
@@ -50,6 +58,9 @@ beforeAll(async () => {
     { x: 0, y: 1, color: '#0000ff', transparent: false },
   ]) }) });
   projectId = created.body.project.id;
+  const secondUser = await createMockPhoneUser(`http://127.0.0.1:${port}`);
+  secondUserToken = secondUser.token;
+  secondUserId = secondUser.user.id;
 });
 
 afterAll(async () => {
@@ -81,6 +92,76 @@ describe('community API', () => {
     expect(post.commentsCount).toBe(1);
     expect(post.likedByMe).toBe(true);
     expect(post.beadList).toEqual(firstShare.body.beadList);
+  });
+
+  it('groups replies under one thread while allowing replies to replies', async () => {
+    const headers = { authorization: `Bearer ${token}` };
+    const listed = await request(`/api/community/posts/${projectId}/comments`);
+    const parent = listed.body.comments.find((comment) => comment.content === '真实评论');
+    expect(parent).toBeTruthy();
+    const anonymousDelete = await request(`/api/community/posts/${projectId}/comments/${parent.id}`, { method: 'DELETE' });
+    expect(anonymousDelete.status).toBe(401);
+
+    const reply = await request(`/api/community/posts/${projectId}/comments`, {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ content: '回复内容', parentId: parent.id }),
+    });
+    expect(reply.status).toBe(201);
+    expect(reply.body.comment.parentId).toBe(parent.id);
+    expect(reply.body.comment.replyToUserId).toBe(userId);
+    expect(reply.body.comment.replyToUserName).toBeTruthy();
+    expect(reply.body.comment.replies).toEqual([]);
+
+    const replyToReply = await request(`/api/community/posts/${projectId}/comments`, {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ content: '回复的回复内容', parentId: reply.body.comment.id }),
+    });
+    expect(replyToReply.status).toBe(201);
+    expect(replyToReply.body.comment.parentId).toBe(reply.body.comment.id);
+    expect(replyToReply.body.comment.replyToUserId).toBe(userId);
+
+    const nested = await request(`/api/community/posts/${projectId}/comments`);
+    const nestedParent = nested.body.comments.find((comment) => comment.id === parent.id);
+    expect(nestedParent.replies).toHaveLength(2);
+    expect(nestedParent.replies[0].content).toBe('回复内容');
+    expect(nestedParent.replies[1].content).toBe('回复的回复内容');
+    expect(nestedParent.replies[1].parentId).toBe(reply.body.comment.id);
+    expect(nested.body.totalTopLevel).toBe(1);
+    expect(nested.body.totalComments).toBe(3);
+    expect(nested.body.hasMore).toBe(false);
+
+    const deletedReply = await request(`/api/community/posts/${projectId}/comments/${reply.body.comment.id}`, { method: 'DELETE', headers });
+    expect(deletedReply.status).toBe(200);
+    expect(deletedReply.body.deletedCount).toBe(2);
+    const afterReplyDelete = await request(`/api/community/posts/${projectId}/comments`);
+    const parentAfterReplyDelete = afterReplyDelete.body.comments.find((comment) => comment.id === parent.id);
+    expect(parentAfterReplyDelete.replies).toHaveLength(0);
+    const deletedParent = await request(`/api/community/posts/${projectId}/comments/${parent.id}`, { method: 'DELETE', headers });
+    expect(deletedParent.status).toBe(200);
+    expect(deletedParent.body.deletedCount).toBe(1);
+  });
+
+  it('rejects a second user from deleting another author\'s comment', async () => {
+    const ownerHeaders = { authorization: `Bearer ${token}` };
+    const secondHeaders = { authorization: `Bearer ${secondUserToken}` };
+    const created = await request('/api/projects', {
+      method: 'POST',
+      headers: { ...ownerHeaders, 'content-type': 'application/json' },
+      body: JSON.stringify({ name: '跨用户评论权限', rows: 1, cols: 1, thumbnailImagePath: 'data:image/png;base64,AA==', canvasData: '[]' }),
+    });
+    const targetProjectId = created.body.project.id;
+    await request(`/api/projects/${targetProjectId}/share`, { method: 'POST', headers: ownerHeaders });
+    const ownerComment = await request(`/api/community/posts/${targetProjectId}/comments`, {
+      method: 'POST',
+      headers: { ...ownerHeaders, 'content-type': 'application/json' },
+      body: JSON.stringify({ content: `所有者评论 ${secondUserId}` }),
+    });
+    const forbiddenDelete = await request(`/api/community/posts/${targetProjectId}/comments/${ownerComment.body.comment.id}`, { method: 'DELETE', headers: secondHeaders });
+    expect(forbiddenDelete.status).toBe(404);
+    const stillThere = await request(`/api/community/posts/${targetProjectId}/comments`);
+    expect(stillThere.body.comments.some((comment) => comment.id === ownerComment.body.comment.id)).toBe(true);
   });
 
   it('rejects comments before sharing and invalid empty comments', async () => {
@@ -324,5 +405,32 @@ describe('community API', () => {
     expect(firstPage.body.comments).toHaveLength(1);
     expect(secondPage.body.comments).toHaveLength(1);
     expect(firstPage.body.comments[0].id).not.toBe(secondPage.body.comments[0].id);
+    expect(firstPage.body.page).toBe(1);
+    expect(firstPage.body.pageSize).toBe(1);
+    expect(firstPage.body.hasMore).toBe(true);
+    expect(firstPage.body.totalTopLevel).toBe(3);
+    expect(firstPage.body.totalComments).toBe(3);
+    expect(secondPage.body.hasMore).toBe(true);
+  });
+
+  it('deletes an owned project, hides it from community, and rejects anonymous or repeated deletion', async () => {
+    const headers = { authorization: `Bearer ${token}` };
+    const created = await request('/api/projects', {
+      method: 'POST', headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ name: '待删除作品', rows: 1, cols: 1, thumbnailImagePath: 'data:image/png;base64,AA==', canvasData: '[]' }),
+    });
+    const target = created.body.project.id;
+    await request(`/api/projects/${target}/share`, { method: 'POST', headers });
+    await request(`/api/community/posts/${target}/comments`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ content: '待清理评论' }) });
+
+    const anonymous = await request(`/api/projects/${target}`, { method: 'DELETE' });
+    expect(anonymous.status).toBe(401);
+    const secondUserDelete = await request(`/api/projects/${target}`, { method: 'DELETE', headers: { authorization: `Bearer ${secondUserToken}` } });
+    expect(secondUserDelete.status).toBe(404);
+    const deleted = await request(`/api/projects/${target}`, { method: 'DELETE', headers });
+    expect(deleted.status).toBe(200);
+    expect((await request(`/api/projects/${target}`, { headers })).status).toBe(404);
+    expect((await request(`/api/community/posts/${target}`)).status).toBe(404);
+    expect((await request(`/api/projects/${target}`, { method: 'DELETE', headers })).status).toBe(404);
   });
 });

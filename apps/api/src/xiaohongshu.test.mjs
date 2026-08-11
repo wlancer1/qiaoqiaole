@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import {
   findFirstImageUrl,
   findImageUrls,
+  extractUrlFromText,
   inspectImageCandidates,
   inspectNoteExtraction,
   isSupportedXiaohongshuUrl,
@@ -10,6 +11,10 @@ import {
 } from './xiaohongshu.mjs';
 
 describe('xiaohongshu extraction helpers', () => {
+  test('extracts the first URL from complete share text and strips trailing punctuation', () => {
+    expect(extractUrlFromText('复制这段文案 https://xhslink.com/o/abc?x=1#note）。继续看看')).toBe('https://xhslink.com/o/abc?x=1#note');
+    expect(extractUrlFromText('没有链接')).toBe('');
+  });
   test('validates Xiaohongshu URLs by hostname instead of substring', () => {
     expect(isSupportedXiaohongshuUrl('https://www.xiaohongshu.com/discovery/item/1')).toBe(true);
     expect(isSupportedXiaohongshuUrl('http://xhslink.com/o/abc')).toBe(true);

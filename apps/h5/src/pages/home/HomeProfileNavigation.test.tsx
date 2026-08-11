@@ -12,7 +12,7 @@ function collectElements(node: ReactNode): ElementWithProps[] {
 
 function profileProps(overrides: Record<string, unknown> = {}) {
   return {
-    activeTab: 'profile', isLoggedIn: true, loginName: '测试用户', recentProjects: [], followingCount: 3,
+    activeTab: 'profile', isLoggedIn: true, loginName: '测试用户', recentProjects: [], followingCount: 3, followersCount: 5,
     mardColors: [], stockedColorCount: 0, totalWarehouseStock: 0, activeWarehouse: null,
     notifications: [], patternListCards: [], homeTemplateCards: [], communitySort: 'latest',
     setScreen: vi.fn(), setActiveTab: vi.fn(), openWarehouse: vi.fn(), setShowLoginModal: vi.fn(), requireLogin: vi.fn((next: (token: string) => void) => next('test-token')),
@@ -39,6 +39,15 @@ describe('my profile navigation', () => {
     expect(following).toBeDefined();
     following?.props.onClick?.();
     expect(setScreen).toHaveBeenCalledWith('following');
+  });
+
+  it('opens the followers list when the followers statistic is selected', () => {
+    const setScreen = vi.fn();
+    const tree = HomeShellPage(profileProps({ setScreen }));
+    const followers = collectElements(tree).find((element) => element.props['aria-label'] === '查看粉丝列表');
+    expect(followers).toBeDefined();
+    followers?.props.onClick?.();
+    expect(setScreen).toHaveBeenCalledWith('followers');
   });
 
   it('hides account statistics while logged out and keeps settings login-gated', () => {

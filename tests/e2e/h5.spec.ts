@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
 
-const uploadFixture = path.resolve('image.png');
+const uploadFixture = path.resolve('packages/5911785677995_.pic.jpg');
 const testUsername = 'admin';
 const testPassword = 'qiaoqiaole123';
 
@@ -11,6 +11,17 @@ async function loginFromDialog(dialog: ReturnType<import('@playwright/test').Pag
   await dialog.getByRole('textbox', { name: '用户名' }).fill(testUsername);
   await dialog.getByLabel('密码').fill(testPassword);
   await dialog.getByRole('button', { name: '登录并继续' }).click();
+}
+
+async function seedLegacyAuth(page: import('@playwright/test').Page) {
+  const response = await page.request.post('/api/auth/login', {
+    data: { username: testUsername, password: testPassword },
+  });
+  expect(response.ok()).toBe(true);
+  const payload = await response.json() as { token: string; user: { username: string; id: string } };
+  await page.addInitScript(({ token, user }) => {
+    window.localStorage.setItem('qiaoqiaole.auth', JSON.stringify({ token, username: user.username, userId: user.id }));
+  }, { token: payload.token, user: payload.user });
 }
 
 async function expectNoPageScrollbar(page: import('@playwright/test').Page) {
@@ -481,7 +492,7 @@ test('uploads from the H5 home page, configures split count, previews, then impo
 
   await expect(page.getByRole('heading', { name: '超级拼' })).toBeVisible();
   await expect(page.getByRole('button', { name: '首页' })).toBeVisible();
-  await expect(page.getByRole('button', { name: '上传', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '上传图片制作拼豆图纸', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '我的' })).toBeVisible();
   await expect(page.getByText('上传图片生成图纸')).toHaveCount(0);
 
@@ -2191,6 +2202,7 @@ test('pans the image and attached grid outside the alignment controls', async ({
 
 test('opens upload drawing modal and extracts an image from a Xiaohongshu link', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
+  await seedLegacyAuth(page);
   await page.route('**/api/xiaohongshu/extract', async (route) => {
     const request = route.request();
     expect(request.method()).toBe('POST');
@@ -2207,17 +2219,13 @@ test('opens upload drawing modal and extracts an image from a Xiaohongshu link',
   });
 
   await page.goto('/');
-  await page.getByRole('button', { name: '上传', exact: true }).click();
+  await page.getByRole('button', { name: '上传图片制作拼豆图纸', exact: true }).click();
 
   const dialog = page.getByRole('dialog', { name: '上传图纸' });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole('button', { name: '选择图纸' })).toBeVisible();
 
   await dialog.getByRole('button', { name: '小红书提取' }).click();
-  const loginDialog = page.getByRole('dialog', { name: '登录面板' });
-  await expect(loginDialog).toBeVisible();
-  await loginFromDialog(loginDialog);
-  await expect(loginDialog).toHaveCount(0);
   await dialog.getByRole('textbox', { name: '小红书链接' }).fill('https://www.xiaohongshu.com/explore/test-note');
   await dialog.getByRole('button', { name: '提取图片', exact: true }).click();
 
@@ -2231,7 +2239,7 @@ test('opens the upload modal from the profile tab', async ({ page }) => {
   await page.goto('/');
 
   await page.getByRole('button', { name: '我的' }).click();
-  await page.getByRole('button', { name: '上传', exact: true }).click();
+  await page.getByRole('button', { name: '上传图片制作拼豆图纸', exact: true }).click();
 
   await expect(page.getByRole('heading', { name: '超级拼' })).toBeVisible();
   await expect(page.getByRole('dialog', { name: '上传图纸' })).toBeVisible();
@@ -2256,6 +2264,7 @@ test('ignores late Xiaohongshu extraction responses after closing the upload mod
     releaseExtraction = resolve;
   });
   await page.setViewportSize({ width: 390, height: 844 });
+  await seedLegacyAuth(page);
   await page.route('**/api/xiaohongshu/extract', async (route) => {
     await extractionReleased;
     await route.fulfill({
@@ -2269,12 +2278,9 @@ test('ignores late Xiaohongshu extraction responses after closing the upload mod
   });
 
   await page.goto('/');
-  await page.getByRole('button', { name: '上传', exact: true }).click();
+  await page.getByRole('button', { name: '上传图片制作拼豆图纸', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '上传图纸' });
   await dialog.getByRole('button', { name: '小红书提取' }).click();
-  const loginDialog = page.getByRole('dialog', { name: '登录面板' });
-  await expect(loginDialog).toBeVisible();
-  await loginFromDialog(loginDialog);
   await dialog.getByRole('textbox', { name: '小红书链接' }).fill('https://www.xiaohongshu.com/explore/test-note');
   await dialog.getByRole('button', { name: '提取图片', exact: true }).click();
   await expect(dialog.getByRole('button', { name: '提取中...' })).toBeVisible();
@@ -2291,6 +2297,7 @@ test('lets users choose one image when Xiaohongshu extraction returns multiple n
   const imageDataUrl = `data:image/png;base64,${fs.readFileSync(uploadFixture).toString('base64')}`;
   let imageDownloadCount = 0;
   await page.setViewportSize({ width: 390, height: 844 });
+  await seedLegacyAuth(page);
   await page.route('**/api/xiaohongshu/extract', async (route) => {
     await route.fulfill({
       status: 200,
@@ -2317,12 +2324,9 @@ test('lets users choose one image when Xiaohongshu extraction returns multiple n
   });
 
   await page.goto('/');
-  await page.getByRole('button', { name: '上传', exact: true }).click();
+  await page.getByRole('button', { name: '上传图片制作拼豆图纸', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '上传图纸' });
   await dialog.getByRole('button', { name: '小红书提取' }).click();
-  const loginDialog = page.getByRole('dialog', { name: '登录面板' });
-  await expect(loginDialog).toBeVisible();
-  await loginFromDialog(loginDialog);
   await dialog.getByRole('textbox', { name: '小红书链接' }).fill('https://www.xiaohongshu.com/explore/test-note');
   await dialog.getByRole('button', { name: '提取图片', exact: true }).click();
 
@@ -2352,13 +2356,11 @@ test('shows STL export only in the peg board workflow', async ({ page }) => {
 test('logs in from profile and manages bead warehouse stock by count and grams', async ({ page }) => {
   const warehouseName = `MARD 常用色仓库 ${Date.now()}`;
   await page.setViewportSize({ width: 390, height: 844 });
+  await seedLegacyAuth(page);
   await page.goto('/');
 
   await page.getByRole('button', { name: '我的' }).click();
   await page.getByRole('button', { name: /豆子仓库/ }).click();
-  const loginDialog = page.getByRole('dialog', { name: '登录面板' });
-  await expect(loginDialog).toBeVisible();
-  await loginFromDialog(loginDialog);
 
   await expect(page.getByLabel('豆子仓库')).toBeVisible();
   await page.getByLabel('仓库列表').getByRole('button', { name: '新建豆子仓库' }).click();

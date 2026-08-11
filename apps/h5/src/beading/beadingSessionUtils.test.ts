@@ -67,7 +67,7 @@ describe('beading session client utilities', () => {
       locked: false,
       codesVisible: true,
       gridVisible: false,
-      sortMode: 'canvas',
+      sortMode: 'remaining',
     });
   });
 

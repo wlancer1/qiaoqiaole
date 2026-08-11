@@ -1,6 +1,6 @@
 import type { Cell } from '@qiaoqiaole/core';
 
-export type AppScreen = 'home' | 'profile' | 'split' | 'split-crop' | 'split-preview' | 'canvas' | 'beading' | 'warehouse' | 'warehouse-detail' | 'pattern-detail' | 'author-profile' | 'my-works' | 'following';
+export type AppScreen = 'home' | 'profile' | 'split' | 'split-crop' | 'split-preview' | 'canvas' | 'beading' | 'warehouse' | 'warehouse-detail' | 'pattern-detail' | 'author-profile' | 'my-works' | 'following' | 'followers';
 export type CanvasTool = 'brush' | 'eraser' | 'fill' | 'eyedropper' | 'pan';
 export type WorkMode = 'bead' | 'peg';
 export type SplitMode = 'quick' | 'align';
@@ -85,9 +85,12 @@ export type IconName =
 
 export type UploadedSplitImage = {
   name: string;
+  originalImageData: ImageData;
   imageData: ImageData;
   crop: { x: number; y: number; width: number; height: number };
   url: string;
+  originalUrl: string;
+  backgroundRemoved: boolean;
 };
 
 export type PaintStroke = {

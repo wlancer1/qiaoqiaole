@@ -2,6 +2,10 @@
 
 ### Added / Changed / Fixed
 
+- Fixed save-and-start beading submission, community navigation and project deletion permissions, Xiaohongshu URL extraction, non-destructive home refresh, H5 local background removal, and threaded comment replies/deletion.
+- Added idempotent comment schema migration coverage, a real mock-phone second-user API fixture, shared background-removal derivation tests, and focused H5 save/navigation/home/split regressions.
+- Affected modules: `apps/api/src/server.mjs`, `apps/api/src/community.test.mjs`, `apps/api/src/testPhoneUser.mjs`, `apps/h5/src/H5App.tsx`, H5 community/editor/home/split/pattern pages, `packages/core/src/domain/grid.ts`, and `apps/web/src/App.tsx`.
+
 - Added sticky, zoom-aware canvas rulers and accurate cell labels for editor and beading views.
 - Added public community author profiles, shared-work viewing without login, community card/avatar components, and follow navigation coverage.
 - Added profile editing with username and avatar updates, and changed new project names to default to `未命名作品`.

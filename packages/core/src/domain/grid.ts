@@ -9,6 +9,74 @@ export type Bounds = {
 
 export const SPLIT_DOMINANT_SAMPLE_GRID_SIZE = 5;
 
+export function removeFlatBackground(rgba: ArrayLike<number>, width: number, height: number, threshold = 42): Uint8ClampedArray {
+  const result = new Uint8ClampedArray(rgba.length);
+  for (let index = 0; index < rgba.length; index += 1) result[index] = Number(rgba[index] ?? 0);
+  if (width <= 0 || height <= 0 || result.length < width * height * 4) return result;
+  if (width === 1 && height === 1) {
+    result[3] = 0;
+    return result;
+  }
+
+  const borderPixels: number[] = [];
+  for (let x = 0; x < width; x += 1) {
+    borderPixels.push(x, (height - 1) * width + x);
+  }
+  for (let y = 1; y < height - 1; y += 1) {
+    borderPixels.push(y * width);
+    if (width > 1) borderPixels.push(y * width + width - 1);
+  }
+
+  const buckets = new Map<string, number[]>();
+  for (const pixelIndex of borderPixels) {
+    const offset = pixelIndex * 4;
+    if (result[offset + 3] < 16) continue;
+    const key = `${result[offset] >> 6},${result[offset + 1] >> 6},${result[offset + 2] >> 6}`;
+    const pixels = buckets.get(key) ?? [];
+    pixels.push(pixelIndex);
+    buckets.set(key, pixels);
+  }
+  const opaqueBorderCount = [...buckets.values()].reduce((count, pixels) => count + pixels.length, 0);
+  const dominantPixels = [...buckets.values()].reduce<number[]>((best, pixels) => pixels.length > best.length ? pixels : best, []);
+  if (opaqueBorderCount === 0 || dominantPixels.length / opaqueBorderCount < 0.75) return result;
+
+  const background = dominantPixels.reduce<[number, number, number]>((sum, pixelIndex) => {
+    const offset = pixelIndex * 4;
+    return [sum[0] + result[offset], sum[1] + result[offset + 1], sum[2] + result[offset + 2]];
+  }, [0, 0, 0]).map((value) => value / dominantPixels.length);
+  const matchesBackground = (pixelIndex: number) => {
+    const offset = pixelIndex * 4;
+    return result[offset + 3] < 16 || Math.hypot(result[offset] - background[0], result[offset + 1] - background[1], result[offset + 2] - background[2]) < threshold;
+  };
+
+  const visited = new Uint8Array(width * height);
+  const queue = new Int32Array(width * height);
+  let head = 0;
+  let tail = 0;
+  for (const pixelIndex of borderPixels) {
+    if (visited[pixelIndex] || !matchesBackground(pixelIndex)) continue;
+    visited[pixelIndex] = 1;
+    queue[tail++] = pixelIndex;
+  }
+  while (head < tail) {
+    const pixelIndex = queue[head++];
+    result[pixelIndex * 4 + 3] = 0;
+    const x = pixelIndex % width;
+    const neighbors = [pixelIndex - width, pixelIndex + width, pixelIndex - 1, pixelIndex + 1];
+    for (let direction = 0; direction < neighbors.length; direction += 1) {
+      if ((direction === 0 && pixelIndex < width)
+        || (direction === 1 && pixelIndex >= width * (height - 1))
+        || (direction === 2 && x === 0)
+        || (direction === 3 && x === width - 1)) continue;
+      const neighbor = neighbors[direction];
+      if (visited[neighbor] || !matchesBackground(neighbor)) continue;
+      visited[neighbor] = 1;
+      queue[tail++] = neighbor;
+    }
+  }
+  return result;
+}
+
 export function normalizeHex(hex: string): string {
   const cleaned = hex.trim().toLowerCase();
   if (/^#[0-9a-f]{6}$/.test(cleaned)) {
