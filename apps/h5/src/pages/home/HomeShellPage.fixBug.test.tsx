@@ -38,7 +38,13 @@ describe('profile editing', () => {
   });
 });
 
-type TestElement = ReactElement<{ children?: ReactNode; className?: string; onClick?: () => void }>;
+type TestElement = ReactElement<{
+  children?: ReactNode;
+  className?: string;
+  onClick?: () => void;
+  'aria-label'?: string;
+  placeholder?: string;
+}>;
 
 function childElements(node: ReactNode): TestElement[] {
   return Children.toArray(node).filter(isValidElement) as TestElement[];
@@ -164,9 +170,39 @@ describe('recent project stale action handling', () => {
 
 describe('Xiaohongshu link input guidance', () => {
   it('accepts links and share text without listing stale domains', () => {
-    const source = fs.readFileSync(path.resolve('apps/h5/src/pages/home/HomeShellPage.tsx'), 'utf8');
+    const shell = HomeShellPage({
+      fileInputRef: { current: null },
+      handleUpload: vi.fn(),
+      status: '',
+      activeTab: 'home',
+      recentProjects: [],
+      openUpload: vi.fn(),
+      isLoggedIn: false,
+      showLoginModal: false,
+      showUploadModal: true,
+      closeUploadModal: vi.fn(),
+      showXhsInput: true,
+      setShowXhsInput: vi.fn(),
+      xhsLink: '',
+      setXhsLink: vi.fn(),
+      xhsExtractedImages: [],
+      isExtractingXhs: false,
+      chooseLocalDrawing: vi.fn(),
+      extractXiaohongshuImage: vi.fn(),
+      importXhsImage: vi.fn(),
+      xhsPreviewSrc: vi.fn(),
+      showCreateCanvasModal: false,
+      openBlankCanvasCreation: vi.fn(),
+      requireLogin: vi.fn(),
+      homeTemplateCards: [],
+      notifications: [],
+      setActiveTab: vi.fn(),
+    });
+    const xhsInput = collectElements(shell).find((element) => element.type === 'input' && element.props['aria-label'] === '小红书链接');
+    const markup = renderToStaticMarkup(shell);
 
-    expect(source).toContain('placeholder="粘贴小红书笔记链接或分享口令"');
-    expect(source).not.toContain('placeholder="粘贴 xiaohongshu.com 或 xhslink.com 链接"');
+    expect(xhsInput).toBeDefined();
+    expect(xhsInput?.props.placeholder).toBe('粘贴小红书笔记链接或分享口令');
+    expect(markup).not.toContain('粘贴 xiaohongshu.com 或 xhslink.com 链接');
   });
 });
