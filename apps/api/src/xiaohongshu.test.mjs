@@ -8,6 +8,7 @@ import {
   isSupportedXiaohongshuUrl,
   mobileHeaders,
   normalizeExtractedImagePayload,
+  redactUrl,
   summarizeXhsError,
   summarizeXhsUpstreamResponse,
 } from './xiaohongshu.mjs';
@@ -222,7 +223,7 @@ describe('xiaohongshu extraction helpers', () => {
     expect(summarizeXhsUpstreamResponse(response)).toEqual({
       status: 403,
       ok: false,
-      finalUrl: 'https://www.xiaohongshu.com/404?source=share',
+      finalUrl: 'https://www.xiaohongshu.com/404?source=%5BREDACTED%5D',
       contentType: 'text/html; charset=utf-8',
       contentLength: 321,
     });
@@ -236,5 +237,40 @@ describe('xiaohongshu extraction helpers', () => {
       message: 'fetch failed',
       causeCode: 'UND_ERR_CONNECT_TIMEOUT',
     });
+  });
+
+  test('redacts credentials, query values, and fragments from diagnostic urls', () => {
+    const summary = redactUrl(
+      'https://user:supersecret@xhslink.cn/o/abc?xsec_token=verysecret&signature=signed#private',
+    );
+
+    expect(summary).toContain('https://xhslink.cn/o/abc');
+    expect(summary).toContain('xsec_token=%5BREDACTED%5D');
+    expect(summary).toContain('signature=%5BREDACTED%5D');
+    expect(summary).not.toMatch(/user|supersecret|verysecret|signed|private/);
+  });
+
+  test('redacts urls embedded in diagnostic error messages without dropping context or cause codes', () => {
+    const error = new TypeError(
+      'Request failed for https://user:supersecret@xhslink.cn/o/abc?access_token=verysecret#private',
+      { cause: { code: 'UND_ERR_INVALID_ARG' } },
+    );
+
+    const summary = summarizeXhsError(error);
+
+    expect(summary.message).toContain('Request failed for https://xhslink.cn/o/abc');
+    expect(summary.message).toContain('access_token=%5BREDACTED%5D');
+    expect(summary.message).not.toMatch(/user|supersecret|verysecret|private/);
+    expect(summary.causeCode).toBe('UND_ERR_INVALID_ARG');
+  });
+
+  test('keeps ordinary urls readable and safely truncates long or invalid diagnostic values', () => {
+    expect(redactUrl('https://xhslink.cn/o/abc')).toBe('https://xhslink.cn/o/abc');
+
+    for (const value of [`https://xhslink.cn/${'a'.repeat(220)}`, `not-a-url-${'b'.repeat(220)}`]) {
+      const summary = redactUrl(value);
+      expect(summary).toHaveLength(183);
+      expect(summary.endsWith('...')).toBe(true);
+    }
   });
 });

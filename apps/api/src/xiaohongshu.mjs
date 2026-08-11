@@ -445,14 +445,37 @@ export function summarizeXhsError(error) {
   const cause = error && typeof error === 'object' ? error.cause : null;
   return {
     name: error instanceof Error ? error.name : typeof error,
-    message: error instanceof Error ? error.message : String(error),
+    message: redactText(error instanceof Error ? error.message : String(error)),
     causeCode: cause && typeof cause === 'object' && 'code' in cause ? String(cause.code || '') : '',
   };
 }
 
 export function redactUrl(url) {
   if (!url) return '';
-  return url.length > 180 ? `${url.slice(0, 180)}...` : url;
+  const value = String(url);
+  try {
+    const parsed = new URL(value);
+    parsed.username = '';
+    parsed.password = '';
+    parsed.hash = '';
+
+    const redactedParams = new URLSearchParams();
+    for (const [name] of parsed.searchParams) {
+      redactedParams.append(name, '[REDACTED]');
+    }
+    parsed.search = redactedParams.toString();
+    return truncateDiagnosticValue(parsed.toString());
+  } catch {
+    return truncateDiagnosticValue(value);
+  }
+}
+
+function redactText(value) {
+  return String(value).replace(/https?:\/\/[^\s]+/gi, (url) => redactUrl(url));
+}
+
+function truncateDiagnosticValue(value) {
+  return value.length > 180 ? `${value.slice(0, 180)}...` : value;
 }
 
 function getHtmlAttribute(tag, name) {
