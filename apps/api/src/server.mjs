@@ -1119,12 +1119,14 @@ function getFollowCounts(userId) {
   const counts = getOne(
     `SELECT
        (SELECT COUNT(*) FROM follows WHERE following_id = ?) AS followersCount,
-       (SELECT COUNT(*) FROM follows f JOIN users u ON u.id = f.following_id WHERE f.follower_id = ? AND u.status = 'ACTIVE') AS followingCount`,
-    [userId, userId],
+       (SELECT COUNT(*) FROM follows f JOIN users u ON u.id = f.following_id WHERE f.follower_id = ? AND u.status = 'ACTIVE') AS followingCount,
+       (SELECT COALESCE(SUM(likes_count), 0) FROM projects WHERE user_id = ? AND shared_to_community = 1) AS likesCount`,
+    [userId, userId, userId],
   );
   return {
     followersCount: Number(counts?.followersCount || 0),
     followingCount: Number(counts?.followingCount || 0),
+    likesCount: Number(counts?.likesCount || 0),
   };
 }
 
@@ -1672,6 +1674,20 @@ function formatCommunityPosts(posts) {
   return posts.map((post) => formatCommunityPost({ ...post, tags: tagsByProjectId.get(post.id) || [] }));
 }
 
+function listCommunityTagCounts() {
+  const rows = getAll(
+    `SELECT pt.tag, COUNT(DISTINCT p.id) AS count
+     FROM project_tags pt
+     JOIN projects p ON p.id = pt.project_id
+     WHERE p.shared_to_community = 1
+     GROUP BY pt.tag`,
+  );
+  const counts = new Map(rows.map((row) => [row.tag, Number(row.count || 0)]));
+  return COMMUNITY_TAGS
+    .map((tag) => ({ tag, count: counts.get(tag) || 0 }))
+    .filter(({ count }) => count > 0);
+}
+
 function normalizeCommunityTags(value) {
   if (!Array.isArray(value)) throw new Error('请选择 1–3 个标签');
   const tags = value.map((tag) => String(tag || '').trim());
@@ -1732,7 +1748,7 @@ function listCommunityPosts(response, userId, sort, pagination = { page: 1, page
      LIMIT ? OFFSET ?`,
     [...params, pagination.pageSize, pagination.offset],
   );
-  sendJson(response, 200, { posts: formatCommunityPosts(posts), page: pagination.page, pageSize: pagination.pageSize });
+  sendJson(response, 200, { posts: formatCommunityPosts(posts), tagCounts: listCommunityTagCounts(), page: pagination.page, pageSize: pagination.pageSize });
 }
 
 function getAuthorProfile(viewerId, authorId) {

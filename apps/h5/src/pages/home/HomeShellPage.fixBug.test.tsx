@@ -62,6 +62,7 @@ describe('home recent project actions', () => {
       updatedAt: '2026-08-01T00:00:00.000Z',
     };
     const onOpenRecentProject = vi.fn();
+    const openBlankCanvasCreation = vi.fn();
     const actionSheet = createElement('div', { 'data-testid': 'recent-project-action-sheet' }, '作品操作');
     const shell = HomeShellPage({
       fileInputRef: { current: null },
@@ -80,7 +81,7 @@ describe('home recent project actions', () => {
       isAuthenticating: false,
       showLoginModal: false,
       setShowLoginModal: vi.fn(),
-      showUploadModal: false,
+      showUploadModal: true,
       showBlankCanvasOption: false,
       closeUploadModal: vi.fn(),
       showXhsInput: false,
@@ -99,7 +100,7 @@ describe('home recent project actions', () => {
       showCreateCanvasModal: false,
       setShowCreateCanvasModal: vi.fn(),
       openCreateCanvasModal: vi.fn(),
-      openBlankCanvasCreation: vi.fn(),
+      openBlankCanvasCreation,
       cfgCols: 32,
       setCfgCols: vi.fn(),
       cfgRows: 32,
@@ -141,6 +142,11 @@ describe('home recent project actions', () => {
     expect(recentCard).toBeDefined();
     recentCard?.props.onClick?.();
     expect(onOpenRecentProject).toHaveBeenCalledWith(project);
+
+    const blankCanvasOption = collectElements(shell).find((element) => element.props.className?.includes('blank-canvas-source-option'));
+    expect(blankCanvasOption).toBeDefined();
+    blankCanvasOption?.props.onClick?.();
+    expect(openBlankCanvasCreation).toHaveBeenCalledTimes(1);
   });
 });
 

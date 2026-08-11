@@ -1,4 +1,5 @@
 import { Children, createElement, isValidElement, type ReactElement, type ReactNode } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { HomeShellPage } from './HomeShellPage';
 
@@ -23,6 +24,12 @@ function profileProps(overrides: Record<string, unknown> = {}) {
 }
 
 describe('my profile navigation', () => {
+  it('renders the refreshed received-like total instead of a fixed placeholder', () => {
+    const markup = renderToStaticMarkup(createElement(HomeShellPage, profileProps({ receivedLikesCount: 12 })));
+
+    expect(markup).toContain('>12</strong><span>获赞</span>');
+  });
+
   it('opens my works when the works statistic is selected', () => {
     const setScreen = vi.fn();
     const tree = HomeShellPage(profileProps({ setScreen }));

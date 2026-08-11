@@ -1,5 +1,5 @@
 import { ArrowLeft, Copy, FolderPlus, Grid2X2, Heart, MessageCircle, Ruler, Search, Share2, X } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { Icon } from '../shared/h5Icons';
 import { BeadListDrawer, type BeadColorItem } from '../flow/H5FlowComponents';
 import { colorCodeOf } from '../utils/h5AppUtils';
@@ -85,8 +85,23 @@ export function MyWorksPage({
   const visibleProjects = activeFolderId === 'all'
     ? projects
     : projects.filter((project) => (activeFolderId === null ? !project.folderId : project.folderId === activeFolderId));
-  const uncategorizedCount = projects.filter((project) => !project.folderId).length;
   const [activeContentTab, setActiveContentTab] = useState<'works' | 'likes'>('works');
+  const [folderMenuTarget, setFolderMenuTarget] = useState<ProjectFolder | null>(null);
+  const folderLongPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suppressFolderClickRef = useRef(false);
+  const clearFolderLongPress = () => {
+    if (folderLongPressTimerRef.current === null) return;
+    clearTimeout(folderLongPressTimerRef.current);
+    folderLongPressTimerRef.current = null;
+  };
+  const openFolderMenu = (folder: ProjectFolder) => setFolderMenuTarget(folder);
+  const handleFolderKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, folder: ProjectFolder) => {
+    if (!onDeleteFolder || !['Enter', ' ', 'ContextMenu'].includes(event.key) && !(event.shiftKey && event.key === 'F10')) return;
+    event.preventDefault();
+    openFolderMenu(folder);
+  };
+
+  useEffect(() => () => clearFolderLongPress(), []);
 
   return (
     <main className="author-profile-page my-works-page" aria-label="我的作品">
@@ -113,10 +128,15 @@ export function MyWorksPage({
         <button className={activeContentTab === 'likes' ? 'active' : ''} type="button" onClick={() => setActiveContentTab('likes')}>喜欢</button>
       </nav>
       {activeContentTab === 'works' ? <section className="my-works-folder-filter" aria-label="作品文件夹">
-        <button type="button" className={activeFolderId === 'all' ? 'active' : ''} onClick={() => onFolderChange?.('all')}>全部作品 <span>{projects.length}</span></button>
-        <button type="button" className={activeFolderId === null ? 'active' : ''} onClick={() => onFolderChange?.(null)}>未分类 <span>{uncategorizedCount}</span></button>
-        {folders.map((folder) => <span className="my-works-folder-item" key={folder.id}><button type="button" className={activeFolderId === folder.id ? 'active' : ''} onClick={() => onFolderChange?.(folder.id)}>{folder.name} <span>{projects.filter((project) => project.folderId === folder.id).length}</span></button>{onDeleteFolder ? <button className="my-works-delete-folder" type="button" aria-label={`删除文件夹 ${folder.name}`} onClick={() => onDeleteFolder(folder)}><X aria-hidden="true" /></button> : null}</span>)}
-        {onCreateFolder ? <button type="button" className="my-works-create-folder" onClick={onCreateFolder}><FolderPlus aria-hidden="true" />新建文件夹</button> : null}
+        <div className="my-works-folder-header">
+          <div className="my-works-folder-title"><strong>文件夹</strong><span>{folders.length}</span></div>
+          {onCreateFolder ? <button type="button" className="my-works-create-folder" onClick={() => { setFolderMenuTarget(null); onCreateFolder(); }}><FolderPlus aria-hidden="true" />新建</button> : null}
+        </div>
+        <div className="my-works-folder-scroll">
+          <button type="button" className={activeFolderId === 'all' ? 'active' : ''} onClick={() => { setFolderMenuTarget(null); onFolderChange?.('all'); }}>全部 <span>{projects.length}</span></button>
+          {folders.map((folder) => <button key={folder.id} type="button" className={activeFolderId === folder.id ? 'active' : ''} aria-label={onDeleteFolder ? `打开文件夹 ${folder.name} 操作` : undefined} aria-haspopup={onDeleteFolder ? 'menu' : undefined} aria-expanded={onDeleteFolder ? folderMenuTarget?.id === folder.id : undefined} onClick={() => { if (suppressFolderClickRef.current) { suppressFolderClickRef.current = false; return; } onFolderChange?.(folder.id); setFolderMenuTarget(null); }} onKeyDown={onDeleteFolder ? (event) => handleFolderKeyDown(event, folder) : undefined} onContextMenu={onDeleteFolder ? (event) => { event.preventDefault(); openFolderMenu(folder); } : undefined} onPointerDown={onDeleteFolder ? (event) => { if (event.pointerType === 'touch') { suppressFolderClickRef.current = false; folderLongPressTimerRef.current = setTimeout(() => { suppressFolderClickRef.current = true; openFolderMenu(folder); folderLongPressTimerRef.current = null; }, 500); } } : undefined} onPointerUp={clearFolderLongPress} onPointerCancel={clearFolderLongPress} onPointerLeave={clearFolderLongPress}>{folder.name} <span>{projects.filter((project) => project.folderId === folder.id).length}</span></button>)}
+        </div>
+        {folderMenuTarget && onDeleteFolder ? <div className="my-works-folder-menu" role="menu" aria-label={`${folderMenuTarget.name} 文件夹操作`}><button type="button" role="menuitem" aria-label={`删除文件夹 ${folderMenuTarget.name}`} onClick={() => { onDeleteFolder(folderMenuTarget); setFolderMenuTarget(null); }}>删除文件夹</button><button type="button" role="menuitem" onClick={() => setFolderMenuTarget(null)}>取消</button></div> : null}
       </section> : null}
       {activeContentTab === 'works' && visibleProjects.length > 0 ? (
         <section className="author-work-grid" aria-label="我的作品列表">
@@ -124,6 +144,7 @@ export function MyWorksPage({
             <article
               className="author-work-card my-work-card"
               key={project.id}
+              data-project-card-id={project.id}
               role="button"
               tabIndex={0}
               onClick={() => onOpen(project)}
@@ -184,7 +205,7 @@ export function FollowingPage({ users, loading, error, onBack, onRetry, onOpenUs
           {users.map((user) => <button className="following-user-row" key={user.id} type="button" aria-label={`查看${user.name}的主页`} onClick={() => onOpenUser?.(user)}>
             <UserAvatar className="following-user-avatar" avatarUrl={user.avatarUrl} />
             <strong>{user.name}</strong>
-            <span aria-hidden="true">{isFollowers ? '粉丝' : '已关注'}</span>
+            <span className="following-user-status" aria-hidden="true">{isFollowers ? '粉丝' : '已关注'}</span>
           </button>)}
         </section>
       ) : <div className="following-list-state"><strong>{isFollowers ? '还没有粉丝' : '还没有关注任何人'}</strong><span>{isFollowers ? '有人关注你后会显示在这里' : '去发现页看看喜欢的创作者吧'}</span></div>}

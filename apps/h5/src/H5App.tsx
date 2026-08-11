@@ -105,6 +105,9 @@ import { normalizeProjectPayload, parseProjectCells, serializeProjectCells } fro
 import { cropSize, getAutoCropBounds, splitCropRegion, splitPreviewBackTarget, type CropBounds } from './utils/splitCrop';
 import { defaultSplitImageView } from './utils/splitImageView';
 import { resolveFolderId, type ProjectFolder } from './projects/projectFolders';
+import { CreateProjectFolderSheet, MoveProjectFolderSheet } from './projects/ProjectFolderSheets';
+import { applyCreatedProjectFolder, applyMovedProjectFolder, beginProjectFolderMove, type ProjectFolderCreateOrigin } from './projects/projectFolderFlow';
+import { consumeProjectFolderHistorySentinel, ensureProjectFolderHistorySentinel, resolveProjectFolderHistoryPop } from './projects/projectFolderHistory';
 import { ShareCommunityDialog } from './community/ShareCommunityDialog';
 import { AuthorProfilePage, FollowersPage, FollowingPage, MyWorksPage, PatternDetailPage, PatternDiscoverPage, PatternMessagesPage } from './patterns/H5PatternPages';
 import { quickTools } from './patterns/h5PatternData';
@@ -223,7 +226,13 @@ function H5App() {
   const [selectedColor, setSelectedColor] = useState<string>(MARD_221_COLORS[0]?.hex ?? '#faf4c8');
   const [selectedCode, setSelectedCode] = useState<string>(MARD_221_COLORS[0]?.code ?? 'A1');
   const [tool, setTool] = useState<CanvasTool>('pan');
-  const [status, setStatus] = useState('');
+  const [status, setStatusState] = useState('');
+  const statusScopeRef = useRef(`${screen}:${activeTab}`);
+  const statusScope = `${screen}:${activeTab}`;
+  const setStatus = (message: string) => {
+    if (statusScopeRef.current !== statusScope) return;
+    setStatusState(message);
+  };
   const [history, setHistory] = useState<Cell[][]>([]);
   const [future, setFuture] = useState<Cell[][]>([]);
   const [showPaletteSearch, setShowPaletteSearch] = useState(false);
@@ -233,6 +242,7 @@ function H5App() {
   const [legacyDraftOwnerId, setLegacyDraftOwnerId] = useState('');
   const [loginName, setLoginName] = useState('');
   const [profileAvatarUrl, setProfileAvatarUrl] = useState('');
+  const [receivedLikesCount, setReceivedLikesCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
   const [followersCount, setFollowersCount] = useState(0);
   const [followingUsers, setFollowingUsers] = useState<FollowingUser[]>([]);
@@ -278,8 +288,17 @@ function H5App() {
   const [saveFolderId, setSaveFolderId] = useState<string | null>(null);
   const [activeProjectFolderId, setActiveProjectFolderId] = useState<string | null | 'all'>('all');
   const [showProjectFolderCreate, setShowProjectFolderCreate] = useState(false);
+  const [projectFolderCreateOrigin, setProjectFolderCreateOrigin] = useState<ProjectFolderCreateOrigin>('my-works');
   const [projectFolderName, setProjectFolderName] = useState('');
   const [isCreatingProjectFolder, setIsCreatingProjectFolder] = useState(false);
+  const [projectFolderCreateError, setProjectFolderCreateError] = useState('');
+  const [projectFolderMoveTarget, setProjectFolderMoveTarget] = useState<RecentProject | null>(null);
+  const [projectFolderMoveSelectedId, setProjectFolderMoveSelectedId] = useState<string | null>(null);
+  const [isMovingProjectFolder, setIsMovingProjectFolder] = useState(false);
+  const [projectFolderMoveError, setProjectFolderMoveError] = useState('');
+  const projectFolderCreateReturnFocusRef = useRef<HTMLElement | null>(null);
+  const projectFolderMoveReturnFocusRef = useRef<HTMLElement | null>(null);
+  const projectActionReturnFocusRef = useRef<HTMLElement | null>(null);
   const [activeProjectId, setActiveProjectId] = useState('');
   const [communityPosts, setCommunityPosts] = useState<CommunityPost[]>([]);
   const [communityComments, setCommunityComments] = useState<CommunityCommentsResponse['comments']>([]);
@@ -293,6 +312,7 @@ function H5App() {
   const [communityQuery, setCommunityQuery] = useState('');
   const [debouncedCommunityQuery, setDebouncedCommunityQuery] = useState('');
   const [communitySelectedTags, setCommunitySelectedTags] = useState<string[]>([]);
+  const [communityAvailableTags, setCommunityAvailableTags] = useState<string[]>([]);
   const sortedRecentProjects = useMemo(
     () => [...recentProjects].sort((a, b) => Date.parse(b.updatedAt || b.createdAt) - Date.parse(a.updatedAt || a.createdAt)),
     [recentProjects],
@@ -370,7 +390,6 @@ function H5App() {
   const [splitImageScale, setSplitImageScale] = useState(1);
   const [splitImageOffset, setSplitImageOffset] = useState({ x: 0, y: 0 });
   const [showUploadModal, setShowUploadModal] = useState(false);
-  const [showBlankCanvasOption, setShowBlankCanvasOption] = useState(false);
   const [showXhsInput, setShowXhsInput] = useState(false);
   const [xhsLink, setXhsLink] = useState('');
   const [isExtractingXhs, setIsExtractingXhs] = useState(false);
@@ -470,6 +489,7 @@ function H5App() {
       || showUploadModal
       || showCreateCanvasModal
       || showProjectFolderCreate
+      || projectFolderMoveTarget
       || showLogoutConfirm
       || shareDialogProject
       || projectActionTarget
@@ -485,6 +505,28 @@ function H5App() {
     return () => document.body.classList.remove('h5-modal-open');
   }, [hasBlockingModal]);
 
+  const folderSheetOpen = showProjectFolderCreate || Boolean(projectFolderMoveTarget);
+  const ignoreProjectFolderHistoryPopRef = useRef(false);
+  useEffect(() => {
+    if (folderSheetOpen) ensureProjectFolderHistorySentinel(window.history, window.location.href);
+    else if (consumeProjectFolderHistorySentinel(window.history)) ignoreProjectFolderHistoryPopRef.current = true;
+  }, [folderSheetOpen]);
+
+  useEffect(() => {
+    const closeTopProjectFolderLayer = () => {
+      if (ignoreProjectFolderHistoryPopRef.current) {
+        ignoreProjectFolderHistoryPopRef.current = false;
+        return;
+      }
+      const resolution = resolveProjectFolderHistoryPop({ createOpen: showProjectFolderCreate, createPending: isCreatingProjectFolder, moveOpen: Boolean(projectFolderMoveTarget), movePending: isMovingProjectFolder });
+      if (resolution.retainSentinel) ensureProjectFolderHistorySentinel(window.history, window.location.href);
+      if (resolution.close === 'create') { setShowProjectFolderCreate(false); setProjectFolderCreateError(''); }
+      if (resolution.close === 'move') setProjectFolderMoveTarget(null);
+    };
+    window.addEventListener('popstate', closeTopProjectFolderLayer);
+    return () => window.removeEventListener('popstate', closeTopProjectFolderLayer);
+  }, [isCreatingProjectFolder, isMovingProjectFolder, projectFolderMoveTarget, showProjectFolderCreate]);
+
   useEffect(() => {
     activeWarehouseIdRef.current = activeWarehouseId;
   }, [activeWarehouseId]);
@@ -492,6 +534,11 @@ function H5App() {
   useEffect(() => {
     if (screen !== 'pattern-detail' && screen !== 'author-profile') patternDetailBackTargetRef.current = nextDetailBackTarget(screen);
   }, [screen]);
+
+  useLayoutEffect(() => {
+    statusScopeRef.current = statusScope;
+    setStatusState('');
+  }, [statusScope]);
 
   useLayoutEffect(() => {
     const resetScrollPositions = () => {
@@ -580,6 +627,7 @@ function H5App() {
         setLegacyDraftOwnerId((stored.username || '').trim());
         setLoginName(resolveRestoredDisplayName(payload.user, stored.username));
         setProfileAvatarUrl(String(payload.user.avatarUrl || ''));
+        setReceivedLikesCount(Number(payload.likesCount || 0));
         setFollowingCount(Number(payload.followingCount || 0));
         setFollowersCount(Number(payload.followersCount || 0));
         setIsLoggedIn(true);
@@ -823,11 +871,10 @@ function H5App() {
     setPanY(0);
   };
 
-  const openUpload = (nextMode: WorkMode, includeBlankCanvas = false) => {
+  const openUpload = (nextMode: WorkMode) => {
     xhsRequestSeqRef.current += 1;
     setWorkMode(nextMode);
     setActiveTab('home');
-    setShowBlankCanvasOption(includeBlankCanvas);
     setShowUploadModal(true);
     setShowXhsInput(false);
     setXhsLink('');
@@ -839,7 +886,6 @@ function H5App() {
     xhsRequestSeqRef.current += 1;
     xhsImportSeqRef.current += 1;
     setShowUploadModal(false);
-    setShowBlankCanvasOption(false);
     setShowXhsInput(false);
     setXhsLink('');
     setXhsExtractedTitle('');
@@ -923,10 +969,12 @@ function H5App() {
 
   const loadFollowingCount = async (token: string) => {
     try {
-      const payload = await requestApi<{ followingCount?: number; followersCount?: number }>('/me', {}, token);
+      const payload = await requestApi<{ likesCount?: number; followingCount?: number; followersCount?: number }>('/me', {}, token);
+      setReceivedLikesCount(typeof payload.likesCount === 'number' ? payload.likesCount : 0);
       setFollowingCount(typeof payload.followingCount === 'number' ? payload.followingCount : 0);
       setFollowersCount(typeof payload.followersCount === 'number' ? payload.followersCount : 0);
     } catch {
+      setReceivedLikesCount(0);
       setFollowingCount(0);
       setFollowersCount(0);
     }
@@ -1044,9 +1092,12 @@ function H5App() {
         const params = new URLSearchParams({ sort, page: String(page), pageSize: String(pageSize) });
         if (activeTab === 'discover' && debouncedCommunityQuery.trim()) params.set('q', debouncedCommunityQuery.trim());
         if (activeTab === 'discover' && communitySelectedTags.length) params.set('tags', communitySelectedTags.join(','));
-        const payload = await requestApi<{ posts: CommunityPost[] }>(`/community/posts?${params.toString()}`, {
+        const payload = await requestApi<{ posts: CommunityPost[]; tagCounts?: Array<{ tag: string; count: number }> }>(`/community/posts?${params.toString()}`, {
           headers: token ? { authorization: `Bearer ${token}` } : {},
         });
+        if (page === 1 && communityPostsRequestSeqRef.current === requestSeq) {
+          setCommunityAvailableTags((payload.tagCounts || []).filter(({ count }) => count > 0).map(({ tag }) => tag));
+        }
         allPosts.push(...payload.posts);
         if (payload.posts.length < pageSize) break;
         page += 1;
@@ -1278,31 +1329,86 @@ function H5App() {
     }
     try {
       const payload = await requestApi<{ project: { id: string; folderId: string | null; updatedAt: string } }>(`/projects/${projectId}/folder`, { method: 'PATCH', body: JSON.stringify({ folderId }) });
-      setRecentProjects((projects) => projects.map((project) => project.id === projectId ? { ...project, folderId: payload.project.folderId, updatedAt: payload.project.updatedAt } : project));
+      setRecentProjects((projects) => applyMovedProjectFolder(projects, payload.project));
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : '移动作品失败');
+      const message = error instanceof Error ? error.message : '移动作品失败';
+      setStatus(message);
+      throw error;
     }
   };
 
-  const createProjectFolder = async () => {
-    const name = projectFolderName.trim();
-    if (!name || isCreatingProjectFolder) return;
+  const openProjectFolderCreate = (origin: ProjectFolderCreateOrigin) => {
     if (!authToken) {
-      requireLogin(() => setShowProjectFolderCreate(true));
+      requireLogin(() => openProjectFolderCreate(origin));
       return;
     }
+    projectFolderCreateReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setProjectFolderCreateOrigin(origin);
+    setProjectFolderName('');
+    setProjectFolderCreateError('');
+    setShowProjectFolderCreate(true);
+  };
+
+  const createProjectFolder = async (requestedName = projectFolderName) => {
+    const name = requestedName.trim();
+    if (!name || isCreatingProjectFolder) return;
+    if (!authToken) {
+      throw new Error('请先登录后再新建文件夹');
+    }
     setIsCreatingProjectFolder(true);
+    setProjectFolderCreateError('');
     try {
       const payload = await requestApi<{ folder: ProjectFolder }>('/project-folders', { method: 'POST', body: JSON.stringify({ name }) });
-      setProjectFolders((folders) => [...folders, payload.folder]);
-      setSaveFolderId(payload.folder.id);
-      setActiveProjectFolderId(payload.folder.id);
+      const next = applyCreatedProjectFolder({ folders: projectFolders, activeFolderId: activeProjectFolderId, saveFolderId, move: projectFolderMoveTarget ? { projectId: projectFolderMoveTarget.id, selectedFolderId: projectFolderMoveSelectedId } : null }, payload.folder, projectFolderCreateOrigin);
+      setProjectFolders(next.folders);
+      setActiveProjectFolderId(next.activeFolderId);
+      setSaveFolderId(next.saveFolderId);
+      if (next.move) setProjectFolderMoveSelectedId(next.move.selectedFolderId);
       setProjectFolderName('');
       setShowProjectFolderCreate(false);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : '新建文件夹失败');
+      const message = error instanceof Error ? error.message : '新建文件夹失败';
+      setProjectFolderCreateError(message);
+      throw error;
     } finally {
       setIsCreatingProjectFolder(false);
+    }
+  };
+
+  const openProjectFolderMove = (project: RecentProject) => {
+    const stableProjectCard = projectActionReturnFocusRef.current?.isConnected
+      ? projectActionReturnFocusRef.current
+      : document.querySelector<HTMLElement>(`[data-project-card-id="${CSS.escape(project.id)}"]`);
+    projectFolderMoveReturnFocusRef.current = stableProjectCard ?? null;
+    const flow = beginProjectFolderMove({ folders: projectFolders, activeFolderId: activeProjectFolderId, saveFolderId, move: null }, project);
+    setProjectActionTarget(null);
+    setProjectFolderMoveTarget(project);
+    setProjectFolderMoveSelectedId(flow.move?.selectedFolderId ?? null);
+    setProjectFolderMoveError('');
+  };
+
+  const openProjectActions = (project: RecentProject) => {
+    const active = document.activeElement;
+    projectActionReturnFocusRef.current = active instanceof HTMLElement && active.dataset.projectCardId === project.id
+      ? active
+      : document.querySelector<HTMLElement>(`[data-project-card-id="${CSS.escape(project.id)}"]`);
+    setProjectActionTarget(project);
+  };
+
+  const confirmProjectFolderMove = async (folderId: string | null) => {
+    const target = projectFolderMoveTarget;
+    if (!target || isMovingProjectFolder) return;
+    setIsMovingProjectFolder(true);
+    setProjectFolderMoveError('');
+    try {
+      await moveProjectToFolder(target.id, folderId);
+      setProjectFolderMoveTarget(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '移动作品失败';
+      setProjectFolderMoveError(message);
+      throw error;
+    } finally {
+      setIsMovingProjectFolder(false);
     }
   };
 
@@ -1840,6 +1946,7 @@ function H5App() {
     setIsLoggedIn(false);
     setLoginName('');
     setProfileAvatarUrl('');
+    setReceivedLikesCount(0);
     setFollowingCount(0);
     setFollowersCount(0);
     setFollowingUsers([]);
@@ -2979,20 +3086,41 @@ function H5App() {
       showLogoutConfirm={showLogoutConfirm} setShowLogoutConfirm={setShowLogoutConfirm}
     />
   ) : null;
-  const projectFolderCreateDialog = showProjectFolderCreate ? <div className="save-project-modal" role="dialog" aria-modal="true" aria-labelledby="project-folder-create-title" onClick={() => { if (!isCreatingProjectFolder) setShowProjectFolderCreate(false); }}>
-    <form className="save-project-panel project-folder-create-panel" onSubmit={(event) => { event.preventDefault(); void createProjectFolder(); }} onClick={(event) => event.stopPropagation()}>
-      <h2 id="project-folder-create-title">新建文件夹</h2>
-      <label className="save-project-field"><span>文件夹名称</span><input autoFocus aria-label="文件夹名称" maxLength={30} value={projectFolderName} onChange={(event) => setProjectFolderName(event.target.value)} /></label>
-      <div className="h5-modal-actions"><button className="cancel-btn" type="button" disabled={isCreatingProjectFolder} onClick={() => setShowProjectFolderCreate(false)}>取消</button><button className="confirm-btn" type="submit" disabled={isCreatingProjectFolder || !projectFolderName.trim()}>{isCreatingProjectFolder ? '创建中…' : '创建文件夹'}</button></div>
-    </form>
-  </div> : null;
-  const withLoginModalFallback = (content: ReactNode) => (
-    <>
-      {content}
-      {shareDialogProject ? <ShareCommunityDialog project={shareDialogProject} tags={shareDialogTags} onTagsChange={setShareDialogTags} onConfirm={(tags) => { void confirmShareCommunity(tags); }} onClose={() => { if (!sharingProjectId) setShareDialogProject(null); }} isSaving={sharingProjectId === shareDialogProject.id} isShared={Boolean(shareDialogProject.sharedToCommunity)} /> : null}
-      {projectFolderCreateDialog}
-      {loginModalFallback}
-    </>
+  const projectFolderSheets = <>
+    {projectFolderMoveTarget ? <MoveProjectFolderSheet
+      folders={projectFolders}
+      currentFolderId={projectFolderMoveTarget.folderId ?? null}
+      selectedFolderId={projectFolderMoveSelectedId}
+      onSelectionChange={setProjectFolderMoveSelectedId}
+      onConfirm={confirmProjectFolderMove}
+      onCreateFolder={() => openProjectFolderCreate('move')}
+      onClose={() => { if (!isMovingProjectFolder) setProjectFolderMoveTarget(null); }}
+      pending={isMovingProjectFolder}
+      covered={showProjectFolderCreate}
+      error={projectFolderMoveError}
+      returnFocusRef={projectFolderMoveReturnFocusRef}
+    /> : null}
+    {showProjectFolderCreate ? <CreateProjectFolderSheet
+      name={projectFolderName}
+      onNameChange={setProjectFolderName}
+      onCreate={createProjectFolder}
+      onClose={() => { if (!isCreatingProjectFolder) { setShowProjectFolderCreate(false); setProjectFolderCreateError(''); } }}
+      pending={isCreatingProjectFolder}
+      error={projectFolderCreateError}
+      returnFocusRef={projectFolderCreateReturnFocusRef}
+    /> : null}
+  </>;
+  const withAppOverlays = (content: ReactNode, includeConfirmDialog = false) => (
+    <div className="h5-app-shell">
+      <div className="h5-app-screen">{content}</div>
+      <div className="h5-app-overlays">
+        {shareDialogProject ? <ShareCommunityDialog project={shareDialogProject} tags={shareDialogTags} onTagsChange={setShareDialogTags} onConfirm={(tags) => { void confirmShareCommunity(tags); }} onClose={() => { if (!sharingProjectId) setShareDialogProject(null); }} isSaving={sharingProjectId === shareDialogProject.id} isShared={Boolean(shareDialogProject.sharedToCommunity)} /> : null}
+        {projectActionSheet}
+        {projectFolderSheets}
+        {includeConfirmDialog ? confirmDialog : null}
+        {loginModalFallback}
+      </div>
+    </div>
   );
   const projectActionSheet = projectActionTarget ? (() => {
     const target = projectActionTarget;
@@ -3011,8 +3139,7 @@ function H5App() {
         void shareSavedProject(target);
         setProjectActionTarget(null);
       }}
-      folders={projectFolders}
-      onMove={(folderId) => { void moveProjectToFolder(target.id, folderId); setProjectActionTarget(null); }}
+      onMove={() => openProjectFolderMove(target)}
       onDelete={async () => {
         requestConfirm({
           title: '删除作品？',
@@ -3038,7 +3165,7 @@ function H5App() {
   })() : null;
 
   if (screen === 'split' && uploadedSplitImage) {
-    return <SplitSettingsPage
+    return withAppOverlays(<SplitSettingsPage
       splitMode={splitMode}
       setScreen={setScreen}
       setSplitMode={setSplitMode}
@@ -3068,11 +3195,11 @@ function H5App() {
       moveGridControlFrame={moveGridControlFrame}
       updateAlignCellSize={updateAlignCellSize}
       onNext={openSplitPreview}
-    />;
+    />);
   }
 
   if (screen === 'split-crop' && uploadedSplitImage) {
-    return <SplitCropPage
+    return withAppOverlays(<SplitCropPage
       setScreen={setScreen}
       splitPreviewLoading={splitPreviewLoading}
       splitPreviewCells={splitPreviewCells}
@@ -3093,11 +3220,11 @@ function H5App() {
       onCropBoundsChange={setSplitCropBounds}
       onConfirmCrop={confirmSplitCrop}
       onResetCrop={resetSplitCrop}
-    />;
+    />);
   }
 
   if (screen === 'split-preview' && uploadedSplitImage) {
-    return <SplitPreviewPage
+    return withAppOverlays(<SplitPreviewPage
       setScreen={setScreen}
       splitPreviewLoading={splitPreviewLoading}
       splitMergeThreshold={splitMergeThreshold}
@@ -3118,11 +3245,11 @@ function H5App() {
       previewCols={previewSplitSize.cols}
       previewRows={previewSplitSize.rows}
       onBackToCrop={returnToSplitCrop}
-    />;
+    />);
   }
 
   if (screen === 'canvas') {
-    return withLoginModalFallback(<CanvasPage
+    return withAppOverlays(<CanvasPage
       fileInputRef={fileInputRef}
       handleUpload={handleUpload}
       referenceInputRef={referenceInputRef}
@@ -3158,7 +3285,8 @@ function H5App() {
       projectFolders={projectFolders}
       saveFolderId={saveFolderId}
       setSaveFolderId={setSaveFolderId}
-      createProjectFolder={() => { setProjectFolderName(''); setShowProjectFolderCreate(true); }}
+      createProjectFolder={() => openProjectFolderCreate('save')}
+      projectFolderSheetOpen={showProjectFolderCreate}
       activeProjectShared={Boolean(activeSavedProject?.sharedToCommunity)}
       selectedCode={selectedCode}
       selectedColor={selectedColor}
@@ -3223,7 +3351,7 @@ function H5App() {
   }
 
   if (screen === 'beading' && beadingSession) {
-    return <>
+    return withAppOverlays(<>
       <BeadingSessionPage
         session={beadingSession}
         cells={cells}
@@ -3248,11 +3376,11 @@ function H5App() {
         confirmDialog={confirmDialog}
       />
       {beadingInventoryCheck ? <InventoryCheckSheet result={beadingInventoryCheck} warehouseId={beadingInventoryCheck.warehouseId || ''} warehouseOptions={warehouses} onWarehouseChange={(warehouseId) => { if (!beadingSession) return; void requestApi<any>(`/v1/beading-sessions/${beadingSession.id}/inventory-check`, { method: 'POST', body: JSON.stringify({ warehouseId: warehouseId || undefined }) }).then(setBeadingInventoryCheck).catch((error) => setStatus(error instanceof Error ? error.message : '库存检测失败')); }} onClose={() => setBeadingInventoryCheck(null)} onStart={enterBeadingSession} /> : null}
-    </>;
+    </>);
   }
 
   if (screen === 'warehouse') {
-    return <WarehouseListPage
+    return withAppOverlays(<WarehouseListPage
       status={status}
       setActiveTab={setActiveTab}
       setScreen={setScreen}
@@ -3269,11 +3397,11 @@ function H5App() {
       deleteWarehouse={deleteWarehouse}
       requestConfirm={requestConfirm}
       confirmDialog={confirmDialog}
-    />;
+    />);
   }
 
   if (screen === 'warehouse-detail') {
-    return <WarehousePage
+    return withAppOverlays(<WarehousePage
       status={status}
       setActiveTab={setActiveTab}
       setScreen={setScreen}
@@ -3300,11 +3428,11 @@ function H5App() {
       setWarehouseAmount={setWarehouseAmount}
       applyWarehouseChange={applyWarehouseChange}
       beadsPerGram={BEADS_PER_GRAM}
-    />;
+    />);
   }
 
   if (screen === 'pattern-detail') {
-    return withLoginModalFallback(
+    return withAppOverlays(
       <PatternDetailPage
         pattern={activePattern ?? communityCards[0]}
         currentUserId={authUserId}
@@ -3338,8 +3466,7 @@ function H5App() {
   }
 
   if (screen === 'author-profile') {
-    return (
-      <AuthorProfilePage
+    return withAppOverlays(<AuthorProfilePage
         patterns={authorProfilePosts}
         authorPattern={activePattern ?? communityCards[0]}
         authorProfile={authorProfile ?? undefined}
@@ -3360,59 +3487,55 @@ function H5App() {
           setScreen('pattern-detail');
         }}
         onFollow={() => activePattern?.authorId && void toggleCommunityFollow(activePattern.authorId, Boolean(authorProfile?.isFollowing ?? activePattern.isFollowing))}
-      />
-    );
+      />);
   }
 
   if (screen === 'my-works') {
-    return (
+    return withAppOverlays(
       <MyWorksPage
         projects={sortedRecentProjects}
           onBack={() => { setScreen('home'); setActiveTab(myWorksBackTargetRef.current); }}
-        onOpen={(project) => setProjectActionTarget(project)}
+        onOpen={openProjectActions}
         folders={projectFolders}
         activeFolderId={activeProjectFolderId}
         onFolderChange={setActiveProjectFolderId}
-        onCreateFolder={() => { setProjectFolderName(''); setShowProjectFolderCreate(true); }}
+        onCreateFolder={() => openProjectFolderCreate('my-works')}
         onDeleteFolder={deleteProjectFolder}
-        actionSheet={<>{projectActionSheet}{confirmDialog}{projectFolderCreateDialog}</>}
-      />
+        actionSheet={null}
+      />,
+      true,
     );
   }
 
   if (screen === 'following') {
-    return (
-      <FollowingPage
+    return withAppOverlays(<FollowingPage
         users={followingUsers}
         loading={isFollowingLoading}
         error={followingError}
         onBack={() => { setScreen('home'); setActiveTab('profile'); }}
         onRetry={() => void loadFollowingUsers()}
         onOpenUser={(user) => openFollowUserProfile(user, 'following')}
-      />
-    );
+      />);
   }
 
   if (screen === 'followers') {
-    return (
-      <FollowersPage
+    return withAppOverlays(<FollowersPage
         users={followersUsers}
         loading={isFollowersLoading}
         error={followersError}
         onBack={() => { setScreen('home'); setActiveTab('profile'); }}
         onRetry={() => void loadFollowersUsers()}
         onOpenUser={(user) => openFollowUserProfile(user, 'followers')}
-      />
-    );
+      />);
   }
 
-  return withLoginModalFallback(<HomeShellPage
+  return withAppOverlays(<HomeShellPage
     fileInputRef={fileInputRef} handleUpload={handleUpload} status={status} activeTab={activeTab}
-    recentProjects={sortedRecentProjects} homeTemplateCards={homeTemplateCards} onOpenRecentProject={(project: RecentProject) => setProjectActionTarget(project)} actionSheet={projectActionSheet}
+    recentProjects={sortedRecentProjects} homeTemplateCards={homeTemplateCards} onOpenRecentProject={openProjectActions} actionSheet={null}
     openUpload={openUpload} isLoggedIn={isLoggedIn}
     loginName={loginName} setLoginName={setLoginName} loginPassword={loginPassword} setLoginPassword={setLoginPassword} submitLogin={submitLogin}
     isAuthenticating={isAuthenticating} showLoginModal={showLoginModal} setShowLoginModal={setShowLoginModal}
-    showUploadModal={showUploadModal} showBlankCanvasOption={showBlankCanvasOption} closeUploadModal={closeUploadModal} showXhsInput={showXhsInput}
+    showUploadModal={showUploadModal} closeUploadModal={closeUploadModal} showXhsInput={showXhsInput}
     setShowXhsInput={setShowXhsInput} xhsLink={xhsLink} setXhsLink={setXhsLink}
     xhsExtractedImages={xhsExtractedImages} isExtractingXhs={isExtractingXhs} chooseLocalDrawing={chooseLocalDrawing}
     extractXiaohongshuImage={extractXiaohongshuImage} importXhsImage={importXhsImage}
@@ -3427,7 +3550,7 @@ function H5App() {
     activeWarehouse={activeWarehouse} mardColors={MARD_221_COLORS} openWarehouse={openWarehouse}
     setActiveTab={setActiveTab} communitySort={communitySort} setCommunitySort={setCommunitySort}
     communityQuery={communityQuery} setCommunityQuery={setCommunityQuery}
-    communitySelectedTags={communitySelectedTags} setCommunitySelectedTags={setCommunitySelectedTags}
+    communitySelectedTags={communitySelectedTags} setCommunitySelectedTags={setCommunitySelectedTags} communityAvailableTags={communityAvailableTags}
     authRequestSeqRef={authRequestSeqRef} pendingAuthActionRef={pendingAuthActionRef}
     setIsAuthenticating={setIsAuthenticating} setIsLoggedIn={setIsLoggedIn} setAuthToken={setAuthToken}
     phoneNumber={phoneNumber} setPhoneNumber={setPhoneNumber} phoneCode={phoneCode} setPhoneCode={setPhoneCode}
@@ -3440,7 +3563,7 @@ function H5App() {
     logoutPhone={logoutPhone}
     confirmDialog={confirmDialog}
     requestConfirm={requestConfirm}
-    profileAvatarUrl={profileAvatarUrl} followingCount={followingCount} followersCount={followersCount} showProfileEditModal={showProfileEditModal} openProfileEdit={openProfileEdit} openMyWorks={openMyWorks}
+    profileAvatarUrl={profileAvatarUrl} receivedLikesCount={receivedLikesCount} followingCount={followingCount} followersCount={followersCount} showProfileEditModal={showProfileEditModal} openProfileEdit={openProfileEdit} openMyWorks={openMyWorks}
     profileEditModal={<ProfileEditModal
       profileEditName={profileEditName} setProfileEditName={setProfileEditName}
       profileEditAvatar={profileEditAvatar} profileEditError={profileEditError} profileEditSaving={profileEditSaving}

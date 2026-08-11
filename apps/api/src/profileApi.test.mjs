@@ -78,6 +78,13 @@ describe('profile API', () => {
     expect(response.body).toMatchObject({ users: [] });
   });
 
+  it('returns the authenticated user received-like total with the account statistics', async () => {
+    const response = await request('/api/me', { headers: { authorization: `Bearer ${token}` } });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ likesCount: 0 });
+  });
+
   it('returns the public profile and shared work summary for an author', async () => {
     const me = await request('/api/me', { headers: { authorization: `Bearer ${token}` } });
     const response = await request(`/api/community/users/${me.body.user.id}/profile`, {

@@ -1,8 +1,7 @@
-import { FolderInput, Pencil, PlayCircle, Share2, Trash2 } from 'lucide-react';
+import { FolderInput, Pencil, PlayCircle, Share2, Trash2, X } from 'lucide-react';
 import type { RecentProject } from '../../shared/h5Types';
-import type { ProjectFolder } from '../../projects/projectFolders';
 
-export function ProjectActionSheet({ project, hasSession, onClose, onStart, onEdit, onShare, onDelete, folders = [], onMove }: {
+export function ProjectActionSheet({ project, hasSession, onClose, onStart, onEdit, onShare, onDelete, onMove }: {
   project: RecentProject;
   hasSession: boolean;
   onClose: () => void;
@@ -10,15 +9,14 @@ export function ProjectActionSheet({ project, hasSession, onClose, onStart, onEd
   onEdit: () => void;
   onShare: () => void;
   onDelete: () => void;
-  folders?: ProjectFolder[];
-  onMove?: (folderId: string | null) => void;
+  onMove: () => void;
 }) {
   return <div className="beading-sheet-backdrop project-action-modal" role="presentation" onClick={onClose}>
     <section className="beading-sheet project-action-sheet" role="dialog" aria-modal="true" aria-label="作品操作" onClick={(event) => event.stopPropagation()}>
       <span className="beading-sheet-handle" aria-hidden="true" />
       <header className="beading-sheet-header project-action-header">
         <div><p className="beading-eyebrow">我的作品</p><h2>{project.name}</h2></div>
-        <button type="button" aria-label="关闭作品操作" onClick={onClose}>×</button>
+        <button type="button" className="project-action-close" aria-label="关闭作品操作" onClick={onClose}><X aria-hidden="true" /></button>
       </header>
       <div className="project-action-grid">
         <button type="button" className="project-action-tile is-primary" onClick={onStart}>
@@ -29,14 +27,10 @@ export function ProjectActionSheet({ project, hasSession, onClose, onStart, onEd
           <Pencil className="ui-icon" aria-hidden="true" />
           编辑作品
         </button>
-        <label className="project-action-tile project-action-folder">
+        <button type="button" className="project-action-tile project-action-folder" onClick={onMove}>
           <FolderInput className="ui-icon" aria-hidden="true" />
-          <span>移动到文件夹</span>
-          <select aria-label={`移动 ${project.name} 到文件夹`} value={project.folderId || ''} onChange={(event) => onMove?.(event.target.value || null)}>
-            <option value="">移动到：未分类</option>
-            {folders.map((folder) => <option key={folder.id} value={folder.id}>移动到：{folder.name}</option>)}
-          </select>
-        </label>
+          移动到文件夹
+        </button>
         <button type="button" className="project-action-tile" onClick={onShare}>
           <Share2 className="ui-icon" aria-hidden="true" />
           {project.sharedToCommunity ? '编辑标签' : '分享作品'}

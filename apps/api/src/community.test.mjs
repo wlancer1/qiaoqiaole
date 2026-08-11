@@ -73,6 +73,29 @@ afterAll(async () => {
 });
 
 describe('community API', () => {
+  it('returns only tags that are used by shared community posts', async () => {
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+    const created = await request('/api/projects', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ name: '标签聚合稿件', rows: 1, cols: 1, thumbnailImagePath: 'data:image/png;base64,AA==', canvasData: '[]' }),
+    });
+    const shared = await request(`/api/projects/${created.body.project.id}/share`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ tags: ['动物', '人物'] }),
+    });
+    expect(shared.status).toBe(200);
+
+    const posts = await request('/api/community/posts?sort=latest');
+
+    expect(posts.body.tagCounts).toEqual(expect.arrayContaining([
+      { tag: '动物', count: 1 },
+      { tag: '人物', count: 1 },
+    ]));
+    expect(posts.body.tagCounts.some((item) => item.tag === '风景')).toBe(false);
+  });
+
   it('shares idempotently, counts one like, and persists comments', async () => {
     const headers = { authorization: `Bearer ${token}` };
     const firstShare = await shareProject(projectId, headers);

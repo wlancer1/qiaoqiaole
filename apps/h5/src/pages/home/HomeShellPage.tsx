@@ -117,7 +117,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
   const {
     fileInputRef, handleUpload, status, activeTab, recentProjects, onOpenRecentProject, actionSheet,
     openUpload, isLoggedIn, loginName, setLoginName, loginPassword, setLoginPassword, submitLogin, isAuthenticating, showLoginModal,
-    setShowLoginModal, showUploadModal, showBlankCanvasOption, closeUploadModal, showXhsInput, setShowXhsInput, xhsLink, setXhsLink,
+    setShowLoginModal, showUploadModal, closeUploadModal, showXhsInput, setShowXhsInput, xhsLink, setXhsLink,
     xhsExtractedImages, isExtractingXhs, chooseLocalDrawing, extractXiaohongshuImage, importXhsImage,
     xhsPreviewSrc, usedColors, colorCodeOf, quickTools, showCreateCanvasModal, setShowCreateCanvasModal, openCreateCanvasModal,
     openBlankCanvasCreation,
@@ -125,7 +125,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
     setStatus, patternListCards, homeTemplateCards, setActivePattern, setScreen, openAuthorProfile, warehouses, stockedColorCount, totalWarehouseStock,
     activeWarehouse, mardColors, openWarehouse, setActiveTab, communitySort, setCommunitySort, authRequestSeqRef, pendingAuthActionRef,
     setIsAuthenticating, logoutPhone, showLogoutConfirm, setShowLogoutConfirm, notifications, loadNotifications, openNotification,
-    profileAvatarUrl, followingCount = 0, followersCount = 0, showProfileEditModal, openProfileEdit, profileEditModal, confirmDialog, requestConfirm, openMyWorks,
+    profileAvatarUrl, receivedLikesCount = 0, followingCount = 0, followersCount = 0, showProfileEditModal, openProfileEdit, profileEditModal, confirmDialog, requestConfirm, openMyWorks,
   } = props;
   const unreadNotificationCount = (notifications ?? []).filter((item: { isRead?: boolean }) => !item.isRead).length;
   return (
@@ -177,7 +177,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
               ) : recentProjects.length > 0 ? (
                 <div className="home-recent-row" aria-label="最近项目列表">
                   {recentProjects.slice(0, 4).map((project: any) => (
-                    <button className={`home-recent-card ${project.tone || 'recent-flower'}`} key={project.id} type="button" onClick={() => onOpenRecentProject(project)}>
+                    <button className={`home-recent-card ${project.tone || 'recent-flower'}`} key={project.id} data-project-card-id={project.id} type="button" onClick={() => onOpenRecentProject(project)}>
                       {(project.thumbnailImage || project.sourceImage) ? (
                         <img className="home-recent-thumb home-recent-thumb-image" src={project.thumbnailImage || project.sourceImage} alt="" />
                       ) : (
@@ -288,16 +288,14 @@ export function HomeShellPage(props: HomeShellPageProps) {
                   </button>
                 </div>
                 <div className="upload-source-list">
-                  {showBlankCanvasOption ? (
-                    <button className="upload-source-option blank-canvas-source-option" type="button" onClick={openBlankCanvasCreation}>
-                      <span className="upload-source-icon"><Icon name="brush" /></span>
-                      <span>
-                        <strong>新建空白画布</strong>
-                        <small>选择尺寸，从空白网格开始创作</small>
-                      </span>
-                      <i className="upload-source-arrow" aria-hidden="true">›</i>
-                    </button>
-                  ) : null}
+                  <button className="upload-source-option blank-canvas-source-option" type="button" onClick={openBlankCanvasCreation}>
+                    <span className="upload-source-icon"><Icon name="brush" /></span>
+                    <span>
+                      <strong>新建空白画布</strong>
+                      <small>选择尺寸，从空白网格开始创作</small>
+                    </span>
+                    <i className="upload-source-arrow" aria-hidden="true">›</i>
+                  </button>
                   <button className="upload-source-option local-source-option" aria-label="选择图纸" onClick={chooseLocalDrawing}>
                     <span className="upload-source-icon"><Icon name="upload" /></span>
                     <span>
@@ -366,7 +364,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
           onQueryChange={props.setCommunityQuery}
           selectedTags={props.communitySelectedTags}
           onTagsChange={props.setCommunitySelectedTags}
-          availableTags={['动物', '人物', '植物', '食物', '风景', '动漫', '游戏', '节日', '文字', '新手', '其他']}
+          availableTags={props.communityAvailableTags || []}
           onOpen={(pattern: any) => {
             setActivePattern(pattern);
             setScreen('pattern-detail');
@@ -415,7 +413,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
             {isLoggedIn ? (
               <div className="profile-account-stats" aria-label="账号统计">
                 <button type="button" aria-label="查看我的作品" onClick={() => requireLogin(() => openMyWorks ? openMyWorks('profile') : setScreen('my-works'))}><strong>{recentProjects.length}</strong><span>作品</span></button>
-                <button type="button" aria-label="查看获赞列表" onClick={() => requireLogin(() => setStatus('获赞列表功能即将开放。'))}><strong>0</strong><span>获赞</span></button>
+                <button type="button" aria-label="查看获赞列表" onClick={() => requireLogin(() => setStatus('获赞列表功能即将开放。'))}><strong>{receivedLikesCount}</strong><span>获赞</span></button>
                 <button type="button" aria-label="查看关注列表" onClick={() => requireLogin(() => setScreen('following'))}><strong>{followingCount}</strong><span>关注</span></button>
                 <button type="button" aria-label="查看粉丝列表" onClick={() => requireLogin(() => setScreen('followers'))}><strong>{followersCount}</strong><span>粉丝</span></button>
               </div>
@@ -454,7 +452,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
           <Icon name="discover" />
           <span>发现</span>
         </button>
-        <button className="plus-tab" aria-label="创建" onClick={() => openUpload('bead', true)}>
+        <button className="plus-tab" aria-label="创建" onClick={() => openUpload('bead')}>
           <Icon name="plus" />
         </button>
         <button className={activeTab === 'messages' ? 'active' : ''} aria-label="消息" onClick={() => { setActiveTab('messages'); void loadNotifications?.(); }}>

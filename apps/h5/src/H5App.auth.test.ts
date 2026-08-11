@@ -3,12 +3,35 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 describe('H5App canvas authentication fallback', () => {
+  it('renders project folder overlays at the H5App layer and locks background scrolling', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+
+    expect(source).toContain("document.body.classList.toggle('h5-modal-open', hasBlockingModal)");
+    expect(source).toContain('const projectFolderSheets = <>');
+    expect(source).toContain('className="h5-app-shell"');
+    expect(source).toContain('className="h5-app-overlays"');
+    expect(source).toContain('{projectFolderSheets}');
+    expect(source).not.toContain('const projectFolderCreateDialog = showProjectFolderCreate ?');
+    expect(source).toContain('const openProjectActions = (project: RecentProject) =>');
+    expect(source).toContain('projectActionReturnFocusRef.current');
+  });
+
   it('renders the shared login modal while the canvas screen is active', () => {
     const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
-    const canvasBranch = source.match(/if \(screen === 'canvas'\) \{([\s\S]*?)\n  \}\n\n  if \(screen === 'beading'/)?.[1] ?? '';
+    expect(source).toContain('<CanvasPage');
+    expect(source).toContain("createProjectFolder={() => openProjectFolderCreate('save')}");
+    expect(source).toContain('projectFolderSheetOpen={showProjectFolderCreate}');
+  });
 
-    expect(canvasBranch).toContain('return withLoginModalFallback(');
-    expect(canvasBranch).toContain('<CanvasPage');
+  it('keeps create and move state at the top layer while requests are pending', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+
+    expect(source).toContain("const [projectFolderCreateOrigin, setProjectFolderCreateOrigin] = useState<ProjectFolderCreateOrigin>('my-works')");
+    expect(source).toContain('const [projectFolderMoveTarget, setProjectFolderMoveTarget] = useState<RecentProject | null>(null)');
+    expect(source).toContain('covered={showProjectFolderCreate}');
+    expect(source).toContain('ensureProjectFolderHistorySentinel');
+    expect(source).toContain('consumeProjectFolderHistorySentinel');
+    expect(source).toContain('resolveProjectFolderHistoryPop');
   });
 
   it('does not forward the save button click event as an authentication token', () => {
@@ -26,5 +49,14 @@ describe('H5App canvas authentication fallback', () => {
     expect(logoutBody).toContain('setFollowersCount(0);');
     expect(logoutBody).toContain('setFollowingUsers([]);');
     expect(logoutBody).toContain('setFollowersUsers([]);');
+  });
+
+  it('scopes status messages to the current screen and tab', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+
+    expect(source).toContain("const statusScopeRef = useRef(`${screen}:${activeTab}`);");
+    expect(source).toContain('const statusScope = `${screen}:${activeTab}`;');
+    expect(source).toContain('if (statusScopeRef.current !== statusScope) return;');
+    expect(source).toContain('setStatusState(\'\');');
   });
 });

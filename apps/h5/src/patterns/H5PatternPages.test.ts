@@ -61,20 +61,55 @@ describe('PatternDetailPage layout contract', () => {
 });
 
 describe('MyWorksPage', () => {
+  it('separates the folder heading from its independently scrolling chip rail', () => {
+    const folders = Array.from({ length: 6 }, (_, index) => ({
+      id: `folder-${index + 1}`,
+      name: `文件夹 ${index + 1}`,
+      createdAt: '2026-08-01T00:00:00.000Z',
+      updatedAt: '2026-08-01T00:00:00.000Z',
+    }));
+    const markup = renderToStaticMarkup(createElement(MyWorksPage, {
+      projects: [],
+      onBack: vi.fn(),
+      onOpen: vi.fn(),
+      folders,
+      activeFolderId: 'all',
+      onFolderChange: vi.fn(),
+      onCreateFolder: vi.fn(),
+      onDeleteFolder: vi.fn(),
+    }));
+    const styles = fs.readFileSync(path.resolve('apps/h5/src/styles.css'), 'utf8');
+    const headerRule = styles.match(/\.my-works-folder-header\s*\{([^}]*)\}/)?.[1] ?? '';
+    const scrollRule = styles.match(/\.my-works-folder-scroll\s*\{([^}]*)\}/)?.[1] ?? '';
+    const createRule = styles.match(/\.my-works-folder-header \.my-works-create-folder\s*\{([^}]*)\}/)?.[1] ?? '';
+
+    expect(markup).toMatch(/class="my-works-folder-header"[\s\S]*文件夹[\s\S]*新建[\s\S]*<\/div><div class="my-works-folder-scroll">[\s\S]*文件夹 6/);
+    expect(markup).toContain('<div class="my-works-folder-title"><strong>文件夹</strong><span>6</span></div>');
+    expect(markup).not.toContain('>未分类<');
+    expect(markup).not.toContain('删除文件夹 文件夹 1');
+    expect(markup).toContain('aria-haspopup="menu"');
+    expect(headerRule).toContain('justify-content: space-between');
+    expect(scrollRule).toContain('min-width: 0');
+    expect(scrollRule).toContain('overflow-x: auto');
+    expect(createRule).toContain('border: .0317rem solid rgba(20, 108, 255, .38)');
+  });
+
   it('keeps folder, tag, and publishing controls on the editor compact scale', () => {
     const styles = fs.readFileSync(path.resolve('apps/h5/src/styles.css'), 'utf8');
     const folderPicker = styles.match(/\.save-project-folder-picker select\s*\{([^}]*)\}/)?.[1] ?? '';
     const publishPanel = styles.match(/\.share-community-panel\s*\{([^}]*)\}/)?.[1] ?? '';
     const tagButton = styles.match(/\.community-tag-selector button, \.pattern-tag-filter button\s*\{([^}]*)\}/)?.[1] ?? '';
-    const folderFilter = styles.match(/\.my-works-folder-filter button\s*\{([^}]*)\}/)?.[1] ?? '';
+    const folderScroll = styles.match(/\.my-works-folder-scroll\s*\{([^}]*)\}/)?.[1] ?? '';
+    const folderChip = styles.match(/\.my-works-folder-scroll > button\s*\{([^}]*)\}/)?.[1] ?? '';
 
     expect(folderPicker).toContain('min-height: 1.65rem');
     expect(folderPicker).toContain('border-radius: .4444rem');
     expect(publishPanel).toContain('border-radius: .9524rem');
     expect(tagButton).toContain('min-height: 1.016rem');
     expect(tagButton).toContain('font-size: .381rem');
-    expect(folderFilter).toContain('min-height: 1.016rem');
-    expect(folderFilter).toContain('font-size: .381rem');
+    expect(folderScroll).toContain('scroll-padding-inline: .6349rem');
+    expect(folderChip).toContain('min-height: 1.2063rem');
+    expect(folderChip).toContain('font-size: .4444rem');
   });
 
   it('keeps card actions inside the clicked-work dialog and restores the likes tab', () => {
@@ -97,15 +132,97 @@ describe('MyWorksPage', () => {
 
     expect(markup).toContain('>作品</button>');
     expect(markup).toContain('>喜欢</button>');
-    expect(markup).toContain('全部作品');
-    expect(markup).toContain('未分类');
+    expect(markup).toContain('全部');
     expect(markup).toContain('动物');
-    expect(markup).toContain('新建文件夹');
-    expect(markup).toContain('删除文件夹 动物');
+    expect(markup).toContain('>新建</button>');
+    expect(markup).toContain('aria-label="打开文件夹 动物 操作"');
+    expect(markup).not.toContain('删除文件夹 动物');
     expect(markup).not.toContain('分享到社区');
     expect(markup).not.toContain('编辑标签');
     expect(markup).not.toContain('移动到：未分类');
     expect(markup).not.toContain('收藏');
+  });
+
+  it('opens deletion from a custom folder context menu instead of a persistent control', () => {
+    const onDeleteFolder = vi.fn();
+    let renderer!: ReturnType<typeof create>;
+    act(() => {
+      renderer = create(createElement(MyWorksPage, {
+        projects: [], onBack: vi.fn(), onOpen: vi.fn(),
+        folders: [{ id: 'animals', name: '动物', createdAt: '2026-08-01T00:00:00.000Z', updatedAt: '2026-08-01T00:00:00.000Z' }],
+        activeFolderId: 'all', onFolderChange: vi.fn(), onCreateFolder: vi.fn(), onDeleteFolder,
+      }));
+    });
+    const chip = renderer.root.findByProps({ 'aria-label': '打开文件夹 动物 操作' });
+    const preventDefault = vi.fn();
+
+    act(() => chip.props.onContextMenu({ preventDefault }));
+
+    expect(preventDefault).toHaveBeenCalledOnce();
+    const deleteButton = renderer.root.findByProps({ 'aria-label': '删除文件夹 动物' });
+    act(() => deleteButton.props.onClick());
+    expect(onDeleteFolder).toHaveBeenCalledWith(expect.objectContaining({ id: 'animals' }));
+    renderer.unmount();
+  });
+
+  it('keeps the folder menu open after the click synthesized by a touch long press', () => {
+    vi.useFakeTimers();
+    const onFolderChange = vi.fn();
+    let renderer!: ReturnType<typeof create>;
+    try {
+      act(() => {
+        renderer = create(createElement(MyWorksPage, {
+          projects: [], onBack: vi.fn(), onOpen: vi.fn(),
+          folders: [{ id: 'animals', name: '动物', createdAt: '2026-08-01T00:00:00.000Z', updatedAt: '2026-08-01T00:00:00.000Z' }],
+          activeFolderId: 'all', onFolderChange, onCreateFolder: vi.fn(), onDeleteFolder: vi.fn(),
+        }));
+      });
+      const chip = renderer.root.findByProps({ 'aria-label': '打开文件夹 动物 操作' });
+
+      act(() => {
+        chip.props.onPointerDown({ pointerType: 'touch' });
+        vi.advanceTimersByTime(500);
+        chip.props.onPointerUp();
+        chip.props.onClick();
+      });
+
+      expect(renderer.root.findByProps({ 'aria-label': '删除文件夹 动物' })).toBeTruthy();
+      expect(onFolderChange).not.toHaveBeenCalled();
+    } finally {
+      act(() => renderer?.unmount());
+      vi.useRealTimers();
+    }
+  });
+
+  it('opens folder actions from the keyboard and clears stale menus from header actions', () => {
+    const onFolderChange = vi.fn();
+    const onCreateFolder = vi.fn();
+    let renderer!: ReturnType<typeof create>;
+    act(() => {
+      renderer = create(createElement(MyWorksPage, {
+        projects: [], onBack: vi.fn(), onOpen: vi.fn(),
+        folders: [{ id: 'animals', name: '动物', createdAt: '2026-08-01T00:00:00.000Z', updatedAt: '2026-08-01T00:00:00.000Z' }],
+        activeFolderId: 'all', onFolderChange, onCreateFolder, onDeleteFolder: vi.fn(),
+      }));
+    });
+    const chip = renderer.root.findByProps({ 'aria-label': '打开文件夹 动物 操作' });
+    const preventDefault = vi.fn();
+
+    act(() => chip.props.onKeyDown({ key: 'Enter', preventDefault }));
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(renderer.root.findByProps({ 'aria-label': '删除文件夹 动物' })).toBeTruthy();
+    expect(onFolderChange).not.toHaveBeenCalled();
+
+    const allButton = renderer.root.findByProps({ className: 'my-works-folder-scroll' }).findAllByType('button')[0];
+    act(() => allButton.props.onClick());
+    expect(renderer.root.findAllByProps({ 'aria-label': '删除文件夹 动物' })).toHaveLength(0);
+
+    act(() => chip.props.onContextMenu({ preventDefault: vi.fn() }));
+    const createButton = renderer.root.findByProps({ className: 'my-works-create-folder' });
+    act(() => createButton.props.onClick());
+    expect(renderer.root.findAllByProps({ 'aria-label': '删除文件夹 动物' })).toHaveLength(0);
+    expect(onCreateFolder).toHaveBeenCalledOnce();
+    act(() => renderer.unmount());
   });
 });
 

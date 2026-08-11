@@ -2,6 +2,11 @@
 
 ### Added / Changed / Fixed
 
+- Added shared H5 project-folder sheets for creating and moving folders, including stacked-modal isolation, focus restoration, browser-back handling, pending-state locks, keyboard/context/long-press folder actions, and the redesigned My Works folder header.
+- Changed community discovery to expose only tags used by shared posts, refreshed profile received-like totals, aligned following/follower rows, and kept logged-out profile statistics hidden.
+- Fixed H5 page status messages leaking across screen or tab changes by scoping the shared status setter to the current route context; documented the async stale-message rule in `AGENTS.md`.
+- Affected modules: H5 app/editor/home/beading/pattern pages and styles, project-folder flow/sheet/history modules, community/profile API handlers and tests, `AGENTS.md`, and modal design documentation.
+
 - Fixed save-and-start beading submission, community navigation and project deletion permissions, Xiaohongshu URL extraction, non-destructive home refresh, H5 local background removal, and threaded comment replies/deletion.
 - Added idempotent comment schema migration coverage, a real mock-phone second-user API fixture, shared background-removal derivation tests, and focused H5 save/navigation/home/split regressions.
 - Affected modules: `apps/api/src/server.mjs`, `apps/api/src/community.test.mjs`, `apps/api/src/testPhoneUser.mjs`, `apps/h5/src/H5App.tsx`, H5 community/editor/home/split/pattern pages, `packages/core/src/domain/grid.ts`, and `apps/web/src/App.tsx`.
