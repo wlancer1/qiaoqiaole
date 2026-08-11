@@ -475,7 +475,7 @@ function redactText(value) {
 }
 
 function truncateDiagnosticValue(value) {
-  return value.length > 180 ? `${value.slice(0, 180)}...` : value;
+  return value.length > 180 ? `${value.slice(0, 177)}...` : value;
 }
 
 function getHtmlAttribute(tag, name) {

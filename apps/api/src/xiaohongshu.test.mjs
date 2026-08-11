@@ -269,7 +269,7 @@ describe('xiaohongshu extraction helpers', () => {
 
     for (const value of [`https://xhslink.cn/${'a'.repeat(220)}`, `not-a-url-${'b'.repeat(220)}`]) {
       const summary = redactUrl(value);
-      expect(summary).toHaveLength(183);
+      expect(summary.length).toBeLessThanOrEqual(180);
       expect(summary.endsWith('...')).toBe(true);
     }
   });
