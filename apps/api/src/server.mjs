@@ -12,12 +12,12 @@ import {
   inspectNoteExtraction,
   inspectImageCandidates,
   isSupportedXiaohongshuUrl,
-  mobileHeaders,
   normalizeExtractedImagePayload,
   redactUrl,
   summarizeXhsError,
   summarizeXhsUpstreamResponse,
 } from './xiaohongshu.mjs';
+import { fetchXiaohongshuPage } from './xhsRedirects.mjs';
 import { loadEnvFile } from './env.mjs';
 import { loadTencentCosConfig, resolveCosAssetUrl, uploadToTencentCos } from './tencentCos.mjs';
 import { createPhoneAuthService, AuthError, verifyAccessToken } from './phoneAuth.mjs';
@@ -1058,66 +1058,6 @@ function isSupportedXiaohongshuImageUrl(imageUrl) {
 function normalizeImageContentType(contentType) {
   const value = String(contentType).split(';')[0].trim().toLowerCase();
   return /^image\/(?:png|jpe?g|webp|avif)$/.test(value) ? value : 'image/webp';
-}
-
-async function fetchXiaohongshuPage(noteUrl, logger, { useCookie = false } = {}) {
-  if (isXhsLinkUrl(noteUrl)) {
-    return fetchWithValidatedRedirects(noteUrl, logger, { useCookie, includeCookieForFirstRequest: false });
-  }
-
-  return fetchWithValidatedRedirects(noteUrl, logger, { useCookie, includeCookieForFirstRequest: useCookie });
-}
-
-async function fetchWithValidatedRedirects(startUrl, logger, { useCookie = false, includeCookieForFirstRequest = false } = {}) {
-  let currentUrl = startUrl;
-  for (let redirectCount = 0; redirectCount < 5; redirectCount += 1) {
-    const response = await fetch(currentUrl, {
-      redirect: 'manual',
-      headers: mobileHeaders(currentUrl, { includeCookie: redirectCount === 0 ? includeCookieForFirstRequest : useCookie }),
-    });
-    const location = response.headers.get('location') || '';
-    if (!isRedirectStatus(response.status) || !location) return response;
-
-    const resolvedUrl = new URL(location, currentUrl).toString();
-    logger.info('redirect_response', {
-      status: response.status,
-      from: redactUrl(currentUrl),
-      location: redactUrl(resolvedUrl),
-    });
-    if (!isSupportedXiaohongshuUrl(resolvedUrl)) {
-      logger.info('request_rejected', {
-        reason: 'unsupported_redirect_host',
-        finalUrl: redactUrl(resolvedUrl),
-      });
-      return createRejectedUpstreamResponse(resolvedUrl);
-    }
-    currentUrl = resolvedUrl;
-  }
-
-  return createRejectedUpstreamResponse(currentUrl, 508);
-}
-
-function isRedirectStatus(status) {
-  return status >= 300 && status < 400;
-}
-
-function createRejectedUpstreamResponse(url, status = 400) {
-  return {
-    ok: false,
-    status,
-    url,
-    headers: new Headers(),
-    text: async () => '',
-  };
-}
-
-function isXhsLinkUrl(url) {
-  try {
-    const hostname = new URL(url).hostname.toLowerCase();
-    return hostname === 'xhslink.com' || hostname.endsWith('.xhslink.com');
-  } catch {
-    return false;
-  }
 }
 
 function createSession(userId) {
