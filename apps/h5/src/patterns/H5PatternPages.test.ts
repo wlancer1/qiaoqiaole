@@ -19,7 +19,7 @@ describe('PatternDiscoverPage', () => {
     expect(markup).toContain('aria-selected="true">最新</button>');
     expect(markup).toContain('aria-selected="false">热门</button>');
     expect(markup).not.toContain('>推荐</button>');
-    expect(markup).not.toContain('>全部</button>');
+    expect(markup).toContain('>全部</button>');
     expect(markup).not.toContain('>动物</button>');
     expect(markup).not.toContain('>人物</button>');
     expect(markup).not.toContain('>植物</button>');
@@ -61,7 +61,7 @@ describe('PatternDetailPage layout contract', () => {
 });
 
 describe('MyWorksPage', () => {
-  it('renders share states for unshared, failed, sharing, and shared projects', () => {
+  it('renders share states, folder filters, and moving controls', () => {
     const projects = [
       { id: 'unshared', name: '未分享', rows: 2, cols: 2, tone: 'recent-flower', createdAt: '2026-08-01T00:00:00.000Z', updatedAt: '2026-08-01T00:00:00.000Z' },
       { id: 'failed', name: '失败', rows: 2, cols: 2, tone: 'recent-flower', createdAt: '2026-08-01T00:00:00.000Z', updatedAt: '2026-08-01T00:00:00.000Z' },
@@ -73,6 +73,12 @@ describe('MyWorksPage', () => {
       onBack: vi.fn(),
       onOpen: vi.fn(),
       onShare: vi.fn(),
+      folders: [{ id: 'animals', name: '动物', createdAt: '2026-08-01T00:00:00.000Z', updatedAt: '2026-08-01T00:00:00.000Z' }],
+      activeFolderId: 'all',
+      onFolderChange: vi.fn(),
+      onCreateFolder: vi.fn(),
+      onMoveProject: vi.fn(),
+      onDeleteFolder: vi.fn(),
       sharingProjectId: 'sharing',
       shareFailedProjectIds: new Set(['failed']),
     }));
@@ -80,7 +86,13 @@ describe('MyWorksPage', () => {
     expect(markup).toContain('分享到社区');
     expect(markup).toContain('重试分享');
     expect(markup).toContain('分享中...');
-    expect(markup).toContain('已分享到社区');
+    expect(markup).toContain('编辑标签');
+    expect(markup).toContain('全部作品');
+    expect(markup).toContain('未分类');
+    expect(markup).toContain('动物');
+    expect(markup).toContain('移动到');
+    expect(markup).toContain('新建文件夹');
+    expect(markup).toContain('删除文件夹 动物');
     expect(markup).not.toContain('收藏');
   });
 });

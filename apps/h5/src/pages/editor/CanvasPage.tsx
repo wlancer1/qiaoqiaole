@@ -19,6 +19,7 @@ export function CanvasPage(props: CanvasPageProps) {
     showSaveProjectModal, setShowSaveProjectModal, saveProjectName, setSaveProjectName, isSavingProject, confirmSaveProject,
     showSaveLoginPrompt, setShowSaveLoginPrompt, onLoginForSave,
     shareToCommunity, setShareToCommunity, activeProjectShared,
+    projectFolders, saveFolderId, setSaveFolderId, createProjectFolder,
     handleResizeCanvas, canvasTools, tool, setTool, handleCanvasPointerDownCapture, handleCanvasPointerEndCapture,
     parseGridSizeInput, normalizeGridSize,
     setCanvasScale, canvasArtboardRef, cells, canvasScale, getCode, getTextColor, handleCanvasKeyDown,
@@ -107,6 +108,10 @@ return (
       isSaving={isSavingProject}
       onConfirm={confirmSaveProject}
       onClose={() => setShowSaveProjectModal(false)}
+      folders={projectFolders}
+      folderId={saveFolderId}
+      onFolderChange={setSaveFolderId}
+      onCreateFolder={createProjectFolder}
     /> : null}
 
     {showSaveLoginPrompt ? (

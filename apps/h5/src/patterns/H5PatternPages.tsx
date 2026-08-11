@@ -1,4 +1,4 @@
-import { ArrowLeft, Copy, Grid2X2, Heart, MessageCircle, Ruler, Search, Share2 } from 'lucide-react';
+import { ArrowLeft, Copy, FolderPlus, Grid2X2, Heart, MessageCircle, Ruler, Search, Share2, X } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Icon } from '../shared/h5Icons';
 import { BeadListDrawer, type BeadColorItem } from '../flow/H5FlowComponents';
@@ -8,6 +8,7 @@ import type { FollowingUser, PatternListCard, RecentProject } from '../shared/h5
 import { UserAvatar } from '../shared/UserAvatar';
 import { CommentAvatar } from './CommentAvatar';
 import { CommunityPatternCard } from '../community/CommunityPatternCard';
+import type { ProjectFolder } from '../projects/projectFolders';
 
 export function AuthorProfilePage({ patterns, authorPattern, authorProfile, loading = false, error = '', currentUserId = '', onBack, onOpen, onFollow, onRetry }: { patterns: PatternListCard[]; authorPattern?: PatternListCard; authorProfile?: { id: string; name: string; avatarUrl?: string | null; postsCount: number; likesCount: number; followersCount: number; isFollowing: boolean }; loading?: boolean; error?: string; currentUserId?: string; onBack: () => void; onOpen: (pattern: PatternListCard) => void; onFollow?: () => void; onRetry?: () => void }) {
   const authorName = authorProfile?.name || authorPattern?.author || '作者';
@@ -61,6 +62,12 @@ export function MyWorksPage({
   sharingProjectId = '',
   shareFailedProjectIds = new Set<string>(),
   actionSheet,
+  folders = [],
+  activeFolderId = 'all',
+  onFolderChange,
+  onCreateFolder,
+  onMoveProject,
+  onDeleteFolder,
 }: {
   projects: RecentProject[];
   onBack: () => void;
@@ -69,6 +76,12 @@ export function MyWorksPage({
   sharingProjectId?: string;
   shareFailedProjectIds?: Set<string>;
   actionSheet?: ReactNode;
+  folders?: ProjectFolder[];
+  activeFolderId?: string | null | 'all';
+  onFolderChange?: (folderId: string | null | 'all') => void;
+  onCreateFolder?: () => void;
+  onMoveProject?: (project: RecentProject, folderId: string | null) => void;
+  onDeleteFolder?: (folder: ProjectFolder) => void;
 }) {
   const thumbColors = [
     ['#dcecff', '#f6bf38', '#67bd65', '#f18d9d'],
@@ -76,6 +89,11 @@ export function MyWorksPage({
     ['#fde4ec', '#e85b94', '#f7d9b5', '#d87855'],
     ['#cfe7ff', '#146cff', '#8bc34a', '#f9c640'],
   ];
+
+  const visibleProjects = activeFolderId === 'all'
+    ? projects
+    : projects.filter((project) => (activeFolderId === null ? !project.folderId : project.folderId === activeFolderId));
+  const uncategorizedCount = projects.filter((project) => !project.folderId).length;
 
   return (
     <main className="author-profile-page my-works-page" aria-label="我的作品">
@@ -99,11 +117,16 @@ export function MyWorksPage({
       </section>
       <nav className="author-profile-tabs" aria-label="作品分类">
         <button className="active" type="button">作品</button>
-        <button type="button">喜欢</button>
       </nav>
-      {projects.length > 0 ? (
+      <section className="my-works-folder-filter" aria-label="作品文件夹">
+        <button type="button" className={activeFolderId === 'all' ? 'active' : ''} onClick={() => onFolderChange?.('all')}>全部作品 <span>{projects.length}</span></button>
+        <button type="button" className={activeFolderId === null ? 'active' : ''} onClick={() => onFolderChange?.(null)}>未分类 <span>{uncategorizedCount}</span></button>
+        {folders.map((folder) => <span className="my-works-folder-item" key={folder.id}><button type="button" className={activeFolderId === folder.id ? 'active' : ''} onClick={() => onFolderChange?.(folder.id)}>{folder.name} <span>{projects.filter((project) => project.folderId === folder.id).length}</span></button>{onDeleteFolder ? <button className="my-works-delete-folder" type="button" aria-label={`删除文件夹 ${folder.name}`} onClick={() => onDeleteFolder(folder)}><X aria-hidden="true" /></button> : null}</span>)}
+        {onCreateFolder ? <button type="button" className="my-works-create-folder" onClick={onCreateFolder}><FolderPlus aria-hidden="true" />新建文件夹</button> : null}
+      </section>
+      {visibleProjects.length > 0 ? (
         <section className="author-work-grid" aria-label="我的作品列表">
-          {projects.map((project, index) => (
+          {visibleProjects.map((project, index) => (
             <article
               className="author-work-card my-work-card"
               key={project.id}
@@ -133,21 +156,28 @@ export function MyWorksPage({
               <button
                 className={project.sharedToCommunity ? 'my-work-share-state shared' : shareFailedProjectIds.has(project.id) ? 'my-work-share-state failed' : 'my-work-share-state'}
                 type="button"
-                disabled={project.sharedToCommunity || sharingProjectId === project.id}
+                disabled={sharingProjectId === project.id}
                 onClick={(event) => {
                   event.stopPropagation();
                   onShare?.(project);
                 }}
               >
-                {project.sharedToCommunity ? '已分享到社区' : sharingProjectId === project.id ? '分享中...' : shareFailedProjectIds.has(project.id) ? '重试分享' : '分享到社区'}
+                {project.sharedToCommunity ? '编辑标签' : sharingProjectId === project.id ? '分享中...' : shareFailedProjectIds.has(project.id) ? '重试分享' : '分享到社区'}
               </button>
+              {onMoveProject ? <label className="my-work-folder-select" onClick={(event) => event.stopPropagation()}>
+                <span className="sr-only">移动到文件夹</span>
+                <select aria-label={`移动 ${project.name} 到文件夹`} value={project.folderId || ''} onChange={(event) => onMoveProject(project, event.target.value || null)}>
+                  <option value="">移动到：未分类</option>
+                  {folders.map((folder) => <option key={folder.id} value={folder.id}>移动到：{folder.name}</option>)}
+                </select>
+              </label> : null}
             </article>
           ))}
         </section>
       ) : (
         <section className="author-work-empty" aria-label="暂无作品">
-          <strong>还没有保存的作品</strong>
-          <span>完成创作并保存后，作品会显示在这里</span>
+          <strong>{projects.length ? '这个文件夹里还没有作品' : '还没有保存的作品'}</strong>
+          <span>{projects.length ? '把作品移动到这里后会显示在这里' : '完成创作并保存后，作品会显示在这里'}</span>
         </section>
       )}
       {actionSheet}
@@ -190,10 +220,15 @@ export function FollowersPage(props: Omit<FollowListPageProps, 'mode'>) {
   return <FollowingPage {...props} mode="followers" />;
 }
 
-export function PatternDiscoverPage({ patterns, activeSort = 'hot', onSortChange, onOpen, onOpenAuthor }: {
+export function PatternDiscoverPage({ patterns, activeSort = 'hot', query = '', selectedTags = [], availableTags = [], onSortChange, onQueryChange, onTagsChange, onOpen, onOpenAuthor }: {
   patterns: PatternListCard[];
   activeSort?: 'hot' | 'latest';
+  query?: string;
+  selectedTags?: string[];
+  availableTags?: string[];
   onSortChange?: (sort: 'hot' | 'latest') => void;
+  onQueryChange?: (query: string) => void;
+  onTagsChange?: (tags: string[]) => void;
   onOpen: (pattern: PatternListCard) => void;
   onOpenAuthor: (pattern: PatternListCard) => void;
 }) {
@@ -207,8 +242,12 @@ export function PatternDiscoverPage({ patterns, activeSort = 'hot', onSortChange
         <header className="pattern-list-head" aria-label="稿件列表页">
           <label className="pattern-search">
             <Search aria-hidden="true" />
-            <input type="search" placeholder="搜索图纸、作者、标签" aria-label="搜索图纸、作者、标签" />
+            <input type="search" value={query} onChange={(event) => onQueryChange?.(event.target.value)} placeholder="搜索图纸、作者、标签" aria-label="搜索图纸、作者、标签" />
           </label>
+          <div className="pattern-tag-filter" aria-label="标签筛选">
+            <button type="button" className={selectedTags.length === 0 ? 'active' : ''} onClick={() => onTagsChange?.([])}>全部</button>
+            {availableTags.map((tag) => <button type="button" key={tag} className={selectedTags.includes(tag) ? 'active' : ''} onClick={() => onTagsChange?.(selectedTags.includes(tag) ? selectedTags.filter((item) => item !== tag) : [...selectedTags, tag])}>{tag}</button>)}
+          </div>
 
           <div className="pattern-tabs" role="tablist" aria-label="稿件排序">
             {sortTabs.map((tab) => (
@@ -386,6 +425,7 @@ export function PatternDetailPage({ pattern, currentUserId = '', onBack, onOpenA
             <span>发布日期 {pattern.meta}</span>
             <span>浏览次数 未统计</span>
           </div>
+          {pattern.tags?.length ? <div className="detail-pattern-tags" aria-label="作品标签">{pattern.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div> : null}
           <div className="detail-meta-grid" aria-label="图纸信息">
             <div className="detail-meta-card">
               <span className="detail-meta-icon"><Ruler aria-hidden="true" /></span>

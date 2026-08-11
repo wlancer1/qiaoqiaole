@@ -20,6 +20,10 @@ async function request(url, options = {}) {
   return { status: response.status, body: await response.json() };
 }
 
+function shareProject(id, headers) {
+  return request(`/api/projects/${id}/share`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ tags: ['其他'] }) });
+}
+
 beforeAll(async () => {
   serverProcess = spawn(process.execPath, ['src/server.mjs'], {
     cwd: path.resolve(import.meta.dirname, '..'),
@@ -71,8 +75,8 @@ afterAll(async () => {
 describe('community API', () => {
   it('shares idempotently, counts one like, and persists comments', async () => {
     const headers = { authorization: `Bearer ${token}` };
-    const firstShare = await request(`/api/projects/${projectId}/share`, { method: 'POST', headers });
-    const secondShare = await request(`/api/projects/${projectId}/share`, { method: 'POST', headers });
+    const firstShare = await shareProject(projectId, headers);
+    const secondShare = await shareProject(projectId, headers);
     expect(firstShare.body.shared).toBe(true);
     expect(firstShare.body.beadList).toEqual([
       { color: '#ff0000', count: 2 },
@@ -152,7 +156,7 @@ describe('community API', () => {
       body: JSON.stringify({ name: '跨用户评论权限', rows: 1, cols: 1, thumbnailImagePath: 'data:image/png;base64,AA==', canvasData: '[]' }),
     });
     const targetProjectId = created.body.project.id;
-    await request(`/api/projects/${targetProjectId}/share`, { method: 'POST', headers: ownerHeaders });
+    await shareProject(targetProjectId, ownerHeaders);
     const ownerComment = await request(`/api/community/posts/${targetProjectId}/comments`, {
       method: 'POST',
       headers: { ...ownerHeaders, 'content-type': 'application/json' },
@@ -172,7 +176,7 @@ describe('community API', () => {
 
   it('allows anonymous users to read shared posts and comments without liked state', async () => {
     const headers = { authorization: `Bearer ${token}` };
-    await request(`/api/projects/${projectId}/share`, { method: 'POST', headers });
+    await shareProject(projectId, headers);
     await request(`/api/community/posts/${projectId}/comments`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ content: '匿名可见评论' }) });
 
     const posts = await request('/api/community/posts?sort=hot');
@@ -221,7 +225,7 @@ describe('community API', () => {
         canvasData: '[]',
       }),
     });
-    await request(`/api/projects/${created.body.project.id}/share`, { method: 'POST', headers });
+    await shareProject(created.body.project.id, headers);
 
     const projects = await request('/api/projects', { headers });
     const posts = await request('/api/community/posts?sort=latest');
@@ -244,7 +248,7 @@ describe('community API', () => {
       headers: { ...headers, 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'COS 缩略图副本', rows: 2, cols: 2, thumbnailImagePath: thumbnailPath, canvasData: '[]' }),
     });
-    await request(`/api/projects/${created.body.project.id}/share`, { method: 'POST', headers });
+    await shareProject(created.body.project.id, headers);
 
     const copied = await request(`/api/projects/${created.body.project.id}/copy`, { method: 'POST', headers });
     expect(copied.status).toBe(201);
@@ -270,7 +274,7 @@ describe('community API', () => {
     const anonymousAsset = await request(`/api/project-assets?path=${encodeURIComponent(assetPath)}`);
     const ownerEmbeddedAsset = await request(created.body.project.sourceImage);
     const ownedAsset = await request(`/api/project-assets?path=${encodeURIComponent(assetPath)}`, { headers });
-    await request(`/api/projects/${created.body.project.id}/share`, { method: 'POST', headers });
+    await shareProject(created.body.project.id, headers);
     const sharedAsset = await request(`/api/project-assets?path=${encodeURIComponent(assetPath)}`);
 
     expect(created.body.project.sourceImage).toContain('access=');
@@ -311,7 +315,7 @@ describe('community API', () => {
 
   it('updates an existing project without changing its community identity', async () => {
     const headers = { authorization: `Bearer ${token}` };
-    await request(`/api/projects/${projectId}/share`, { method: 'POST', headers });
+    await shareProject(projectId, headers);
     const updated = await request(`/api/projects/${projectId}`, {
       method: 'PUT',
       headers: { ...headers, 'content-type': 'application/json' },
@@ -345,7 +349,7 @@ describe('community API', () => {
 
   it('counts comment length by Unicode characters instead of UTF-16 code units', async () => {
     const headers = { authorization: `Bearer ${token}` };
-    await request(`/api/projects/${projectId}/share`, { method: 'POST', headers });
+    await shareProject(projectId, headers);
     const content = '🙂'.repeat(300);
     const comment = await request(`/api/community/posts/${projectId}/comments`, {
       method: 'POST',
@@ -366,7 +370,7 @@ describe('community API', () => {
         headers: jsonHeaders,
         body: JSON.stringify({ name: `分页作品 ${index}`, rows: 1, cols: 1, canvasData: '[]' }),
       });
-      await request(`/api/projects/${created.body.project.id}/share`, { method: 'POST', headers: authHeaders });
+      await shareProject(created.body.project.id, authHeaders);
     }
 
     const firstPage = await request('/api/community/posts?sort=latest&page=1&pageSize=1');
@@ -388,7 +392,7 @@ describe('community API', () => {
       body: JSON.stringify({ name: '分页评论作品', rows: 1, cols: 1, thumbnailImagePath: 'data:image/png;base64,AA==', canvasData: '[]' }),
     });
     const paginatedProjectId = created.body.project.id;
-    await request(`/api/projects/${paginatedProjectId}/share`, { method: 'POST', headers: authHeaders });
+    await shareProject(paginatedProjectId, authHeaders);
     for (let index = 0; index < 3; index += 1) {
       await request(`/api/community/posts/${paginatedProjectId}/comments`, {
         method: 'POST',
@@ -420,7 +424,7 @@ describe('community API', () => {
       body: JSON.stringify({ name: '待删除作品', rows: 1, cols: 1, thumbnailImagePath: 'data:image/png;base64,AA==', canvasData: '[]' }),
     });
     const target = created.body.project.id;
-    await request(`/api/projects/${target}/share`, { method: 'POST', headers });
+    await shareProject(target, headers);
     await request(`/api/community/posts/${target}/comments`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ content: '待清理评论' }) });
 
     const anonymous = await request(`/api/projects/${target}`, { method: 'DELETE' });

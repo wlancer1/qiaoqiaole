@@ -9529,6 +9529,20 @@ input:focus-visible {
 .share-community-panel footer button:disabled { opacity: .45; }
 .pattern-tag-filter { display: flex; gap: .45rem; overflow-x: auto; margin: .7rem 0 .25rem; padding-bottom: .15rem; scrollbar-width: none; }
 .pattern-tag-filter::-webkit-scrollbar { display: none; }
+.my-works-folder-filter { display: flex; gap: .45rem; overflow-x: auto; margin: .85rem 0 1rem; padding: 0 .1rem .2rem; scrollbar-width: none; }
+.my-works-folder-filter::-webkit-scrollbar { display: none; }
+.my-works-folder-filter button { flex: 0 0 auto; display: inline-flex; align-items: center; gap: .32rem; min-height: 2rem; border: 1px solid #dbe3f0; border-radius: 999px; background: #fff; color: #526178; padding: .36rem .66rem; font: inherit; font-size: .78rem; font-weight: 650; }
+.my-works-folder-filter button span { color: #8995a8; font-size: .72rem; font-variant-numeric: tabular-nums; }
+.my-works-folder-filter button.active { border-color: #146cff; background: #edf4ff; color: #146cff; }
+.my-works-folder-item { display: inline-flex; flex: 0 0 auto; align-items: stretch; }
+.my-works-folder-item button:first-child { border-radius: 999px 0 0 999px; }
+.my-works-folder-item .my-works-delete-folder { min-width: 1.9rem; padding: 0 .42rem; margin-left: -1px; border-radius: 0 999px 999px 0; border-left-color: #edf1f7; color: #8995a8; }
+.my-works-folder-item .my-works-delete-folder svg { width: .8rem; height: .8rem; }
+.my-works-folder-filter .my-works-create-folder { color: #146cff; border-style: dashed; }
+.my-works-folder-filter .my-works-create-folder svg { width: .95rem; height: .95rem; }
+.my-work-folder-select { display: block; margin-top: .5rem; }
+.my-work-folder-select select { width: 100%; min-height: 2rem; border: 1px solid #e1e7f0; border-radius: .55rem; background: #fff; color: #68758a; padding: 0 .5rem; font: inherit; font-size: .72rem; }
+.project-folder-create-panel { max-width: 22rem; }
 .pattern-card-tags, .detail-pattern-tags { display: flex; flex-wrap: wrap; gap: .35rem; margin: .35rem 0 .55rem; }
 .pattern-card-tags span, .detail-pattern-tags span { color: #146cff; font-size: .74rem; line-height: 1.25; }
 .detail-pattern-tags { margin-top: .45rem; }
