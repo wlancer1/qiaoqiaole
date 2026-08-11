@@ -61,6 +61,22 @@ describe('PatternDetailPage layout contract', () => {
 });
 
 describe('MyWorksPage', () => {
+  it('keeps folder, tag, and publishing controls on the editor compact scale', () => {
+    const styles = fs.readFileSync(path.resolve('apps/h5/src/styles.css'), 'utf8');
+    const folderPicker = styles.match(/\.save-project-folder-picker select\s*\{([^}]*)\}/)?.[1] ?? '';
+    const publishPanel = styles.match(/\.share-community-panel\s*\{([^}]*)\}/)?.[1] ?? '';
+    const tagButton = styles.match(/\.community-tag-selector button, \.pattern-tag-filter button\s*\{([^}]*)\}/)?.[1] ?? '';
+    const folderFilter = styles.match(/\.my-works-folder-filter button\s*\{([^}]*)\}/)?.[1] ?? '';
+
+    expect(folderPicker).toContain('min-height: 1.65rem');
+    expect(folderPicker).toContain('border-radius: .4444rem');
+    expect(publishPanel).toContain('border-radius: .9524rem');
+    expect(tagButton).toContain('min-height: 1.016rem');
+    expect(tagButton).toContain('font-size: .381rem');
+    expect(folderFilter).toContain('min-height: 1.016rem');
+    expect(folderFilter).toContain('font-size: .381rem');
+  });
+
   it('renders share states, folder filters, and moving controls', () => {
     const projects = [
       { id: 'unshared', name: '未分享', rows: 2, cols: 2, tone: 'recent-flower', createdAt: '2026-08-01T00:00:00.000Z', updatedAt: '2026-08-01T00:00:00.000Z' },
