@@ -51,6 +51,7 @@ const SQL = await initSqlJs();
 const db = await openDatabase(DB_PATH);
 initSchema();
 let persistQueue = Promise.resolve();
+let communityTagCountsCache = null;
 let phoneAuthService;
 let beadingService;
 void persist();
@@ -357,6 +358,7 @@ function initSchema() {
   try { db.run('ALTER TABLE projects ADD COLUMN folder_id TEXT'); } catch {}
   db.run('CREATE INDEX IF NOT EXISTS idx_projects_user_folder_updated ON projects(user_id, folder_id, updated_at DESC)');
   db.run('CREATE INDEX IF NOT EXISTS idx_project_tags_tag_project ON project_tags(tag, project_id)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_project_tags_project_tag ON project_tags(project_id, tag)');
   try { db.run('ALTER TABLE projects ADD COLUMN revision INTEGER NOT NULL DEFAULT 1'); } catch {}
   for (const [column, definition] of [['parent_id', 'TEXT'], ['reply_to_user_id', 'TEXT']]) {
     try { db.run(`ALTER TABLE project_comments ADD COLUMN ${column} ${definition}`); } catch {}
@@ -389,6 +391,8 @@ function initSchema() {
       // Existing databases already contain the column.
     }
   }
+  db.run('CREATE INDEX IF NOT EXISTS idx_projects_community_hot ON projects(shared_to_community, likes_count DESC, shared_at DESC, id DESC)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_projects_community_latest ON projects(shared_to_community, shared_at DESC, id DESC)');
   db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_beading_sessions_active_key ON beading_sessions(active_key)');
   const activeSessions = getAll("SELECT id, user_id, project_id FROM beading_sessions WHERE status IN ('in_progress', 'paused', 'pending_completion') ORDER BY updated_at DESC, id DESC");
   const retained = new Set();
@@ -1524,7 +1528,9 @@ async function deleteProject(response, userId, projectId) {
     db.run('DELETE FROM project_likes WHERE project_id = ?', [projectId]);
     db.run('DELETE FROM notifications WHERE project_id = ?', [projectId]);
     db.run('DELETE FROM project_comments WHERE project_id = ?', [projectId]);
+    db.run('DELETE FROM project_tags WHERE project_id = ?', [projectId]);
     db.run('DELETE FROM projects WHERE id = ? AND user_id = ?', [projectId, userId]);
+    invalidateCommunityTagCounts();
   });
   return sendJson(response, 200, { deleted: true, projectId });
 }
@@ -1638,21 +1644,43 @@ function getProjectTags(projectIds) {
 
 function formatCommunityPosts(posts) {
   const tagsByProjectId = getProjectTags(posts.map((post) => post.id));
-  return posts.map((post) => formatCommunityPost({ ...post, tags: tagsByProjectId.get(post.id) || [] }));
+  return posts.map((post) => ({
+    id: post.id,
+    name: post.name,
+    rows: Number(post.rows),
+    cols: Number(post.cols),
+    tone: post.tone,
+    thumbnailImage: resolveProjectImage(post.thumbnailImage),
+    sharedAt: post.sharedAt,
+    likesCount: Number(post.likesCount || 0),
+    commentsCount: Number(post.commentsCount || 0),
+    authorId: post.authorId,
+    author: post.author,
+    authorAvatar: publicAvatarUrl(post.authorId, post.authorAvatar),
+    likedByMe: Boolean(post.likedByMe),
+    isFollowing: Boolean(post.isFollowing),
+    tags: tagsByProjectId.get(post.id) || [],
+  }));
 }
 
 function listCommunityTagCounts() {
+  if (communityTagCountsCache) return communityTagCountsCache;
   const rows = getAll(
-    `SELECT pt.tag, COUNT(DISTINCT p.id) AS count
+    `SELECT pt.tag, COUNT(*) AS count
      FROM project_tags pt
      JOIN projects p ON p.id = pt.project_id
      WHERE p.shared_to_community = 1
      GROUP BY pt.tag`,
   );
   const counts = new Map(rows.map((row) => [row.tag, Number(row.count || 0)]));
-  return COMMUNITY_TAGS
+  communityTagCountsCache = COMMUNITY_TAGS
     .map((tag) => ({ tag, count: counts.get(tag) || 0 }))
     .filter(({ count }) => count > 0);
+  return communityTagCountsCache;
+}
+
+function invalidateCommunityTagCounts() {
+  communityTagCountsCache = null;
 }
 
 function normalizeCommunityTags(value) {
@@ -1699,21 +1727,18 @@ function listCommunityPosts(response, userId, sort, pagination = { page: 1, page
   }
   const posts = getAll(
     `SELECT p.id, p.name, p.rows, p.cols, p.tone,
-            p.source_image AS sourceImage, p.thumbnail_image AS thumbnailImage, p.canvas_data AS canvasData, p.bead_list AS beadList,
+            p.thumbnail_image AS thumbnailImage,
             p.shared_at AS sharedAt, p.likes_count AS likesCount,
             u.id AS authorId, COALESCE(NULLIF(u.nickname, ''), u.username) AS author, u.avatar_url AS authorAvatar,
-            COUNT(DISTINCT c.id) AS commentsCount,
-            CASE WHEN l.user_id IS NULL THEN 0 ELSE 1 END AS likedByMe,
+            (SELECT COUNT(*) FROM project_comments c WHERE c.project_id = p.id) AS commentsCount,
+            CASE WHEN EXISTS (SELECT 1 FROM project_likes l WHERE l.project_id = p.id AND l.user_id = ?) THEN 1 ELSE 0 END AS likedByMe,
             CASE WHEN EXISTS (SELECT 1 FROM follows f WHERE f.follower_id = ? AND f.following_id = u.id) THEN 1 ELSE 0 END AS isFollowing
      FROM projects p
      JOIN users u ON u.id = p.user_id
-     LEFT JOIN project_comments c ON c.project_id = p.id
-     LEFT JOIN project_likes l ON l.project_id = p.id AND l.user_id = ?
      WHERE ${where.join(' AND ')}
-     GROUP BY p.id, l.user_id
      ORDER BY ${orderBy}
      LIMIT ? OFFSET ?`,
-    [...params, pagination.pageSize, pagination.offset],
+    [userId || '', userId || '', ...params.slice(2), pagination.pageSize, pagination.offset],
   );
   sendJson(response, 200, { posts: formatCommunityPosts(posts), tagCounts: listCommunityTagCounts(), page: pagination.page, pageSize: pagination.pageSize });
 }
@@ -1776,6 +1801,7 @@ function assertSharedProject(response, userId, projectId) {
 function replaceProjectTags(projectId, tags, now) {
   db.run('DELETE FROM project_tags WHERE project_id = ?', [projectId]);
   for (const tag of tags) db.run('INSERT INTO project_tags (project_id, tag, created_at) VALUES (?, ?, ?)', [projectId, tag, now]);
+  invalidateCommunityTagCounts();
 }
 
 async function shareProject(request, response, userId, projectId) {

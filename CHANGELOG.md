@@ -2,6 +2,9 @@
 
 ### Added / Changed / Fixed
 
+- Fixed slow community post listing by returning lightweight list payloads, moving full image/canvas data to the detail endpoint, removing comment joins from list queries, adding community/tag indexes, and caching tag counts.
+- Affected modules: `apps/api/src/server.mjs` and `apps/api/src/community.test.mjs`.
+
 - Added shared H5 project-folder sheets for creating and moving folders, including stacked-modal isolation, focus restoration, browser-back handling, pending-state locks, keyboard/context/long-press folder actions, and the redesigned My Works folder header.
 - Changed community discovery to expose only tags used by shared posts, refreshed profile received-like totals, aligned following/follower rows, and kept logged-out profile statistics hidden.
 - Fixed H5 page status messages leaking across screen or tab changes by scoping the shared status setter to the current route context; documented the async stale-message rule in `AGENTS.md`.

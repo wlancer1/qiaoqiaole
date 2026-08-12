@@ -118,7 +118,9 @@ describe('community API', () => {
     expect(post.likesCount).toBe(1);
     expect(post.commentsCount).toBe(1);
     expect(post.likedByMe).toBe(true);
-    expect(post.beadList).toEqual(firstShare.body.beadList);
+    expect(post.beadList).toBeUndefined();
+    const detail = await request(`/api/community/posts/${projectId}`);
+    expect(detail.body.post.beadList).toEqual(firstShare.body.beadList);
   });
 
   it('groups replies under one thread while allowing replies to replies', async () => {
@@ -258,9 +260,12 @@ describe('community API', () => {
     expect(savedProject.sourceImage).toMatch(/^\/api\/project-assets\?path=/);
     expect(savedProject.thumbnailImage).toMatch(/^\/api\/project-assets\?path=/);
     expect(new URL(savedProject.sourceImage, 'http://127.0.0.1').searchParams.get('access')).toBeTruthy();
-    expect(new URL(sharedPost.sourceImage, 'http://127.0.0.1').searchParams.get('access')).toBeNull();
-    expect(new URL(sharedPost.sourceImage, 'http://127.0.0.1').searchParams.get('path')).toBe(new URL(savedProject.sourceImage, 'http://127.0.0.1').searchParams.get('path'));
+    expect(sharedPost.sourceImage).toBeUndefined();
     expect(new URL(sharedPost.thumbnailImage, 'http://127.0.0.1').searchParams.get('path')).toBe(new URL(savedProject.thumbnailImage, 'http://127.0.0.1').searchParams.get('path'));
+
+    const detail = await request(`/api/community/posts/${created.body.project.id}`);
+    expect(new URL(detail.body.post.sourceImage, 'http://127.0.0.1').searchParams.get('access')).toBeNull();
+    expect(new URL(detail.body.post.sourceImage, 'http://127.0.0.1').searchParams.get('path')).toBe(new URL(savedProject.sourceImage, 'http://127.0.0.1').searchParams.get('path'));
   });
 
   it('keeps a COS thumbnail renderable when copying a shared project', async () => {
