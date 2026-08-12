@@ -22,6 +22,15 @@ function renderDialog(overrides: Record<string, unknown> = {}) {
 }
 
 describe('SaveProjectDialog', () => {
+  it('keeps the reference-inspired hierarchy for title, sharing card, and primary actions', () => {
+    const { renderer } = renderDialog({ shareToCommunity: true });
+
+    expect(renderer.root.findByProps({ className: 'save-project-title-block' })).toBeDefined();
+    expect(renderer.root.findByProps({ className: 'save-project-share-option is-checked' })).toBeDefined();
+    expect(renderer.root.findByProps({ className: 'save-project-submit save-project-primary' })).toBeDefined();
+    expect(renderer.root.findByProps({ className: 'save-project-submit save-project-start' })).toBeDefined();
+  });
+
   it('submits ordinary save with an explicit false intent', () => {
     const { renderer, onConfirm } = renderDialog();
     act(() => renderer.root.findByProps({ 'aria-label': '保存到作品' }).props.onClick({ preventDefault: vi.fn() }));

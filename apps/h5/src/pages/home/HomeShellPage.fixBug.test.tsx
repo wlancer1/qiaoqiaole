@@ -3,7 +3,7 @@ import path from 'node:path';
 import { Children, createElement, isValidElement, type ReactElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { HomeShellPage, PhoneLoginModal, ProfileEditModal } from './HomeShellPage';
+import { HomeShellPage, PhoneLoginModal, ProfileEditModal, XhsImagePickerModal } from './HomeShellPage';
 
 const props = {
   phoneNumber: '', setPhoneNumber: vi.fn(), phonePassword: '1234567', setPhonePassword: vi.fn(), phoneConfirmPassword: '', setPhoneConfirmPassword: vi.fn(), phoneCode: '', setPhoneCode: vi.fn(), phoneAuthMode: 'login', setPhoneAuthMode: vi.fn(), phoneAgreement: true, setPhoneAgreement: vi.fn(), phoneAuthError: '', phoneSending: false, phoneVerifying: false, phoneCountdown: 0, sendPhoneCode: vi.fn(), submitPhoneLogin: vi.fn(), submitPhoneRegister: vi.fn(), closeLoginModal: vi.fn(), logoutPhone: vi.fn(),
@@ -41,7 +41,9 @@ describe('profile editing', () => {
 type TestElement = ReactElement<{
   children?: ReactNode;
   className?: string;
-  onClick?: () => void;
+  role?: string;
+  'aria-modal'?: string | boolean;
+  onClick?: (event?: { stopPropagation: () => void }) => void;
   'aria-label'?: string;
   placeholder?: string;
 }>;
@@ -204,5 +206,39 @@ describe('Xiaohongshu link input guidance', () => {
     expect(xhsInput).toBeDefined();
     expect(xhsInput?.props.placeholder).toBe('粘贴小红书笔记链接或分享口令');
     expect(markup).not.toContain('粘贴 xiaohongshu.com 或 xhslink.com 链接');
+  });
+});
+
+describe('Xiaohongshu image picker modal', () => {
+  it('renders as a separate dialog and sends the selected image to the importer', () => {
+    const image = { imageDataUrl: 'data:image/png;base64,AA==' };
+    const onClose = vi.fn();
+    const onImport = vi.fn();
+    const modal = XhsImagePickerModal({
+      images: [image],
+      title: '小红书图纸',
+      isImporting: false,
+      onClose,
+      onImport,
+      xhsPreviewSrc: (value: typeof image) => value.imageDataUrl || '',
+    });
+
+    expect(modal.props.role).toBe('presentation');
+    const content = collectElements(modal).find((element) => element.props.className === 'xhs-image-picker-modal-panel');
+    expect(content?.props.role).toBe('dialog');
+    expect(content?.props['aria-modal']).toBeTruthy();
+    const imageButton = collectElements(modal).find((element) => element.props['aria-label'] === '选择第 1 张小红书图片');
+    imageButton?.props.onClick?.();
+    expect(onImport).toHaveBeenCalledWith(image);
+  });
+
+  it('keeps clicks inside the panel from closing the modal', () => {
+    const event = { stopPropagation: vi.fn() };
+    const modal = XhsImagePickerModal({
+      images: [], title: '小红书图纸', isImporting: false, onClose: vi.fn(), onImport: vi.fn(), xhsPreviewSrc: vi.fn(),
+    });
+    const panel = collectElements(modal).find((element) => element.props.className === 'xhs-image-picker-modal-panel');
+    panel?.props.onClick?.(event as never);
+    expect(event.stopPropagation).toHaveBeenCalledTimes(1);
   });
 });

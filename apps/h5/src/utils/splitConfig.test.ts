@@ -5,6 +5,7 @@ import {
   MIN_SPLIT_LONG_SIDE,
   clampSplitLongSide,
   defaultSplitLongSideFromBounds,
+  maxSplitLongSideFromBounds,
   gridSizeFromSplitBounds,
 } from './splitConfig';
 
@@ -33,6 +34,12 @@ describe('split configuration', () => {
     expect(defaultSplitLongSideFromBounds(16, 32)).toBe(32);
     expect(defaultSplitLongSideFromBounds(4, 6)).toBe(8);
     expect(defaultSplitLongSideFromBounds(320, 160)).toBe(144);
+  });
+
+  it('limits quick split controls to the actual image size for small images', () => {
+    expect(maxSplitLongSideFromBounds(40, 80)).toBe(80);
+    expect(maxSplitLongSideFromBounds(80, 40)).toBe(80);
+    expect(maxSplitLongSideFromBounds(320, 160)).toBe(144);
   });
 
   it('preserves an actual long side of 144 for either image orientation', () => {

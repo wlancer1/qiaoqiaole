@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { deriveSplitImage, processSplitImageData } from './splitImageProcessing';
+import { prepareBackgroundRemoval, removeBackground } from '@qiaoqiaole/core';
+import { DEFAULT_BACKGROUND_SENSITIVITY, deriveSplitImage, processSplitImageData } from './splitImageProcessing';
 
 describe('split image processing', () => {
+  it('uses a conservative default background sensitivity', () => {
+    expect(DEFAULT_BACKGROUND_SENSITIVITY).toBe(0);
+  });
+
   it('derives transparent and restored versions from the same immutable original', () => {
     class TestImageData {
       data: Uint8ClampedArray;
@@ -40,5 +45,41 @@ describe('split image processing', () => {
     expect(derived.crop.width).toBe(3);
     expect(derived.imageData.data[3]).toBe(0);
     expect(original.data[3]).toBe(255);
+  });
+
+  it('passes the configured sensitivity and reusable preparation cache to the background algorithm', () => {
+    const data = new Uint8ClampedArray(5 * 5 * 4).fill(255);
+    for (let y = 1; y < 4; y += 1) {
+      for (let x = 1; x < 4; x += 1) {
+        const offset = (y * 5 + x) * 4;
+        data[offset] = 198;
+        data[offset + 1] = 24;
+        data[offset + 2] = 24;
+      }
+    }
+    const original = new ImageData(data, 5, 5);
+    const cache = prepareBackgroundRemoval(original);
+
+    const actual = processSplitImageData(original, true, { sensitivity: 72, backgroundCache: cache });
+    const expected = removeBackground(original, { sensitivity: 72 }, cache).imageData;
+
+    expect(Array.from(actual.data)).toEqual(Array.from(expected.data));
+    expect(cache.analysisData.length).toBeGreaterThan(0);
+  });
+
+  it('returns a distinct immutable original clone when background removal is disabled', () => {
+    const original = new ImageData(new Uint8ClampedArray([
+      10, 20, 30, 255,
+      40, 50, 60, 255,
+      70, 80, 90, 255,
+      100, 110, 120, 255,
+    ]), 2, 2);
+    const cache = prepareBackgroundRemoval(original);
+
+    const restored = processSplitImageData(original, false, { sensitivity: 100, backgroundCache: cache });
+
+    expect(restored).not.toBe(original);
+    expect(restored.data).not.toBe(original.data);
+    expect(Array.from(restored.data)).toEqual(Array.from(original.data));
   });
 });

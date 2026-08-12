@@ -1,4 +1,4 @@
-import type { Cell } from '@qiaoqiaole/core';
+import type { BackgroundRemovalCache, Cell } from '@qiaoqiaole/core';
 
 export type AppScreen = 'home' | 'profile' | 'split' | 'split-crop' | 'split-preview' | 'canvas' | 'beading' | 'warehouse' | 'warehouse-detail' | 'pattern-detail' | 'author-profile' | 'my-works' | 'following' | 'followers';
 export type CanvasTool = 'brush' | 'eraser' | 'fill' | 'eyedropper' | 'pan';
@@ -94,6 +94,8 @@ export type UploadedSplitImage = {
   url: string;
   originalUrl: string;
   backgroundRemoved: boolean;
+  backgroundSensitivity: number;
+  backgroundCache: BackgroundRemovalCache;
 };
 
 export type PaintStroke = {

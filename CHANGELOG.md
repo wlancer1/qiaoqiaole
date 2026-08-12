@@ -2,6 +2,9 @@
 
 ### Added / Changed / Fixed
 
+- Added H5 canvas/grid background-removal controls, transparent-cell sampling, quick-split bounds handling, Xiaohongshu multi-image selection, and related editor/home regressions.
+- Affected modules: H5 canvas, editor, home, split, project-folder UI, `packages/core/src/domain/grid.ts`, and related tests/docs.
+
 - Fixed slow community post listing by returning lightweight list payloads, moving full image/canvas data to the detail endpoint, removing comment joins from list queries, adding community/tag indexes, and caching tag counts.
 - Affected modules: `apps/api/src/server.mjs` and `apps/api/src/community.test.mjs`.
 

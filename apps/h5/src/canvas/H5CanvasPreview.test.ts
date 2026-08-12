@@ -1,9 +1,30 @@
 import { describe, expect, it } from 'vitest';
 import {
+  cellsFromAlignedGrid,
+  cellsFromAlignedGridAsync,
+  cellsFromImage,
+  cellsFromImageAsync,
   fitSplitImageRect,
   getViewportRulerGeometry,
   isCanvasRulerOverflowing,
 } from './H5CanvasPreview';
+
+describe('split image transparency sampling', () => {
+  it('keeps majority-transparent samples transparent in every preview sampling path', async () => {
+    const data = new Uint8ClampedArray(5 * 5 * 4);
+    for (let index = 0; index < 25; index += 1) {
+      data.set([220, 20, 20, index < 13 ? 0 : 255], index * 4);
+    }
+    const imageData = { data, width: 5, height: 5 } as ImageData;
+    const crop = { x: 0, y: 0, width: 5, height: 5 };
+    const grid = { rows: 1, cols: 1, cellSize: 5, offsetX: 0, offsetY: 0, cropWidth: 5, cropHeight: 5 };
+
+    expect(cellsFromImage(imageData, 1, 1, crop)[0].transparent).toBe(true);
+    expect((await cellsFromImageAsync(imageData, 1, 1, crop))[0].transparent).toBe(true);
+    expect(cellsFromAlignedGrid(imageData, grid, crop)[0].transparent).toBe(true);
+    expect((await cellsFromAlignedGridAsync(imageData, grid, crop))[0].transparent).toBe(true);
+  });
+});
 
 describe('fitSplitImageRect', () => {
   it('allows the crop page to fit the source image without an extra outer ring', () => {

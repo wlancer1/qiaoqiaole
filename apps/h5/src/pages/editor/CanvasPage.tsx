@@ -9,6 +9,23 @@ import { SaveProjectDialog } from './SaveProjectDialog';
 
 type CanvasPageProps = Record<string, any>;
 
+export function CanvasBackgroundTool(props: {
+  isProcessing: boolean;
+  onToggle: () => void;
+}) {
+  const { isProcessing, onToggle } = props;
+  return (
+    <button
+      className="rail-tool"
+      aria-label={isProcessing ? '背景处理中' : '去除背景'}
+      onClick={onToggle}
+      disabled={isProcessing}
+    >
+      <Icon name="spark" />
+    </button>
+  );
+}
+
 export function CanvasPage(props: CanvasPageProps) {
   const canvasStageRef = useRef<HTMLDivElement | null>(null);
   const [viewportRulerSticky, setViewportRulerSticky] = useState(false);
@@ -24,6 +41,7 @@ export function CanvasPage(props: CanvasPageProps) {
     parseGridSizeInput, normalizeGridSize,
     setCanvasScale, canvasArtboardRef, cells, canvasScale, getCode, getTextColor, handleCanvasKeyDown,
     handleCanvasPointerDown, handleCanvasPointerMove, handleCanvasPaintPointerEnd, handleCanvasClick, referenceImage,
+    uploadedSplitImage, canRemoveGridBackground, isBackgroundProcessing, onToggleBackground,
     isReferenceMinimized, setIsReferenceMinimized, closeReferenceImage, status, prioritizedPaletteColors,
     selectPaletteColor, showPaletteSearch, setShowPaletteSearch, paletteQuery, setPaletteQuery, filteredPaletteColors,
     showBeadList, setShowBeadList, beadListColors, totalBeads, onInventoryCheck, onStartBeading,
@@ -150,6 +168,7 @@ return (
         >
           <List className="ui-icon" aria-hidden="true" />
         </button>
+        {canRemoveGridBackground ? <CanvasBackgroundTool isProcessing={isBackgroundProcessing} onToggle={onToggleBackground} /> : null}
       </aside>
 
       <div

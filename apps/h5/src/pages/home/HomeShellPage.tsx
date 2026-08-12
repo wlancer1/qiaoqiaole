@@ -97,6 +97,42 @@ export function ProfileEditModal(props: Record<string, any>) {
   );
 }
 
+export function XhsImagePickerModal(props: Record<string, any>) {
+  const { images, title, isImporting, onClose, onImport, xhsPreviewSrc } = props;
+  return (
+    <div className="home-create-modal xhs-image-picker-modal" role="presentation" onClick={onClose}>
+      <section
+        className="xhs-image-picker-modal-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="xhs-image-picker-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="home-create-head">
+          <strong id="xhs-image-picker-title">选择笔记图片</strong>
+          <button type="button" aria-label="关闭小红书图片选择" onClick={onClose} disabled={isImporting}>关闭</button>
+        </div>
+        <p className="xhs-image-picker-modal-copy">{title || '小红书图纸'} · 共 {images.length} 张</p>
+        <div className="xhs-image-picker-modal-grid" aria-label="小红书图片列表">
+          {images.map((image: any, index: number) => (
+            <button
+              key={`${image.imageDataUrl || image.imageUrl}-${index}`}
+              type="button"
+              aria-label={`选择第 ${index + 1} 张小红书图片`}
+              onClick={() => void onImport(image)}
+              disabled={isImporting}
+            >
+              <img src={xhsPreviewSrc(image)} alt={`第 ${index + 1} 张`} />
+              <span>{index + 1}</span>
+            </button>
+          ))}
+        </div>
+        <button type="button" className="xhs-image-picker-modal-cancel" onClick={onClose} disabled={isImporting}>取消</button>
+      </section>
+    </div>
+  );
+}
+
 function LogoutConfirmModal({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
   return (
     <div className="home-create-modal logout-confirm-backdrop" role="presentation" onClick={onCancel}>
@@ -118,7 +154,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
     fileInputRef, handleUpload, status, activeTab, recentProjects, onOpenRecentProject, actionSheet,
     openUpload, isLoggedIn, loginName, setLoginName, loginPassword, setLoginPassword, submitLogin, isAuthenticating, showLoginModal,
     setShowLoginModal, showUploadModal, closeUploadModal, showXhsInput, setShowXhsInput, xhsLink, setXhsLink,
-    xhsExtractedImages, isExtractingXhs, chooseLocalDrawing, extractXiaohongshuImage, importXhsImage,
+    xhsExtractedImages, isExtractingXhs, chooseLocalDrawing, extractXiaohongshuImage, importXhsImage, showXhsImagePicker, closeXhsImagePicker,
     xhsPreviewSrc, usedColors, colorCodeOf, quickTools, showCreateCanvasModal, setShowCreateCanvasModal, openCreateCanvasModal,
     openBlankCanvasCreation,
     cfgCols, setCfgCols, cfgRows, setCfgRows, normalizeGridSize, parseGridSizeInput, createBlankCanvas, requireLogin,
@@ -331,27 +367,20 @@ export function HomeShellPage(props: HomeShellPageProps) {
                     <button className="home-create-submit" onClick={() => void extractXiaohongshuImage()} disabled={isExtractingXhs}>
                       {isExtractingXhs ? '提取中...' : '提取图片'}
                     </button>
-                    {xhsExtractedImages.length > 1 ? (
-                      <div className="xhs-image-picker">
-                        <strong>选择笔记图片</strong>
-                        <div className="xhs-image-grid">
-                          {xhsExtractedImages.map((image: { imageDataUrl?: string; imageUrl?: string }, index: number) => (
-                            <button
-                              key={`${image.imageDataUrl || image.imageUrl}-${index}`}
-                              aria-label={`选择第 ${index + 1} 张小红书图片`}
-                              onClick={() => void importXhsImage(image)}
-                            >
-                              <img src={xhsPreviewSrc(image)} alt="" />
-                              <span>{index + 1}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
                   </div>
                 ) : null}
               </div>
             </div>
+          ) : null}
+          {showXhsImagePicker ? (
+            <XhsImagePickerModal
+              images={xhsExtractedImages}
+              title={props.xhsExtractedTitle}
+              isImporting={props.isImportingXhsImage}
+              onClose={closeXhsImagePicker}
+              onImport={importXhsImage}
+              xhsPreviewSrc={xhsPreviewSrc}
+            />
           ) : null}
           {showLoginModal ? <PhoneLoginModal {...props} /> : null}
         </section>

@@ -637,6 +637,26 @@ export function gridSizeFromAlignment(
   };
 }
 
+function cellFromImageSamples(x: number, y: number, pixels: number[]): Cell {
+  const sampleCount = pixels.length / 4;
+  let transparentSamples = 0;
+  const opaquePixels: number[] = [];
+  for (let offset = 0; offset < pixels.length; offset += 4) {
+    if ((pixels[offset + 3] ?? 0) < 128) {
+      transparentSamples += 1;
+      continue;
+    }
+    opaquePixels.push(pixels[offset], pixels[offset + 1], pixels[offset + 2], pixels[offset + 3]);
+  }
+  const transparent = transparentSamples > sampleCount / 2;
+  return {
+    x,
+    y,
+    color: transparent ? EMPTY_COLOR : sampleDominantColor(opaquePixels, MARD_221_HEX),
+    transparent,
+  };
+}
+
 export function cellsFromImage(
   imageData: ImageData,
   rows: number,
@@ -646,7 +666,9 @@ export function cellsFromImage(
   // Use the authorized palette-vote grid so isolated noisy pixels do not decide a cell color.
   const samplesPerCell = SPLIT_DOMINANT_SAMPLE_GRID_SIZE;
 
-  return buildCellsFromSamples(rows, cols, (x, y) => {
+  const cells: Cell[] = [];
+  for (let y = 0; y < rows; y += 1) {
+    for (let x = 0; x < cols; x += 1) {
     const pixels: number[] = [];
     for (let sy = 0; sy < samplesPerCell; sy += 1) {
       for (let sx = 0; sx < samplesPerCell; sx += 1) {
@@ -662,8 +684,10 @@ export function cellsFromImage(
         pixels.push(imageData.data[offset], imageData.data[offset + 1], imageData.data[offset + 2], imageData.data[offset + 3]);
       }
     }
-    return sampleDominantColor(pixels, MARD_221_HEX);
-  }).map((cell) => ({ ...cell, transparent: false }));
+      cells.push(cellFromImageSamples(x, y, pixels));
+    }
+  }
+  return cells;
 }
 
 export async function cellsFromImageAsync(
@@ -693,7 +717,7 @@ export async function cellsFromImageAsync(
           pixels.push(imageData.data[offset], imageData.data[offset + 1], imageData.data[offset + 2], imageData.data[offset + 3]);
         }
       }
-      cells.push({ x, y, color: sampleDominantColor(pixels, MARD_221_HEX), transparent: false });
+      cells.push(cellFromImageSamples(x, y, pixels));
     }
     onProgress?.((y + 1) / Math.max(1, rows));
     if (y % 3 === 2) await yieldToBrowser();
@@ -709,7 +733,9 @@ export function cellsFromAlignedGrid(
   // Keep aligned sampling consistent with quick split noise removal.
   const samplesPerCell = SPLIT_DOMINANT_SAMPLE_GRID_SIZE;
 
-  return buildCellsFromSamples(grid.rows, grid.cols, (x, y) => {
+  const cells: Cell[] = [];
+  for (let y = 0; y < grid.rows; y += 1) {
+    for (let x = 0; x < grid.cols; x += 1) {
     const pixels: number[] = [];
     for (let sy = 0; sy < samplesPerCell; sy += 1) {
       for (let sx = 0; sx < samplesPerCell; sx += 1) {
@@ -725,8 +751,10 @@ export function cellsFromAlignedGrid(
         pixels.push(imageData.data[offset], imageData.data[offset + 1], imageData.data[offset + 2], imageData.data[offset + 3]);
       }
     }
-    return sampleDominantColor(pixels, MARD_221_HEX);
-  }).map((cell) => ({ ...cell, transparent: false }));
+      cells.push(cellFromImageSamples(x, y, pixels));
+    }
+  }
+  return cells;
 }
 
 export async function cellsFromAlignedGridAsync(
@@ -755,7 +783,7 @@ export async function cellsFromAlignedGridAsync(
           pixels.push(imageData.data[offset], imageData.data[offset + 1], imageData.data[offset + 2], imageData.data[offset + 3]);
         }
       }
-      cells.push({ x, y, color: sampleDominantColor(pixels, MARD_221_HEX), transparent: false });
+      cells.push(cellFromImageSamples(x, y, pixels));
     }
     onProgress?.((y + 1) / Math.max(1, grid.rows));
     if (y % 3 === 2) await yieldToBrowser();

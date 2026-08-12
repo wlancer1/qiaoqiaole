@@ -11,6 +11,10 @@ export function defaultSplitLongSideFromBounds(width: number, height: number): n
   return clampSplitLongSide(Math.max(width, height));
 }
 
+export function maxSplitLongSideFromBounds(width: number, height: number): number {
+  return Math.min(MAX_SPLIT_LONG_SIDE, Math.max(MIN_SPLIT_LONG_SIDE, Math.round(Math.max(width, height))));
+}
+
 export function gridSizeFromSplitBounds(
   width: number,
   height: number,

@@ -104,6 +104,7 @@ import {
 import { normalizeProjectPayload, parseProjectCells, serializeProjectCells } from './utils/projectPayload';
 import { cropSize, getAutoCropBounds, splitCropRegion, splitPreviewBackTarget, type CropBounds } from './utils/splitCrop';
 import { defaultSplitImageView } from './utils/splitImageView';
+import { removeGridEdgeBackground } from './utils/gridBackground';
 import { resolveFolderId, type ProjectFolder } from './projects/projectFolders';
 import { CreateProjectFolderSheet, MoveProjectFolderSheet } from './projects/ProjectFolderSheets';
 import { applyCreatedProjectFolder, applyMovedProjectFolder, beginProjectFolderMove, type ProjectFolderCreateOrigin } from './projects/projectFolderFlow';
@@ -124,8 +125,13 @@ import type { BeadingSession, InventoryCheck } from './beading/beadingSessionCli
 import type { Complete, Prepare, Resume, SessionMutation, SessionTransition } from './pages/beading/useBeadingSessionActions';
 import { HomeShellPage, PhoneLoginModal, ProfileEditModal } from './pages/home/HomeShellPage';
 import { refreshHomeData } from './pages/home/homeRefresh';
-import { cloneImageData, deriveSplitImage } from './pages/split/splitImageProcessing';
-import { defaultSplitGeometryFromCrop, scaleCropBoundsToGrid } from './pages/split/splitImageState';
+import {
+  cloneImageData,
+  DEFAULT_BACKGROUND_SENSITIVITY,
+  deriveSplitImage,
+} from './pages/split/splitImageProcessing';
+import { prepareBackgroundRemoval } from '@qiaoqiaole/core';
+import { defaultSplitGeometryFromCrop } from './pages/split/splitImageState';
 import { resolveRestoredDisplayName } from './utils/authDisplayName';
 import { createNonce, createRequestId, getPhoneDeviceId, normalizePhone, showTencentCaptcha, signWebSmsRequest } from './utils/phoneAuthClient';
 import { passwordValidationMessage, validatePasswordLength } from './utils/passwordValidation';
@@ -157,6 +163,7 @@ import {
   MIN_SPLIT_LONG_SIDE,
   clampSplitLongSide,
   gridSizeFromSplitBounds,
+  maxSplitLongSideFromBounds,
 } from './utils/splitConfig';
 
 const MAX_IMAGE_SIDE = 4096;
@@ -390,6 +397,8 @@ function H5App() {
   const [splitImageScale, setSplitImageScale] = useState(1);
   const [splitImageOffset, setSplitImageOffset] = useState({ x: 0, y: 0 });
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showXhsImagePicker, setShowXhsImagePicker] = useState(false);
+  const [isImportingXhsImage, setIsImportingXhsImage] = useState(false);
   const [showXhsInput, setShowXhsInput] = useState(false);
   const [xhsLink, setXhsLink] = useState('');
   const [isExtractingXhs, setIsExtractingXhs] = useState(false);
@@ -402,6 +411,7 @@ function H5App() {
   const pendingAuthActionRef = useRef<((token: string) => void) | null>(null);
   const xhsRequestSeqRef = useRef(0);
   const xhsImportSeqRef = useRef(0);
+  const canvasBackgroundJobRef = useRef(0);
   const authRequestSeqRef = useRef(0);
   const activeWarehouseIdRef = useRef('');
   const communityPostsRequestSeqRef = useRef(0);
@@ -479,6 +489,39 @@ function H5App() {
   const splitLiveGridFrameOriginRef = useRef<GridHandlePosition>({ x: 40, y: 40 });
   const splitAlignFrameRef = useRef(0);
   const splitPreviewJobRef = useRef(0);
+  const splitScreenRef = useRef<AppScreen>(screen);
+  const uploadedSplitImageRef = useRef<UploadedSplitImage | null>(null);
+  const splitBackgroundSensitivityFrameRef = useRef(0);
+  const queuedBackgroundSensitivityRef = useRef(DEFAULT_BACKGROUND_SENSITIVITY);
+
+  const isCurrentSplitBackgroundJob = (
+    jobId: number,
+    sourceImage: UploadedSplitImage,
+    expectedScreen: AppScreen,
+  ) => (
+    splitPreviewJobRef.current === jobId
+    && splitScreenRef.current === expectedScreen
+    && ['split', 'split-crop', 'split-preview'].includes(splitScreenRef.current)
+    && uploadedSplitImageRef.current?.originalImageData === sourceImage.originalImageData
+  );
+
+  useLayoutEffect(() => {
+    splitScreenRef.current = screen;
+    if (!['split', 'split-crop', 'split-preview'].includes(screen)) {
+      splitPreviewJobRef.current += 1;
+      setIsBackgroundProcessing(false);
+    }
+  }, [screen]);
+
+  useEffect(() => {
+    uploadedSplitImageRef.current = uploadedSplitImage;
+  }, [uploadedSplitImage]);
+
+  useEffect(() => () => {
+    if (splitBackgroundSensitivityFrameRef.current) {
+      cancelAnimationFrame(splitBackgroundSensitivityFrameRef.current);
+    }
+  }, []);
 
   const hasBlockingModal = Boolean(
     confirmDialogRequest
@@ -487,6 +530,7 @@ function H5App() {
       || showSaveLoginPrompt
       || showSaveProjectModal
       || showUploadModal
+      || showXhsImagePicker
       || showCreateCanvasModal
       || showProjectFolderCreate
       || projectFolderMoveTarget
@@ -504,6 +548,15 @@ function H5App() {
     document.body.classList.toggle('h5-modal-open', hasBlockingModal);
     return () => document.body.classList.remove('h5-modal-open');
   }, [hasBlockingModal]);
+
+  useEffect(() => {
+    if (!showXhsImagePicker) return undefined;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !isImportingXhsImage) setShowXhsImagePicker(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isImportingXhsImage, showXhsImagePicker]);
 
   const folderSheetOpen = showProjectFolderCreate || Boolean(projectFolderMoveTarget);
   const ignoreProjectFolderHistoryPopRef = useRef(false);
@@ -728,6 +781,9 @@ function H5App() {
     : alignedGrid;
   const activeSplitRows = splitMode === 'align' ? flowAlignedGrid.rows : splitRows;
   const activeSplitCols = splitMode === 'align' ? flowAlignedGrid.cols : splitCols;
+  const maxQuickSplitLongSide = uploadedSplitImage
+    ? maxSplitLongSideFromBounds(uploadedSplitImage.crop.width, uploadedSplitImage.crop.height)
+    : MAX_SPLIT_LONG_SIDE;
   const splitColorList = useMemo(() => {
     const counts = new Map<string, number>();
     for (const cell of splitPreviewCells) {
@@ -876,6 +932,7 @@ function H5App() {
     setWorkMode(nextMode);
     setActiveTab('home');
     setShowUploadModal(true);
+    setShowXhsImagePicker(false);
     setShowXhsInput(false);
     setXhsLink('');
     setXhsExtractedTitle('');
@@ -886,6 +943,8 @@ function H5App() {
     xhsRequestSeqRef.current += 1;
     xhsImportSeqRef.current += 1;
     setShowUploadModal(false);
+    setShowXhsImagePicker(false);
+    setIsImportingXhsImage(false);
     setShowXhsInput(false);
     setXhsLink('');
     setXhsExtractedTitle('');
@@ -2123,8 +2182,11 @@ function H5App() {
     setScreen('canvas');
   };
 
-  const commitCells = (nextCells: Cell[]) => {
+  const commitCells = (nextCellsOrUpdater: Cell[] | ((current: Cell[]) => Cell[])) => {
     setCells((current) => {
+      const nextCells = typeof nextCellsOrUpdater === 'function'
+        ? nextCellsOrUpdater(current)
+        : nextCellsOrUpdater;
       if (sameCells(current, nextCells)) {
         return current;
       }
@@ -2155,7 +2217,10 @@ function H5App() {
   };
 
   const updateSplitLongSide = (value: number) => {
-    const nextLongSide = clampSplitLongSide(value);
+    const nextLongSide = Math.min(
+      maxQuickSplitLongSide,
+      clampSplitLongSide(value),
+    );
     if (nextLongSide === splitLiveLongSideRef.current) return;
     splitLiveLongSideRef.current = nextLongSide;
     setSplitLongSide(nextLongSide);
@@ -2535,10 +2600,25 @@ function H5App() {
   };
 
   const loadSplitImage = (name: string, imageData: ImageData): number => {
+    splitPreviewJobRef.current += 1;
     const originalImageData = cloneImageData(imageData);
-    const derived = deriveSplitImage(originalImageData, false, { toUrl: imageDataToUrl, getCrop: getImageCrop });
+    const backgroundCache = prepareBackgroundRemoval(originalImageData);
+    const derived = deriveSplitImage(originalImageData, false, { toUrl: imageDataToUrl, getCrop: getImageCrop }, { backgroundCache });
     const { crop, url } = derived;
-    setUploadedSplitImage({ name, originalImageData, imageData: derived.imageData, crop, url, originalUrl: url, backgroundRemoved: false });
+    const uploadedImage = {
+      name,
+      originalImageData,
+      imageData: derived.imageData,
+      crop,
+      url,
+      originalUrl: url,
+      backgroundRemoved: false,
+      backgroundSensitivity: DEFAULT_BACKGROUND_SENSITIVITY,
+      backgroundCache,
+    };
+    uploadedSplitImageRef.current = uploadedImage;
+    queuedBackgroundSensitivityRef.current = DEFAULT_BACKGROUND_SENSITIVITY;
+    setUploadedSplitImage(uploadedImage);
     setActiveProjectId('');
     setSplitMergeThreshold(0);
     const defaultGeometry = applyDefaultSplitGeometry(crop);
@@ -2572,31 +2652,111 @@ function H5App() {
 
   const toggleSplitBackground = async () => {
     if (!uploadedSplitImage || isBackgroundProcessing) return;
+    const toggleScreen = splitScreenRef.current;
+    if (!['split', 'split-crop', 'split-preview'].includes(toggleScreen)) return;
+    if (splitBackgroundSensitivityFrameRef.current) {
+      cancelAnimationFrame(splitBackgroundSensitivityFrameRef.current);
+      splitBackgroundSensitivityFrameRef.current = 0;
+    }
     setIsBackgroundProcessing(true);
-    const preservePreviewCrop = screen === 'split-preview' && isSplitCropped;
-    const previousCropBounds = splitCropBounds;
-    const previousGridSize = { cols: activeSplitCols, rows: activeSplitRows };
     const jobId = splitPreviewJobRef.current + 1;
     splitPreviewJobRef.current = jobId;
     try {
       await yieldToBrowser();
       const backgroundRemoved = !uploadedSplitImage.backgroundRemoved;
-      const derived = deriveSplitImage(uploadedSplitImage.originalImageData, backgroundRemoved, { toUrl: imageDataToUrl, getCrop: getImageCrop });
-      if (splitPreviewJobRef.current !== jobId) return;
-      setUploadedSplitImage((current) => current ? { ...current, ...derived } : current);
+      const derived = deriveSplitImage(
+        uploadedSplitImage.originalImageData,
+        backgroundRemoved,
+        { toUrl: imageDataToUrl, getCrop: getImageCrop },
+        {
+          sensitivity: queuedBackgroundSensitivityRef.current,
+          backgroundCache: uploadedSplitImage.backgroundCache,
+        },
+      );
+      if (!isCurrentSplitBackgroundJob(jobId, uploadedSplitImage, toggleScreen)) return;
+      setUploadedSplitImage((current) => {
+        if (!current || !isCurrentSplitBackgroundJob(jobId, uploadedSplitImage, toggleScreen)) return current;
+        const next = {
+          ...current,
+          ...derived,
+          crop: current.crop,
+          backgroundSensitivity: queuedBackgroundSensitivityRef.current,
+        };
+        uploadedSplitImageRef.current = next;
+        return next;
+      });
+      if (!isCurrentSplitBackgroundJob(jobId, uploadedSplitImage, toggleScreen)) return;
       setUploadedSourceImageDataUrl(derived.url);
-      const geometry = applyDefaultSplitGeometry(derived.crop, { resetCrop: !preservePreviewCrop });
-      if (preservePreviewCrop) {
-        setIsSplitCropped(true);
-        setSplitCropBounds(scaleCropBoundsToGrid(previousCropBounds, previousGridSize, { cols: geometry.cols, rows: geometry.rows }));
-        setSplitPreviewLoading(true);
-      }
       setSplitPreviewRawCells([]);
       setSplitPreviewCells([]);
     } catch {
-      setStatus('图片去背景失败，请重试。');
+      if (isCurrentSplitBackgroundJob(jobId, uploadedSplitImage, toggleScreen)) {
+        setStatus('图片去背景失败，请重试。');
+      }
     } finally {
-      if (splitPreviewJobRef.current === jobId) setIsBackgroundProcessing(false);
+      if (isCurrentSplitBackgroundJob(jobId, uploadedSplitImage, toggleScreen)) setIsBackgroundProcessing(false);
+    }
+  };
+
+  const updateSplitBackgroundSensitivity = (value: number) => {
+    const sensitivityScreen = splitScreenRef.current;
+    if (sensitivityScreen !== 'split-preview') return;
+    const sensitivity = Math.max(0, Math.min(100, Math.round(value)));
+    queuedBackgroundSensitivityRef.current = sensitivity;
+    setUploadedSplitImage((current) => {
+      if (!current) return current;
+      const next = { ...current, backgroundSensitivity: sensitivity };
+      uploadedSplitImageRef.current = next;
+      return next;
+    });
+    const currentImage = uploadedSplitImageRef.current;
+    if (!currentImage?.backgroundRemoved || splitBackgroundSensitivityFrameRef.current) return;
+
+    splitBackgroundSensitivityFrameRef.current = requestAnimationFrame(() => {
+      splitBackgroundSensitivityFrameRef.current = 0;
+      if (splitScreenRef.current !== sensitivityScreen) return;
+      const sourceImage = uploadedSplitImageRef.current;
+      if (!sourceImage?.backgroundRemoved) return;
+      const jobId = splitPreviewJobRef.current + 1;
+      splitPreviewJobRef.current = jobId;
+      if (!isCurrentSplitBackgroundJob(jobId, sourceImage, sensitivityScreen)) return;
+      const sensitivityToApply = queuedBackgroundSensitivityRef.current;
+      const derived = deriveSplitImage(
+        sourceImage.originalImageData,
+        true,
+        { toUrl: imageDataToUrl, getCrop: getImageCrop },
+        { sensitivity: sensitivityToApply, backgroundCache: sourceImage.backgroundCache },
+      );
+      if (!isCurrentSplitBackgroundJob(jobId, sourceImage, sensitivityScreen)) return;
+      setUploadedSplitImage((current) => {
+        if (!current || !current.backgroundRemoved || !isCurrentSplitBackgroundJob(jobId, sourceImage, sensitivityScreen)) return current;
+        const next = {
+          ...current,
+          imageData: derived.imageData,
+          url: derived.url,
+          backgroundSensitivity: sensitivityToApply,
+        };
+        uploadedSplitImageRef.current = next;
+        return next;
+      });
+      if (!isCurrentSplitBackgroundJob(jobId, sourceImage, sensitivityScreen)) return;
+      setUploadedSourceImageDataUrl(derived.url);
+    });
+  };
+
+  const toggleCanvasBackground = async () => {
+    if (isBackgroundProcessing || screen !== 'canvas') return;
+    const jobId = canvasBackgroundJobRef.current + 1;
+    canvasBackgroundJobRef.current = jobId;
+    setIsBackgroundProcessing(true);
+    try {
+      await yieldToBrowser();
+      if (canvasBackgroundJobRef.current !== jobId || splitScreenRef.current !== 'canvas') return;
+      commitCells((current) => removeGridEdgeBackground(current, rows, cols));
+    } catch {
+      if (canvasBackgroundJobRef.current === jobId) setStatus('网格去背景失败，请重试。');
+    } finally {
+      if (canvasBackgroundJobRef.current === jobId) setIsBackgroundProcessing(false);
     }
   };
 
@@ -2658,6 +2818,9 @@ function H5App() {
       }
       setXhsExtractedTitle(payload.title?.trim() || '小红书图纸');
       setXhsExtractedImages(images);
+      setShowUploadModal(false);
+      setShowXhsInput(false);
+      setShowXhsImagePicker(true);
     } catch (error) {
       if (xhsRequestSeqRef.current !== requestSeq) return;
       setStatus(error instanceof Error ? error.message : '小红书图片提取失败。');
@@ -2673,6 +2836,7 @@ function H5App() {
     }
     const requestSeq = xhsImportSeqRef.current + 1;
     xhsImportSeqRef.current = requestSeq;
+    setIsImportingXhsImage(true);
     try {
       let source = image.imageDataUrl || '';
       if (!source && image.imageUrl) {
@@ -2683,10 +2847,11 @@ function H5App() {
         source = payload.imageDataUrl;
       }
       const imageData = await loadImageDataFromUrl(source);
-      if (xhsImportSeqRef.current !== requestSeq || !showUploadModal) return;
+      if (xhsImportSeqRef.current !== requestSeq || (!showUploadModal && !showXhsImagePicker)) return;
       loadSplitImage(safeImageFilename(title || 'xiaohongshu-drawing', 'image/png'), imageData);
       setUploadedSourceImageDataUrl(imageDataToUrl(imageData));
       setShowUploadModal(false);
+      setShowXhsImagePicker(false);
       setShowXhsInput(false);
       setXhsLink('');
       setXhsExtractedTitle('');
@@ -2694,7 +2859,17 @@ function H5App() {
     } catch {
       if (xhsImportSeqRef.current !== requestSeq) return;
       setStatus('小红书图片读取失败，请换一张图片。');
+    } finally {
+      if (xhsImportSeqRef.current === requestSeq) setIsImportingXhsImage(false);
     }
+  };
+
+  const closeXhsImagePicker = () => {
+    if (isImportingXhsImage) return;
+    xhsImportSeqRef.current += 1;
+    setShowXhsImagePicker(false);
+    setXhsExtractedTitle('');
+    setXhsExtractedImages([]);
   };
 
   const paintCellInDraft = (sourceCells: Cell[], x: number, y: number, paintTool: 'brush' | 'eraser') => {
@@ -3190,7 +3365,7 @@ function H5App() {
       updateSplitLongSide={updateSplitLongSide}
       splitLongSide={splitLongSide}
       minSplitLongSide={MIN_SPLIT_LONG_SIDE}
-      maxSplitLongSide={MAX_SPLIT_LONG_SIDE}
+      maxSplitLongSide={maxQuickSplitLongSide}
       alignCellSize={alignCellSize}
       moveGridControlFrame={moveGridControlFrame}
       updateAlignCellSize={updateAlignCellSize}
@@ -3240,6 +3415,8 @@ function H5App() {
       backgroundRemoved={Boolean(uploadedSplitImage.backgroundRemoved)}
       isBackgroundProcessing={isBackgroundProcessing}
       onToggleBackground={toggleSplitBackground}
+      backgroundSensitivity={uploadedSplitImage.backgroundSensitivity}
+      onBackgroundSensitivityChange={updateSplitBackgroundSensitivity}
       setSplitPreviewTab={setSplitPreviewTab}
       splitPreviewTab={splitPreviewTab}
       previewCols={previewSplitSize.cols}
@@ -3255,6 +3432,10 @@ function H5App() {
       referenceInputRef={referenceInputRef}
       handleReferenceUpload={handleReferenceUpload}
       clearReferenceImage={clearReferenceImage}
+      uploadedSplitImage={uploadedSplitImage}
+      canRemoveGridBackground={Boolean(uploadedSplitImage || activeSavedProject?.sourceImage)}
+      isBackgroundProcessing={isBackgroundProcessing}
+      onToggleBackground={toggleCanvasBackground}
       setScreen={setScreen}
       setShowSettings={setShowSettings}
       cols={cols}
@@ -3539,6 +3720,7 @@ function H5App() {
     setShowXhsInput={setShowXhsInput} xhsLink={xhsLink} setXhsLink={setXhsLink}
     xhsExtractedImages={xhsExtractedImages} isExtractingXhs={isExtractingXhs} chooseLocalDrawing={chooseLocalDrawing}
     extractXiaohongshuImage={extractXiaohongshuImage} importXhsImage={importXhsImage}
+    showXhsImagePicker={showXhsImagePicker} closeXhsImagePicker={closeXhsImagePicker} isImportingXhsImage={isImportingXhsImage} xhsExtractedTitle={xhsExtractedTitle}
     xhsPreviewSrc={xhsPreviewSrc} usedColors={usedColors} colorCodeOf={colorCodeOf} quickTools={quickTools}
     showCreateCanvasModal={showCreateCanvasModal} setShowCreateCanvasModal={setShowCreateCanvasModal} openCreateCanvasModal={openCreateCanvasModal}
     openBlankCanvasCreation={openBlankCanvasCreation}

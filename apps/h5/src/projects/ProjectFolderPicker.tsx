@@ -12,7 +12,12 @@ export function ProjectFolderPicker({ folders, value, onChange, onCreateFolder }
     <div className="save-project-folder-picker">
       <label>
         <span>保存位置</span>
-        <select aria-label="保存位置" value={selectedFolderId || ''} onChange={(event) => onChange(event.target.value || null)}>
+        <select
+          className="save-project-folder-select"
+          aria-label="保存位置"
+          value={selectedFolderId || ''}
+          onChange={(event) => onChange(event.target.value || null)}
+        >
           <option value="">未分类</option>
           {folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
         </select>

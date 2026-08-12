@@ -263,6 +263,7 @@ export function SplitPreviewPage(props: SplitPageProps) {
     setScreen, splitPreviewLoading, splitMergeThreshold, setSplitMergeThreshold, deferredSplitMergeThreshold, splitPreviewCells,
     importSplitToCanvas, activeSplitCols, activeSplitRows, splitLoadingStage, splitLoadingProgress,
     splitColorList, setSplitPreviewTab, splitPreviewTab, backgroundRemoved, isBackgroundProcessing, onToggleBackground,
+    backgroundSensitivity, onBackgroundSensitivityChange,
     previewCols, previewRows,
     onBackToCrop,
   } = props;
@@ -279,8 +280,16 @@ return (
     />
 
     <section className="split-browser-container" aria-label="分割浏览预览" aria-busy={splitPreviewLoading}>
+      {backgroundRemoved ? (
+        <div className="split-background-preview-status" role="status" aria-label="已去背景，透明区域已标记">
+          <span className="split-background-preview-status-dot" aria-hidden="true" />
+          <strong>已去背景</strong>
+          <span>透明区域</span>
+        </div>
+      ) : null}
       <div
-        className={`split-grid-preview${splitPreviewLoading ? ' is-loading' : ''}`}
+        className={`split-grid-preview${splitPreviewLoading ? ' is-loading' : ''}${backgroundRemoved ? ' is-background-removed' : ''}`}
+        data-background-removed={backgroundRemoved ? 'true' : 'false'}
         style={{
           gridTemplateColumns: `repeat(${previewCols}, minmax(0, 1fr))`,
           gridTemplateRows: `repeat(${previewRows}, minmax(0, 1fr))`,
@@ -312,10 +321,32 @@ return (
           onChange={setSplitMergeThreshold}
         />
         <div className="split-background-actions" aria-label="图片背景处理">
-          <button type="button" onClick={onToggleBackground} disabled={isBackgroundProcessing}>
+          <button className={backgroundRemoved ? 'is-active' : ''} type="button" onClick={onToggleBackground} disabled={isBackgroundProcessing} aria-pressed={backgroundRemoved}>
             {isBackgroundProcessing ? '处理中…' : backgroundRemoved ? '恢复原图' : '去除背景'}
           </button>
         </div>
+        {backgroundRemoved ? (
+          <section className="split-background-sensitivity" aria-label="去背景灵敏度设置">
+            <div className="split-background-sensitivity-head">
+              <label htmlFor="split-background-sensitivity">去背景灵敏度</label>
+              <output htmlFor="split-background-sensitivity">{backgroundSensitivity}</output>
+            </div>
+            <div className="split-background-sensitivity-row">
+              <span aria-hidden="true">保守</span>
+              <input
+                id="split-background-sensitivity"
+                type="range"
+                aria-label="去背景灵敏度"
+                min={0}
+                max={100}
+                step={1}
+                value={backgroundSensitivity}
+                onChange={(event) => onBackgroundSensitivityChange(Number(event.target.value))}
+              />
+              <span aria-hidden="true">积极</span>
+            </div>
+          </section>
+        ) : null}
          <button className="split-bead-list-entry" type="button" aria-label="查看豆子清单" onClick={() => setSplitPreviewTab('beads')}>
           <span className="split-bead-list-entry-title">豆子清单</span>
           <span className="split-bead-list-entry-meta">
