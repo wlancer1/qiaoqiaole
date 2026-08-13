@@ -5,6 +5,9 @@
 - Added H5 canvas/grid background-removal controls, transparent-cell sampling, quick-split bounds handling, Xiaohongshu multi-image selection, and related editor/home regressions.
 - Affected modules: H5 canvas, editor, home, split, project-folder UI, `packages/core/src/domain/grid.ts`, and related tests/docs.
 
+- Added a safe migration script for moving legacy Base64 project source and thumbnail images to Tencent COS, with dry-run mode, SQLite backup, bounded batches, and resumable success-only updates.
+- Affected modules: `apps/api/scripts/migrate-project-images.mjs`, migration tests, and server migration documentation.
+
 - Fixed slow community post listing by returning lightweight list payloads, moving full image/canvas data to the detail endpoint, removing comment joins from list queries, adding community/tag indexes, and caching tag counts.
 - Affected modules: `apps/api/src/server.mjs` and `apps/api/src/community.test.mjs`.
 
