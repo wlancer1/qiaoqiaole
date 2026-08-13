@@ -9,6 +9,8 @@
 - Affected modules: `apps/api/scripts/migrate-project-images.mjs`, migration tests, and server migration documentation.
 - Passed Tencent COS configuration from the host `.env` into the API container through Docker Compose so image migration and new uploads use the configured COS service.
 - Affected files: `docker-compose.yml`.
+- Fixed the canvas background-removal control to remain available for saved projects that have editable canvas data but no original source image.
+- Affected modules: `apps/h5/src/H5App.tsx` and the canvas editor regression test.
 
 - Fixed slow community post listing by returning lightweight list payloads, moving full image/canvas data to the detail endpoint, removing comment joins from list queries, adding community/tag indexes, and caching tag counts.
 - Affected modules: `apps/api/src/server.mjs` and `apps/api/src/community.test.mjs`.

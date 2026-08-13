@@ -36,6 +36,6 @@ describe('saved image editing integration', () => {
     expect(source).toContain('removeGridEdgeBackground(current, rows, cols)');
     expect(source).toContain('commitCells((current) => removeGridEdgeBackground(current, rows, cols))');
     expect(source).not.toContain('setHistory([]);\n      setFuture([]);');
-    expect(source).toContain('canRemoveGridBackground={Boolean(uploadedSplitImage || activeSavedProject?.sourceImage)}');
+    expect(source).toContain('canRemoveGridBackground={Boolean(uploadedSplitImage || activeSavedProject)}');
   });
 });

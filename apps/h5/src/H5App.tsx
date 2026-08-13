@@ -3433,7 +3433,7 @@ function H5App() {
       handleReferenceUpload={handleReferenceUpload}
       clearReferenceImage={clearReferenceImage}
       uploadedSplitImage={uploadedSplitImage}
-      canRemoveGridBackground={Boolean(uploadedSplitImage || activeSavedProject?.sourceImage)}
+      canRemoveGridBackground={Boolean(uploadedSplitImage || activeSavedProject)}
       isBackgroundProcessing={isBackgroundProcessing}
       onToggleBackground={toggleCanvasBackground}
       setScreen={setScreen}
