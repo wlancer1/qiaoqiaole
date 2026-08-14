@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiSlice } from '../api/apiSlice';
 import { sessionEstablished } from './authEvents';
-import { restoreSession, logout } from './authThunks';
+import { restoreSession, logoutSession } from './authThunks';
 import { AUTH_STORAGE_KEY } from './authStorage';
 import { createH5Store } from '../store';
 
@@ -147,13 +147,28 @@ describe('logout', () => {
       user: { id: 'user-a', username: 'alice', displayName: 'Alice', avatarUrl: '', legacyDraftOwnerId: 'alice', likesCount: 0, followingCount: 0, followersCount: 0 },
     }));
 
-    const request = store.dispatch(logout());
+    const request = store.dispatch(logoutSession());
     expect(store.getState().auth.status).toBe('anonymous');
     expect(store.getState().auth.token).toBe('');
     await request;
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/v1/auth/logout', expect.objectContaining({ method: 'POST' }));
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/auth/logout', expect.objectContaining({
+      method: 'POST',
+      credentials: 'include',
+    }));
     expect(store.getState().auth.status).toBe('anonymous');
+  });
+
+  it('keeps the local session cleared when server logout rejects', async () => {
+    vi.mocked(fetch).mockRejectedValue(new Error('offline'));
+    const store = createH5Store({ storage: storageWith({ token: 'token-a' }) });
+    store.dispatch(sessionEstablished({
+      token: 'token-a',
+      user: { id: 'user-a', username: 'alice', displayName: 'Alice', avatarUrl: '', legacyDraftOwnerId: 'alice', likesCount: 0, followingCount: 0, followersCount: 0 },
+    }));
+
+    await expect(store.dispatch(logoutSession())).resolves.toMatchObject({ meta: { requestStatus: 'fulfilled' } });
+    expect(store.getState().auth).toMatchObject({ status: 'anonymous', token: '', user: null });
   });
 });
 

@@ -8,14 +8,20 @@ import type { AuthState } from './authTypes';
 
 export type AuthListenerOptions = { storage?: Storage };
 
+export const MAX_HANDLED_EVENTS = 128;
+
 export function createAuthListenerMiddleware(
   options: AuthListenerOptions = {},
 ): ListenerMiddlewareInstance {
   const middleware = createListenerMiddleware();
-  const handled = new Set<string>();
+  const handled = new Map<string, true>();
   const once = (key: string): boolean => {
     if (handled.has(key)) return false;
-    handled.add(key);
+    handled.set(key, true);
+    if (handled.size > MAX_HANDLED_EVENTS) {
+      const oldest = handled.keys().next().value;
+      if (oldest !== undefined) handled.delete(oldest);
+    }
     return true;
   };
   const resetCache = (api: { dispatch: (action: unknown) => unknown }): void => {

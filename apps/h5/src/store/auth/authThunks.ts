@@ -88,7 +88,7 @@ export const restoreSession = createAsyncThunk<
   },
 );
 
-export const logout = createAsyncThunk<void, void, { state: H5RootState }>(
+export const logoutSession = createAsyncThunk<void, void, { state: H5RootState }>(
   'auth/logout',
   async (_, thunkApi) => {
     const token = thunkApi.getState().auth.token;
@@ -96,6 +96,7 @@ export const logout = createAsyncThunk<void, void, { state: H5RootState }>(
     try {
       await fetch('/api/v1/auth/logout', {
         method: 'POST',
+        credentials: 'include',
         headers: token ? { authorization: `Bearer ${token}` } : undefined,
         signal: thunkApi.signal,
       });
@@ -104,3 +105,5 @@ export const logout = createAsyncThunk<void, void, { state: H5RootState }>(
     }
   },
 );
+
+export const logout = logoutSession;
