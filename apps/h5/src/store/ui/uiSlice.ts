@@ -19,11 +19,20 @@ export type UiState = {
   loginRequest: LoginRequest | null;
 };
 
+export type UiRootState = {
+  ui: UiState;
+};
+
 const initialState: UiState = {
   currentRouteScope: '',
   status: null,
   loginRequest: null,
 };
+
+function normalizeReturnTo(returnTo?: string): string | undefined {
+  const normalized = returnTo?.trim();
+  return normalized || undefined;
+}
 
 const uiSlice = createSlice({
   name: 'ui',
@@ -48,22 +57,38 @@ const uiSlice = createSlice({
         message: action.payload.message,
       };
     },
+    globalStatusCleared: (state) => {
+      if (state.status?.scopeId === GLOBAL_STATUS_SCOPE) state.status = null;
+    },
     loginRequestStarted: (state, action: PayloadAction<LoginRequest>) => {
       if (action.payload.scopeId !== state.currentRouteScope) return;
       if (!state.loginRequest) {
-        state.loginRequest = action.payload;
+        const returnTo = normalizeReturnTo(action.payload.returnTo);
+        state.loginRequest = {
+          id: action.payload.id,
+          scopeId: action.payload.scopeId,
+          ...(returnTo ? { returnTo } : {}),
+        };
         return;
       }
       if (
         state.loginRequest.scopeId !== action.payload.scopeId
-        || state.loginRequest.returnTo
-        || !action.payload.returnTo?.trim()
+        || normalizeReturnTo(state.loginRequest.returnTo)
       ) return;
-      state.loginRequest.returnTo = action.payload.returnTo;
+      const returnTo = normalizeReturnTo(action.payload.returnTo);
+      if (returnTo) state.loginRequest.returnTo = returnTo;
     },
     loginRequestReconciled: (state, action: PayloadAction<LoginRequest>) => {
-      if (state.loginRequest?.id !== action.payload.id) return;
-      state.loginRequest = action.payload;
+      if (
+        state.loginRequest?.id !== action.payload.id
+        || action.payload.scopeId !== state.currentRouteScope
+      ) return;
+      const returnTo = normalizeReturnTo(action.payload.returnTo);
+      state.loginRequest = {
+        id: action.payload.id,
+        scopeId: action.payload.scopeId,
+        ...(returnTo ? { returnTo } : {}),
+      };
     },
     loginRequestCompleted: (state, action: PayloadAction<{ id: string }>) => {
       if (state.loginRequest?.id !== action.payload.id) return;
@@ -77,6 +102,7 @@ const uiSlice = createSlice({
 });
 
 export const {
+  globalStatusCleared,
   globalStatusRequested,
   loginRequestCancelled,
   loginRequestCompleted,
@@ -88,3 +114,7 @@ export const {
 } = uiSlice.actions;
 
 export const uiReducer = uiSlice.reducer;
+
+export const selectCurrentRouteScope = (state: UiRootState): string => state.ui.currentRouteScope;
+export const selectUiStatus = (state: UiRootState): UiStatus | null => state.ui.status;
+export const selectLoginRequest = (state: UiRootState): LoginRequest | null => state.ui.loginRequest;

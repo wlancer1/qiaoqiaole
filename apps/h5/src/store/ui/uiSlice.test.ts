@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
+  globalStatusCleared,
   globalStatusRequested,
   loginRequestCancelled,
   loginRequestCompleted,
   loginRequestReconciled,
   loginRequestStarted,
   routeScopeChanged,
+  selectCurrentRouteScope,
+  selectLoginRequest,
+  selectUiStatus,
   statusCleared,
   statusRequested,
   uiReducer,
@@ -54,10 +58,13 @@ describe('ui reducer route-scoped status', () => {
   });
 
   it('allows a global status to bypass the current route scope', () => {
-    expect(uiReducer(initialState, globalStatusRequested({ message: '登录状态已失效' }))).toEqual({
+    const state = uiReducer(initialState, globalStatusRequested({ message: '登录状态已失效' }));
+
+    expect(state).toEqual({
       ...initialState,
       status: { scopeId: 'global', message: '登录状态已失效' },
     });
+    expect(uiReducer(state, globalStatusCleared())).toEqual(initialState);
   });
 });
 
@@ -76,12 +83,13 @@ describe('ui reducer login request metadata', () => {
     const startedWithoutReturnTo = uiReducer(initialState, loginRequestStarted({
       id: 'login-1',
       scopeId: 'route-a',
+      returnTo: '   ',
     }));
 
     expect(uiReducer(startedWithoutReturnTo, loginRequestStarted({
       id: 'login-2',
       scopeId: 'route-a',
-      returnTo: '/projects/2',
+      returnTo: '  /projects/2  ',
     }))).toEqual({
       ...initialState,
       loginRequest: { id: 'login-1', scopeId: 'route-a', returnTo: '/projects/2' },
@@ -104,14 +112,26 @@ describe('ui reducer login request metadata', () => {
   });
 
   it('updates the surviving scope and returnTo for a matching reconciliation', () => {
-    expect(uiReducer(withLoginRequest(), loginRequestReconciled({
+    const routeBState = uiReducer(withLoginRequest(), routeScopeChanged({ scopeId: 'route-b' }));
+
+    expect(uiReducer(routeBState, loginRequestReconciled({
       id: 'login-1',
       scopeId: 'route-b',
-      returnTo: '/profile',
+      returnTo: '  /profile  ',
     }))).toEqual({
-      ...initialState,
+      ...routeBState,
       loginRequest: { id: 'login-1', scopeId: 'route-b', returnTo: '/profile' },
     });
+  });
+
+  it('ignores matching-ID reconciliation from an old route scope', () => {
+    const state = withLoginRequest();
+
+    expect(uiReducer(state, loginRequestReconciled({
+      id: 'login-1',
+      scopeId: 'route-old',
+      returnTo: '/profile',
+    }))).toBe(state);
   });
 
   it('ignores reconciliation for a stale login request ID', () => {
@@ -141,6 +161,7 @@ describe('ui reducer serializability', () => {
       statusRequested({ scopeId: 'route-b', message: '完成' }),
       statusCleared({ scopeId: 'route-b' }),
       globalStatusRequested({ message: '全局提示' }),
+      globalStatusCleared(),
       loginRequestStarted({ id: 'login-1', scopeId: 'route-b', returnTo: '/projects/1' }),
       loginRequestReconciled({ id: 'login-1', scopeId: 'route-c' }),
       loginRequestCompleted({ id: 'login-1' }),
@@ -153,5 +174,23 @@ describe('ui reducer serializability', () => {
       state = uiReducer(state, action);
       expect(() => JSON.stringify(state)).not.toThrow();
     }
+  });
+});
+
+describe('ui selectors', () => {
+  it('selects the current route scope, status, and login request', () => {
+    const state = uiReducer(withLoginRequest(), statusRequested({
+      scopeId: 'route-a',
+      message: '请先登录',
+    }));
+    const rootState = { ui: state };
+
+    expect(selectCurrentRouteScope(rootState)).toBe('route-a');
+    expect(selectUiStatus(rootState)).toEqual({ scopeId: 'route-a', message: '请先登录' });
+    expect(selectLoginRequest(rootState)).toEqual({
+      id: 'login-1',
+      scopeId: 'route-a',
+      returnTo: '/projects/1',
+    });
   });
 });
