@@ -134,6 +134,10 @@ import { PageSkeleton } from './loading/H5LoadingStates';
 import { resolveRestoredDisplayName } from './utils/authDisplayName';
 import { createNonce, createRequestId, getPhoneDeviceId, normalizePhone, showTencentCaptcha, signWebSmsRequest } from './utils/phoneAuthClient';
 import { passwordValidationMessage, validatePasswordLength } from './utils/passwordValidation';
+import { useAppSelector } from './store/hooks';
+import { selectUiStatus } from './store/ui/uiSlice';
+import { useScopedStatus } from './store/ui/useScopedStatus';
+import { useStatusAutoDismiss } from './store/ui/useStatusAutoDismiss';
 import type {
   AlignedGrid,
   AuthorProfile,
@@ -183,8 +187,6 @@ const WAREHOUSE_LETTERS = ['全部', ...Array.from(new Set(MARD_221_COLORS.map((
 const API_BASE = '/api';
 const CAPTCHA_APP_ID = String((import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_TENCENT_CAPTCHA_APP_ID || '');
 const AUTH_STORAGE_KEY = 'qiaoqiaole.auth';
-const STATUS_VISIBLE_MS = 2800;
-const STICKY_STATUS_PREFIXES = ['正在'];
 type RequestApiError = Error & { status?: number; code?: string; body?: unknown };
 
 const GRID_CONTROL_CELLS = 3;
@@ -248,13 +250,9 @@ function H5App() {
   const [selectedColor, setSelectedColor] = useState<string>(MARD_221_COLORS[0]?.hex ?? '#faf4c8');
   const [selectedCode, setSelectedCode] = useState<string>(MARD_221_COLORS[0]?.code ?? 'A1');
   const [tool, setTool] = useState<CanvasTool>('pan');
-  const [status, setStatusState] = useState('');
-  const statusScopeRef = useRef(`${screen}:${activeTab}`);
-  const statusScope = `${screen}:${activeTab}`;
-  const setStatus = (message: string) => {
-    if (statusScopeRef.current !== statusScope) return;
-    setStatusState(message);
-  };
+  const status = useAppSelector(selectUiStatus)?.message ?? '';
+  const setStatus = useScopedStatus();
+  useStatusAutoDismiss();
   const [history, setHistory] = useState<Cell[][]>([]);
   const [future, setFuture] = useState<Cell[][]>([]);
   const [showPaletteSearch, setShowPaletteSearch] = useState(false);
@@ -640,11 +638,6 @@ function H5App() {
   }, [screen]);
 
   useLayoutEffect(() => {
-    statusScopeRef.current = statusScope;
-    setStatusState('');
-  }, [statusScope]);
-
-  useLayoutEffect(() => {
     const resetScrollPositions = () => {
       try {
         window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
@@ -692,13 +685,6 @@ function H5App() {
   useEffect(() => () => {
     if (referenceImage?.url) URL.revokeObjectURL(referenceImage.url);
   }, [referenceImage]);
-
-  useEffect(() => {
-    if (!status) return;
-    if (STICKY_STATUS_PREFIXES.some((prefix) => status.startsWith(prefix))) return;
-    const timer = window.setTimeout(() => setStatus(''), STATUS_VISIBLE_MS);
-    return () => window.clearTimeout(timer);
-  }, [status]);
 
   useEffect(() => {
     if (phoneCountdown <= 0) return undefined;

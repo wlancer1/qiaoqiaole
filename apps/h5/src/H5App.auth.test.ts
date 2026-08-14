@@ -51,13 +51,14 @@ describe('H5App canvas authentication fallback', () => {
     expect(logoutBody).toContain('setFollowersUsers([]);');
   });
 
-  it('scopes status messages to the current screen and tab', () => {
+  it('uses Redux Router scope for status messages and auto dismissal', () => {
     const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
 
-    expect(source).toContain("const statusScopeRef = useRef(`${screen}:${activeTab}`);");
-    expect(source).toContain('const statusScope = `${screen}:${activeTab}`;');
-    expect(source).toContain('if (statusScopeRef.current !== statusScope) return;');
-    expect(source).toContain('setStatusState(\'\');');
+    expect(source).toContain('useScopedStatus');
+    expect(source).toContain('useStatusAutoDismiss');
+    expect(source).not.toContain('setStatusState');
+    expect(source).not.toContain('statusScopeRef');
+    expect(source).not.toContain('`${screen}:${activeTab}`');
   });
 
   it('uses layered route and page loading states instead of plain loading paragraphs', () => {
