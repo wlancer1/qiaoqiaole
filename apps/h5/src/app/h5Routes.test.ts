@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appPathForScreen, routeStateForPath } from './h5Routes';
+import { appPathForScreen, H5_ROUTE_PATHS, routeStateForPath } from './h5Routes';
 
 describe('H5 route mapping', () => {
   it('maps top-level URLs to page state', () => {
@@ -28,5 +28,15 @@ describe('H5 route mapping', () => {
     expect(appPathForScreen('my-works')).toBe('/projects');
     expect(appPathForScreen('warehouse')).toBe('/warehouses');
     expect(appPathForScreen('split-preview')).toBe('/split/preview');
+  });
+
+  it('declares a route for every existing page family', () => {
+    expect(Object.values(H5_ROUTE_PATHS)).toEqual(expect.arrayContaining([
+      '/', '/discover', '/messages', '/profile', '/following', '/followers',
+      '/community/posts/:postId', '/community/users/:userId', '/projects',
+      '/projects/:projectId/edit', '/projects/:projectId/beading', '/warehouses',
+      '/warehouses/:warehouseId', '/split', '/split/crop', '/split/preview',
+      '/canvas', '/beading',
+    ]));
   });
 });

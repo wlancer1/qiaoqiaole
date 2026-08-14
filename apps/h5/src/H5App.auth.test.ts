@@ -59,4 +59,16 @@ describe('H5App canvas authentication fallback', () => {
     expect(source).toContain('if (statusScopeRef.current !== statusScope) return;');
     expect(source).toContain('setStatusState(\'\');');
   });
+
+  it('uses layered route and page loading states instead of plain loading paragraphs', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+
+    expect(source).toContain('<Suspense fallback={<DelayedRouteLoadingFallback />}');
+    expect(source).toContain("lazy(() => import('./pages/editor/CanvasPage')");
+    expect(source).toContain('<PageSkeleton kind="editor" label="正在加载作品" />');
+    expect(source).toContain('<PageSkeleton kind="warehouse" label="正在加载仓库" />');
+    expect(source).toContain('<PageSkeleton kind="pattern-detail" label="正在加载作品" />');
+    expect(source).toContain('<PageSkeleton kind="profile-list" label="正在加载关注列表" />');
+    expect(source).not.toContain('<p className="community-empty">正在加载作品…</p>');
+  });
 });

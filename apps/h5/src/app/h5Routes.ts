@@ -5,6 +5,27 @@ export type H5RouteState = {
   activeTab: HomeTab;
 };
 
+export const H5_ROUTE_PATHS = {
+  home: '/',
+  discover: '/discover',
+  messages: '/messages',
+  profile: '/profile',
+  following: '/following',
+  followers: '/followers',
+  communityPost: '/community/posts/:postId',
+  authorProfile: '/community/users/:userId',
+  projects: '/projects',
+  projectEdit: '/projects/:projectId/edit',
+  projectBeading: '/projects/:projectId/beading',
+  warehouses: '/warehouses',
+  warehouseDetail: '/warehouses/:warehouseId',
+  split: '/split',
+  splitCrop: '/split/crop',
+  splitPreview: '/split/preview',
+  canvas: '/canvas',
+  beading: '/beading',
+} as const;
+
 const routeState: Array<{ pattern: RegExp; state: H5RouteState }> = [
   { pattern: /^\/discover\/?$/, state: { screen: 'home', activeTab: 'discover' } },
   { pattern: /^\/messages\/?$/, state: { screen: 'home', activeTab: 'messages' } },

@@ -1,5 +1,5 @@
-import { type ReactNode, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { lazy, Suspense, type ReactNode, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   Bell,
@@ -115,11 +115,6 @@ import { AuthorProfilePage, FollowersPage, FollowingPage, MyWorksPage, PatternDe
 import { quickTools } from './patterns/h5PatternData';
 import { insertCommentReply, removeCommentTree, sortCommunityPosts, toPatternListCard, type CommunityComment, type CommunityCommentsResponse, type CommunityNotification, type CommunityPost } from './community/communityData';
 import { nextAuthorBackTarget, nextDetailBackTarget } from './community/communityNavigation';
-import { WarehousePage } from './pages/warehouse/WarehousePage';
-import { WarehouseListPage } from './pages/warehouse/WarehouseListPage';
-import { SplitCropPage, SplitPreviewPage, SplitSettingsPage } from './pages/split/SplitPages';
-import { CanvasPage } from './pages/editor/CanvasPage';
-import { BeadingSessionPage } from './pages/beading/BeadingSessionPage';
 import { InventoryCheckSheet } from './pages/beading/InventoryCheckSheet';
 import { ProjectActionSheet } from './pages/beading/ProjectActionSheet';
 import type { BeadingSession, InventoryCheck } from './beading/beadingSessionClient';
@@ -133,7 +128,8 @@ import {
 } from './pages/split/splitImageProcessing';
 import { prepareBackgroundRemoval } from '@qiaoqiaole/core';
 import { defaultSplitGeometryFromCrop } from './pages/split/splitImageState';
-import { appPathForScreen, routeStateForPath } from './app/h5Routes';
+import { appPathForScreen, H5_ROUTE_PATHS, routeStateForPath } from './app/h5Routes';
+import { DelayedRouteLoadingFallback, PageSkeleton } from './loading/H5LoadingStates';
 import { resolveRestoredDisplayName } from './utils/authDisplayName';
 import { createNonce, createRequestId, getPhoneDeviceId, normalizePhone, showTencentCaptcha, signWebSmsRequest } from './utils/phoneAuthClient';
 import { passwordValidationMessage, validatePasswordLength } from './utils/passwordValidation';
@@ -167,6 +163,14 @@ import {
   gridSizeFromSplitBounds,
   maxSplitLongSideFromBounds,
 } from './utils/splitConfig';
+
+const WarehousePage = lazy(() => import('./pages/warehouse/WarehousePage').then((module) => ({ default: module.WarehousePage })));
+const WarehouseListPage = lazy(() => import('./pages/warehouse/WarehouseListPage').then((module) => ({ default: module.WarehouseListPage })));
+const SplitSettingsPage = lazy(() => import('./pages/split/SplitPages').then((module) => ({ default: module.SplitSettingsPage })));
+const SplitCropPage = lazy(() => import('./pages/split/SplitPages').then((module) => ({ default: module.SplitCropPage })));
+const SplitPreviewPage = lazy(() => import('./pages/split/SplitPages').then((module) => ({ default: module.SplitPreviewPage })));
+const CanvasPage = lazy(() => import('./pages/editor/CanvasPage').then((module) => ({ default: module.CanvasPage })));
+const BeadingSessionPage = lazy(() => import('./pages/beading/BeadingSessionPage').then((module) => ({ default: module.BeadingSessionPage })));
 
 const MAX_IMAGE_SIDE = 4096;
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
@@ -3486,7 +3490,8 @@ function H5App() {
     </>;
   })() : null;
 
-  if (screen === 'split' && uploadedSplitImage) {
+  const renderPage = (requestedScreen: AppScreen) => {
+  if (requestedScreen === 'split' && uploadedSplitImage) {
     return withAppOverlays(<SplitSettingsPage
       splitMode={splitMode}
       setScreen={setScreen}
@@ -3520,7 +3525,7 @@ function H5App() {
     />);
   }
 
-  if (screen === 'split-crop' && uploadedSplitImage) {
+  if (requestedScreen === 'split-crop' && uploadedSplitImage) {
     return withAppOverlays(<SplitCropPage
       setScreen={setScreen}
       splitPreviewLoading={splitPreviewLoading}
@@ -3545,7 +3550,7 @@ function H5App() {
     />);
   }
 
-  if (screen === 'split-preview' && uploadedSplitImage) {
+  if (requestedScreen === 'split-preview' && uploadedSplitImage) {
     return withAppOverlays(<SplitPreviewPage
       setScreen={setScreen}
       splitPreviewLoading={splitPreviewLoading}
@@ -3572,9 +3577,9 @@ function H5App() {
     />);
   }
 
-  if (screen === 'canvas') {
+  if (requestedScreen === 'canvas') {
     if (routeProjectId && activeProjectId !== routeProjectId) {
-      return withAppOverlays(<main className="h5-canvas-page" aria-label="H5 画布编辑器"><p className="community-empty">正在加载作品…</p></main>);
+      return withAppOverlays(<PageSkeleton kind="editor" label="正在加载作品" />);
     }
     return withAppOverlays(<CanvasPage
       fileInputRef={fileInputRef}
@@ -3681,7 +3686,7 @@ function H5App() {
     />);
   }
 
-  if (screen === 'beading' && beadingSession) {
+  if (requestedScreen === 'beading' && beadingSession) {
     return withAppOverlays(<>
       <BeadingSessionPage
         session={beadingSession}
@@ -3710,11 +3715,11 @@ function H5App() {
     </>);
   }
 
-  if (screen === 'beading') {
-    return withAppOverlays(<main className="beading-page" aria-label="拼豆进度"><p className="community-empty">正在加载拼豆进度…</p></main>);
+  if (requestedScreen === 'beading') {
+    return withAppOverlays(<PageSkeleton kind="editor" label="正在加载拼豆进度" />);
   }
 
-  if (screen === 'warehouse') {
+  if (requestedScreen === 'warehouse') {
     return withAppOverlays(<WarehouseListPage
       status={status}
       setActiveTab={setActiveTab}
@@ -3735,9 +3740,9 @@ function H5App() {
     />);
   }
 
-  if (screen === 'warehouse-detail') {
+  if (requestedScreen === 'warehouse-detail') {
     if (routeWarehouseId && activeWarehouseId !== routeWarehouseId) {
-      return withAppOverlays(<main className="warehouse-page" aria-label="豆子仓库"><p className="community-empty">正在加载仓库…</p></main>);
+      return withAppOverlays(<PageSkeleton kind="warehouse" label="正在加载仓库" />);
     }
     return withAppOverlays(<WarehousePage
       status={status}
@@ -3769,12 +3774,12 @@ function H5App() {
     />);
   }
 
-  if (screen === 'pattern-detail') {
+  if (requestedScreen === 'pattern-detail') {
     const detailPattern = routePostId
       ? (activePattern?.id === routePostId ? activePattern : undefined)
       : (activePattern ?? communityCards[0]);
     if (!detailPattern) {
-      return withAppOverlays(<main className="pattern-detail-page" aria-label="图纸详情页"><p className="community-empty">正在加载作品…</p></main>);
+      return withAppOverlays(<PageSkeleton kind="pattern-detail" label="正在加载作品" />);
     }
     return withAppOverlays(
       <PatternDetailPage
@@ -3810,9 +3815,12 @@ function H5App() {
     );
   }
 
-  if (screen === 'author-profile') {
+  if (requestedScreen === 'author-profile') {
     const authorId = authorProfile?.id || routeAuthorId || activePattern?.authorId || '';
     const authorPattern = routeAuthorId && activePattern?.authorId !== routeAuthorId ? undefined : (activePattern ?? communityCards[0]);
+    if (isAuthorProfileLoading && !authorProfile && authorProfilePosts.length === 0) {
+      return withAppOverlays(<PageSkeleton kind="pattern-list" label="正在加载作者主页" />);
+    }
     return withAppOverlays(<AuthorProfilePage
         patterns={authorProfilePosts}
         authorPattern={authorPattern}
@@ -3847,7 +3855,7 @@ function H5App() {
       />);
   }
 
-  if (screen === 'my-works') {
+  if (requestedScreen === 'my-works') {
     return withAppOverlays(
       <MyWorksPage
         projects={sortedRecentProjects}
@@ -3864,7 +3872,10 @@ function H5App() {
     );
   }
 
-  if (screen === 'following') {
+  if (requestedScreen === 'following') {
+    if (isFollowingLoading && followingUsers.length === 0) {
+      return withAppOverlays(<PageSkeleton kind="profile-list" label="正在加载关注列表" />);
+    }
     return withAppOverlays(<FollowingPage
         users={followingUsers}
         loading={isFollowingLoading}
@@ -3875,7 +3886,10 @@ function H5App() {
       />);
   }
 
-  if (screen === 'followers') {
+  if (requestedScreen === 'followers') {
+    if (isFollowersLoading && followersUsers.length === 0) {
+      return withAppOverlays(<PageSkeleton kind="profile-list" label="正在加载粉丝列表" />);
+    }
     return withAppOverlays(<FollowersPage
         users={followersUsers}
         loading={isFollowersLoading}
@@ -3884,6 +3898,10 @@ function H5App() {
         onRetry={() => void loadFollowersUsers()}
         onOpenUser={(user) => openFollowUserProfile(user, 'followers')}
       />);
+  }
+
+  if (activeTab === 'discover' && isCommunityLoading && communityPosts.length === 0) {
+    return withAppOverlays(<PageSkeleton kind="pattern-list" label="正在加载发现作品" />);
   }
 
   return withAppOverlays(<HomeShellPage
@@ -3934,6 +3952,31 @@ function H5App() {
     setWarehouses={setWarehouses} activeWarehouseIdRef={activeWarehouseIdRef} setActiveWarehouseId={setActiveWarehouseId}
     setBeadStock={setBeadStock} setSelectedWarehouseCodes={setSelectedWarehouseCodes}
   />);
+  };
+
+  return <Suspense fallback={<DelayedRouteLoadingFallback />}>
+    <Routes>
+      <Route path={H5_ROUTE_PATHS.home} element={renderPage('home')} />
+      <Route path={H5_ROUTE_PATHS.discover} element={renderPage('home')} />
+      <Route path={H5_ROUTE_PATHS.messages} element={renderPage('home')} />
+      <Route path={H5_ROUTE_PATHS.profile} element={renderPage('home')} />
+      <Route path={H5_ROUTE_PATHS.following} element={renderPage('following')} />
+      <Route path={H5_ROUTE_PATHS.followers} element={renderPage('followers')} />
+      <Route path={H5_ROUTE_PATHS.communityPost} element={renderPage('pattern-detail')} />
+      <Route path={H5_ROUTE_PATHS.authorProfile} element={renderPage('author-profile')} />
+      <Route path={H5_ROUTE_PATHS.projects} element={renderPage('my-works')} />
+      <Route path={H5_ROUTE_PATHS.projectEdit} element={renderPage('canvas')} />
+      <Route path={H5_ROUTE_PATHS.projectBeading} element={renderPage('beading')} />
+      <Route path={H5_ROUTE_PATHS.warehouses} element={renderPage('warehouse')} />
+      <Route path={H5_ROUTE_PATHS.warehouseDetail} element={renderPage('warehouse-detail')} />
+      <Route path={H5_ROUTE_PATHS.split} element={renderPage('split')} />
+      <Route path={H5_ROUTE_PATHS.splitCrop} element={renderPage('split-crop')} />
+      <Route path={H5_ROUTE_PATHS.splitPreview} element={renderPage('split-preview')} />
+      <Route path={H5_ROUTE_PATHS.canvas} element={renderPage('canvas')} />
+      <Route path={H5_ROUTE_PATHS.beading} element={renderPage('beading')} />
+      <Route path="*" element={<Navigate to={H5_ROUTE_PATHS.home} replace />} />
+    </Routes>
+  </Suspense>;
 }
 
 export default H5App;
