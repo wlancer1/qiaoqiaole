@@ -1,6 +1,6 @@
 import { configureStore, type Middleware, type UnknownAction } from '@reduxjs/toolkit';
 import { createApi } from '@reduxjs/toolkit/query';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { sessionEstablished, sessionInvalidated } from '../auth/authEvents';
 import { authReducer } from '../auth/authSlice';
 import type { AuthState, AuthUser } from '../auth/authTypes';
@@ -57,6 +57,47 @@ const testApi = createApi({
       query: () => ({ url: 'http://localhost/api/server-mutation', method: 'POST' }),
       extraOptions: { auth: 'none' } satisfies AuthExtraOptions,
     }),
+    crossOriginRequired: builder.query<unknown, void>({
+      query: () => 'https://example.com/private',
+      extraOptions: { auth: 'required' } satisfies AuthExtraOptions,
+    }),
+    crossOriginOptional: builder.query<unknown, void>({
+      query: () => 'https://example.com/profile',
+      extraOptions: { auth: 'optional' } satisfies AuthExtraOptions,
+    }),
+    crossOriginNone: builder.query<unknown, void>({
+      query: () => ({
+        url: 'https://example.com/public',
+        headers: { authorization: 'Bearer caller-token' },
+      }),
+      extraOptions: { auth: 'none' } satisfies AuthExtraOptions,
+    }),
+    missingPolicy: builder.query<unknown, void>({
+      query: () => 'http://localhost/api/missing-policy',
+    }),
+    recordHeaders: builder.query<unknown, void>({
+      query: () => ({
+        url: 'http://localhost/api/record-headers',
+        headers: { 'x-custom': 'record-value', 'x-undefined': undefined },
+      }),
+      extraOptions: { auth: 'none' } satisfies AuthExtraOptions,
+    }),
+    headersInstance: builder.query<unknown, void>({
+      query: () => ({
+        url: 'http://localhost/api/headers-instance',
+        headers: new Headers({ 'x-custom': 'headers-value' }),
+      }),
+      extraOptions: { auth: 'none' } satisfies AuthExtraOptions,
+    }),
+    transportMeta: builder.query<unknown, void>({
+      query: () => 'http://localhost/api/transport-meta',
+      extraOptions: { auth: 'none' } satisfies AuthExtraOptions,
+      transformErrorResponse: (error, meta) => ({
+        error,
+        requestUrl: meta?.request.url,
+        responseStatus: meta?.response?.status,
+      }),
+    }),
   }),
 });
 
@@ -88,6 +129,13 @@ function jsonResponse(body: unknown, status = 200): Response {
 function requestFrom(fetchMock: ReturnType<typeof vi.fn>, call = 0): Request {
   return fetchMock.mock.calls[call][0] as Request;
 }
+
+beforeEach(() => {
+  vi.stubGlobal('location', {
+    origin: 'http://localhost',
+    href: 'http://localhost/app',
+  });
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -150,6 +198,77 @@ describe('authenticatedBaseQuery auth policy', () => {
 
     expect(requestFrom(fetchMock).headers.has('authorization')).toBe(false);
   });
+
+  it.each([
+    ['required', testApi.endpoints.crossOriginRequired],
+    ['optional', testApi.endpoints.crossOriginOptional],
+  ] as const)('rejects an authenticated cross-origin absolute URL for %s without fetching', async (
+    _name,
+    endpoint,
+  ) => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { store } = createTestStore();
+
+    const result = await store.dispatch(endpoint.initiate());
+
+    expect(result).toMatchObject({
+      error: {
+        kind: 'business',
+        code: 'CROSS_ORIGIN_AUTH_FORBIDDEN',
+        retryable: false,
+      },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('allows a none cross-origin URL but strips caller authorization', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { store } = createTestStore();
+
+    await store.dispatch(testApi.endpoints.crossOriginNone.initiate()).unwrap();
+
+    expect(requestFrom(fetchMock).headers.has('authorization')).toBe(false);
+  });
+
+  it('rejects an endpoint that omits its authentication policy', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { store } = createTestStore();
+
+    const result = await store.dispatch(testApi.endpoints.missingPolicy.initiate());
+
+    expect(result).toMatchObject({
+      error: {
+        kind: 'business',
+        code: 'AUTH_POLICY_REQUIRED',
+        retryable: false,
+      },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('filters undefined record headers while preserving custom values', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { store } = createTestStore();
+
+    await store.dispatch(testApi.endpoints.recordHeaders.initiate()).unwrap();
+
+    expect(requestFrom(fetchMock).headers.get('x-custom')).toBe('record-value');
+    expect(requestFrom(fetchMock).headers.has('x-undefined')).toBe(false);
+  });
+
+  it('preserves custom values from a Headers instance', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { store } = createTestStore();
+
+    await store.dispatch(testApi.endpoints.headersInstance.initiate()).unwrap();
+
+    expect(requestFrom(fetchMock).headers.get('x-custom')).toBe('headers-value');
+  });
 });
 
 describe('authenticatedBaseQuery invalidation', () => {
@@ -195,6 +314,16 @@ describe('authenticatedBaseQuery invalidation', () => {
     expect(invalidation?.payload).toEqual({ token: 'token-a', sessionVersion: 7 });
     expect(store.getState().auth).toMatchObject({ token: 'token-b', sessionVersion: 8 });
   });
+
+  it('does not invalidate or increment an anonymous session on required 401', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ message: '未登录' }, 401)));
+    const { store, actions } = createTestStore(authState('', 3));
+
+    await store.dispatch(testApi.endpoints.required.initiate());
+
+    expect(actions.filter(sessionInvalidated.match)).toHaveLength(0);
+    expect(store.getState().auth.sessionVersion).toBe(3);
+  });
 });
 
 describe('authenticatedBaseQuery error mapping', () => {
@@ -239,5 +368,46 @@ describe('authenticatedBaseQuery error mapping', () => {
 
     expect(result).toMatchObject({ error: { kind: 'http', status: 500, retryable: false } });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('maps a real fetch rejection to a network error and preserves request meta', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+    const { store } = createTestStore();
+
+    const result = await store.dispatch(testApi.endpoints.transportMeta.initiate());
+
+    expect(result).toMatchObject({
+      error: {
+        error: { kind: 'network', message: 'TypeError: Failed to fetch', retryable: true },
+        requestUrl: 'http://localhost/api/transport-meta',
+      },
+    });
+  });
+
+  it('maps an AbortError fetch rejection to an aborted error', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new DOMException('已取消', 'AbortError')));
+    const { store } = createTestStore();
+
+    const result = await store.dispatch(testApi.endpoints.transportMeta.initiate());
+
+    expect(result).toMatchObject({ error: { error: { kind: 'aborted', retryable: false } } });
+  });
+
+  it('maps an invalid JSON response to parse and preserves response meta', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('<html>', {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })));
+    const { store } = createTestStore();
+
+    const result = await store.dispatch(testApi.endpoints.transportMeta.initiate());
+
+    expect(result).toMatchObject({
+      error: {
+        error: { kind: 'parse', status: 200, retryable: false },
+        requestUrl: 'http://localhost/api/transport-meta',
+        responseStatus: 200,
+      },
+    });
   });
 });
