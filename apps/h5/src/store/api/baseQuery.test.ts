@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { sessionEstablished, sessionInvalidated } from '../auth/authEvents';
 import { authReducer } from '../auth/authSlice';
 import type { AuthState, AuthUser } from '../auth/authTypes';
+import { API_TAG_TYPES, apiSlice } from './apiSlice';
 import { authenticatedBaseQuery, type AuthExtraOptions } from './baseQuery';
 
 const authenticatedUser: AuthUser = {
@@ -91,6 +92,29 @@ function requestFrom(fetchMock: ReturnType<typeof vi.fn>, call = 0): Request {
 afterEach(() => {
   vi.unstubAllGlobals();
   testApi.util.resetApiState();
+});
+
+describe('apiSlice configuration', () => {
+  it('registers the complete formal API tag list', () => {
+    expect(API_TAG_TYPES).toEqual([
+      'CommunityPost',
+      'CommunityComment',
+      'CommunityProfile',
+      'CommunityRelation',
+      'Notification',
+      'Project',
+      'ProjectFolder',
+      'Warehouse',
+      'Inventory',
+      'BeadingSession',
+    ]);
+  });
+
+  it('keeps unused API data for 120 seconds', () => {
+    const initialState = apiSlice.reducer(undefined, { type: '@@INIT' });
+
+    expect(initialState.config.keepUnusedDataFor).toBe(120);
+  });
 });
 
 describe('authenticatedBaseQuery auth policy', () => {
