@@ -7,6 +7,7 @@ import {
   sessionInvalidated,
 } from './authEvents';
 import type { AuthState, StoredAuthRecord } from './authTypes';
+import { restoreSession } from './authThunks';
 
 type AuthRootState = {
   auth: AuthState;
@@ -68,6 +69,34 @@ const authSlice = createSlice({
         clearSession(state);
       })
       .addCase(sessionCleared, (state) => {
+        clearSession(state);
+      })
+      .addCase(restoreSession.pending, (state, action) => {
+        if (
+          state.status !== 'restoring'
+          || state.restoreRequestId !== null
+          || state.sessionVersion !== action.meta.arg.sessionVersion
+          || !state.token
+        ) return;
+        state.restoreRequestId = action.meta.requestId;
+      })
+      .addCase(restoreSession.fulfilled, (state, action) => {
+        if (
+          state.restoreRequestId !== action.meta.requestId
+          || state.sessionVersion !== action.meta.arg.sessionVersion
+        ) return;
+        state.status = 'authenticated';
+        state.token = action.payload.token;
+        state.user = action.payload.user;
+        state.restoreIdentityHint = null;
+        state.restoreRequestId = null;
+        state.sessionVersion += 1;
+      })
+      .addCase(restoreSession.rejected, (state, action) => {
+        if (
+          state.restoreRequestId !== action.meta.requestId
+          || state.sessionVersion !== action.meta.arg.sessionVersion
+        ) return;
         clearSession(state);
       })
       .addCase(profileUpdated, (state, action) => {

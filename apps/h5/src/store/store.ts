@@ -2,6 +2,7 @@ import { configureStore } from '@reduxjs/toolkit';
 import { apiSlice } from './api/apiSlice';
 import { createAuthInitialState, authReducer } from './auth/authSlice';
 import { readStoredAuth } from './auth/authStorage';
+import { createAuthListenerMiddleware } from './auth/authListener';
 
 export type H5StoreOptions = {
   storage?: Storage;
@@ -21,6 +22,7 @@ export function createH5Store(options: H5StoreOptions = {}) {
   const storage = options.storage ?? getBrowserStorage();
   const storedAuth = readStoredAuth(storage);
   const authInitialState = createAuthInitialState(storedAuth);
+  const authListener = createAuthListenerMiddleware({ storage });
 
   return configureStore({
     reducer: {
@@ -30,7 +32,9 @@ export function createH5Store(options: H5StoreOptions = {}) {
     preloadedState: {
       auth: authInitialState,
     },
-    middleware: (getDefaultMiddleware) => getDefaultMiddleware().concat(apiSlice.middleware),
+    middleware: (getDefaultMiddleware) => getDefaultMiddleware()
+      .prepend(authListener.middleware)
+      .concat(apiSlice.middleware),
   });
 }
 
