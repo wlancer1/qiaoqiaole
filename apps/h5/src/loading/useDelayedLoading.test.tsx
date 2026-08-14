@@ -1,5 +1,5 @@
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDelayedLoading } from './useDelayedLoading';
 
 beforeAll(() => {
@@ -11,11 +11,21 @@ function Harness({ loading }: { loading: boolean }) {
 }
 
 describe('useDelayedLoading', () => {
+  const renderers: ReactTestRenderer[] = [];
+
   beforeEach(() => vi.useFakeTimers());
+
+  afterEach(() => {
+    for (const renderer of renderers) act(() => renderer.unmount());
+    renderers.length = 0;
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
 
   it('does not show before 300ms and becomes visible after the delay', async () => {
     let renderer!: ReactTestRenderer;
     await act(async () => { renderer = create(<Harness loading />); });
+    renderers.push(renderer);
     act(() => { vi.advanceTimersByTime(299); });
     expect(renderer.root.findByType('output').children.join('')).toBe('hidden');
     act(() => { vi.advanceTimersByTime(1); });
@@ -25,6 +35,7 @@ describe('useDelayedLoading', () => {
   it('keeps a visible indicator for at least 250ms', async () => {
     let renderer!: ReactTestRenderer;
     await act(async () => { renderer = create(<Harness loading />); });
+    renderers.push(renderer);
     act(() => { vi.advanceTimersByTime(300); });
     await act(async () => { renderer.update(<Harness loading={false} />); });
     act(() => { vi.advanceTimersByTime(249); });
@@ -36,6 +47,7 @@ describe('useDelayedLoading', () => {
   it('cancels a pending reveal when loading finishes early', async () => {
     let renderer!: ReactTestRenderer;
     await act(async () => { renderer = create(<Harness loading />); });
+    renderers.push(renderer);
     act(() => { vi.advanceTimersByTime(100); });
     await act(async () => { renderer.update(<Harness loading={false} />); });
     act(() => { vi.advanceTimersByTime(500); });

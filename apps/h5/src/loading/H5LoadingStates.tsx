@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { Component, type ReactNode } from 'react';
 import { useDelayedLoading } from './useDelayedLoading';
 
 export type PageSkeletonKind = 'home' | 'pattern-list' | 'pattern-detail' | 'profile-list' | 'warehouse' | 'editor';
@@ -41,18 +41,44 @@ export function PageSkeleton({ kind, label }: { kind: PageSkeletonKind; label: s
   </main>;
 }
 
-export function PageLoadBoundary({ loading, error = '', skeleton, loadingLabel, onRetry, children }: {
-  loading: boolean;
-  error?: string;
-  skeleton: PageSkeletonKind;
-  loadingLabel: string;
-  onRetry?: () => void;
-  children?: ReactNode;
-}) {
-  if (loading) return <PageSkeleton kind={skeleton} label={loadingLabel} />;
-  if (error) return <main className="page-load-error" role="alert">
-    <strong>{error}</strong>
-    {onRetry ? <button type="button" onClick={onRetry}>重新加载</button> : null}
-  </main>;
-  return <div className="page-content-enter">{children}</div>;
+type RouteLoadErrorBoundaryProps = {
+  children: ReactNode;
+  resetKey: string;
+  onReload?: () => void;
+};
+
+type RouteLoadErrorBoundaryState = {
+  error: Error | null;
+};
+
+export class RouteLoadErrorBoundary extends Component<RouteLoadErrorBoundaryProps, RouteLoadErrorBoundaryState> {
+  state: RouteLoadErrorBoundaryState = { error: null };
+
+  static getDerivedStateFromError(error: Error): RouteLoadErrorBoundaryState {
+    return { error };
+  }
+
+  componentDidUpdate(previousProps: RouteLoadErrorBoundaryProps) {
+    if (previousProps.resetKey !== this.props.resetKey && this.state.error) {
+      this.setState({ error: null });
+    }
+  }
+
+  private reloadPage = () => {
+    if (this.props.onReload) {
+      this.props.onReload();
+      return;
+    }
+    window.location.reload();
+  };
+
+  render() {
+    if (!this.state.error) return this.props.children;
+
+    return <main className="page-load-error" role="alert" aria-label="页面加载失败">
+      <strong>页面加载失败</strong>
+      <span>页面资源没有加载成功，请重新加载后再试。</span>
+      <button type="button" aria-label="重新加载页面" onClick={this.reloadPage}>重新加载</button>
+    </main>;
+  }
 }

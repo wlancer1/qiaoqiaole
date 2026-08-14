@@ -1,5 +1,5 @@
-import { lazy, Suspense, type ReactNode, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { lazy, type ReactNode, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   Bell,
@@ -128,8 +128,9 @@ import {
 } from './pages/split/splitImageProcessing';
 import { prepareBackgroundRemoval } from '@qiaoqiaole/core';
 import { defaultSplitGeometryFromCrop } from './pages/split/splitImageState';
-import { appPathForScreen, H5_ROUTE_PATHS, routeStateForPath } from './app/h5Routes';
-import { DelayedRouteLoadingFallback, PageSkeleton } from './loading/H5LoadingStates';
+import { appPathForScreen, routeStateForPath } from './app/h5Routes';
+import { H5RoutedContent } from './app/H5RoutedContent';
+import { PageSkeleton } from './loading/H5LoadingStates';
 import { resolveRestoredDisplayName } from './utils/authDisplayName';
 import { createNonce, createRequestId, getPhoneDeviceId, normalizePhone, showTencentCaptcha, signWebSmsRequest } from './utils/phoneAuthClient';
 import { passwordValidationMessage, validatePasswordLength } from './utils/passwordValidation';
@@ -3954,29 +3955,7 @@ function H5App() {
   />);
   };
 
-  return <Suspense fallback={<DelayedRouteLoadingFallback />}>
-    <Routes>
-      <Route path={H5_ROUTE_PATHS.home} element={renderPage('home')} />
-      <Route path={H5_ROUTE_PATHS.discover} element={renderPage('home')} />
-      <Route path={H5_ROUTE_PATHS.messages} element={renderPage('home')} />
-      <Route path={H5_ROUTE_PATHS.profile} element={renderPage('home')} />
-      <Route path={H5_ROUTE_PATHS.following} element={renderPage('following')} />
-      <Route path={H5_ROUTE_PATHS.followers} element={renderPage('followers')} />
-      <Route path={H5_ROUTE_PATHS.communityPost} element={renderPage('pattern-detail')} />
-      <Route path={H5_ROUTE_PATHS.authorProfile} element={renderPage('author-profile')} />
-      <Route path={H5_ROUTE_PATHS.projects} element={renderPage('my-works')} />
-      <Route path={H5_ROUTE_PATHS.projectEdit} element={renderPage('canvas')} />
-      <Route path={H5_ROUTE_PATHS.projectBeading} element={renderPage('beading')} />
-      <Route path={H5_ROUTE_PATHS.warehouses} element={renderPage('warehouse')} />
-      <Route path={H5_ROUTE_PATHS.warehouseDetail} element={renderPage('warehouse-detail')} />
-      <Route path={H5_ROUTE_PATHS.split} element={renderPage('split')} />
-      <Route path={H5_ROUTE_PATHS.splitCrop} element={renderPage('split-crop')} />
-      <Route path={H5_ROUTE_PATHS.splitPreview} element={renderPage('split-preview')} />
-      <Route path={H5_ROUTE_PATHS.canvas} element={renderPage('canvas')} />
-      <Route path={H5_ROUTE_PATHS.beading} element={renderPage('beading')} />
-      <Route path="*" element={<Navigate to={H5_ROUTE_PATHS.home} replace />} />
-    </Routes>
-  </Suspense>;
+  return <H5RoutedContent renderPage={renderPage} />;
 }
 
 export default H5App;

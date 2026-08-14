@@ -63,7 +63,7 @@ describe('H5App canvas authentication fallback', () => {
   it('uses layered route and page loading states instead of plain loading paragraphs', () => {
     const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
 
-    expect(source).toContain('<Suspense fallback={<DelayedRouteLoadingFallback />}');
+    expect(source).toContain('<H5RoutedContent renderPage={renderPage} />');
     expect(source).toContain("lazy(() => import('./pages/editor/CanvasPage')");
     expect(source).toContain('<PageSkeleton kind="editor" label="正在加载作品" />');
     expect(source).toContain('<PageSkeleton kind="warehouse" label="正在加载仓库" />');

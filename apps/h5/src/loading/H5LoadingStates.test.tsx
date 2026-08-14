@@ -1,7 +1,16 @@
-import { createElement } from 'react';
+import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
-import { PageLoadBoundary, PageSkeleton, RouteLoadingFallback } from './H5LoadingStates';
+import { act, create, type ReactTestRenderer } from 'react-test-renderer';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { PageSkeleton, RouteLoadErrorBoundary, RouteLoadingFallback } from './H5LoadingStates';
+
+beforeAll(() => {
+  (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+});
+
+function RejectedRoute(): ReactNode {
+  throw new Error('chunk failed');
+}
 
 describe('H5 loading states', () => {
   it('renders a centered nine-pixel route status', () => {
@@ -23,18 +32,31 @@ describe('H5 loading states', () => {
     },
   );
 
-  it('shows loading, error retry, and ready content exclusively', () => {
-    const retry = vi.fn();
-    const loading = renderToStaticMarkup(createElement(PageLoadBoundary, { loading: true, skeleton: 'editor', loadingLabel: '正在读取作品' }, '作品'));
-    expect(loading).toContain('page-skeleton--editor');
-    expect(loading).not.toContain('>作品<');
+  it('offers one accessible page reload after a route chunk fails', async () => {
+    const reload = vi.fn();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    let renderer!: ReactTestRenderer;
 
-    const error = renderToStaticMarkup(createElement(PageLoadBoundary, { loading: false, error: '读取失败', skeleton: 'editor', loadingLabel: '正在读取作品', onRetry: retry }, '作品'));
-    expect(error).toContain('读取失败');
-    expect(error).toContain('重新加载');
+    try {
+      await act(async () => {
+        renderer = create(
+          <RouteLoadErrorBoundary resetKey="/broken" onReload={reload}>
+            <RejectedRoute />
+          </RouteLoadErrorBoundary>,
+        );
+      });
 
-    const ready = renderToStaticMarkup(createElement(PageLoadBoundary, { loading: false, skeleton: 'editor', loadingLabel: '正在读取作品' }, createElement('p', null, '作品')));
-    expect(ready).toContain('page-content-enter');
-    expect(ready).toContain('>作品<');
+      const alert = renderer.root.findByProps({ role: 'alert' });
+      expect(alert.props['aria-label']).toBe('页面加载失败');
+      const button = renderer.root.findByType('button');
+      expect(button.props['aria-label']).toBe('重新加载页面');
+
+      act(() => button.props.onClick());
+
+      expect(reload).toHaveBeenCalledTimes(1);
+    } finally {
+      if (renderer) act(() => renderer.unmount());
+      consoleError.mockRestore();
+    }
   });
 });
