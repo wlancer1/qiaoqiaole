@@ -98,14 +98,14 @@
 
 * `H5App` 的全局提示（`status`）必须绑定当前 Router 作用域（由 `location.key + pathname + search` 组成）；路由变化时立即清理旧提示。
 * 页面请求、异步操作和组件回调不能在页面离开后继续把错误或成功提示写入新页面；异步回调需要使用请求序号、取消标记或页面作用域校验丢弃过期结果。
-* 新增页面级提示时，优先使用页面自己的 `error` / `status` 状态；如果必须使用应用级提示，必须补充跨页面切换和旧请求晚到的回归测试。
+* 页面级提示必须绑定当前 Router scope；优先使用页面自己的 `error` / `status` 状态。真正跨路由的全局通知可以使用独立的全局通知状态，但必须提供独立清除行为，不得与页面提示混淆；如果使用应用级提示，必须补充跨页面切换和旧请求晚到的回归测试。
 * 不要把上一页面的提示作为下一页面的初始状态；异步回调派发提示时必须使用创建时捕获的 Router 作用域；导航相关测试应明确断言新页面不会显示旧页面文案。
 
 ## 页面导航与路由
 
 * 页面级导航必须使用 React Router，不要新增依赖 `screen`、`activeTab` 等 React state 来决定当前页面。
 * `BrowserRouter` 是 H5 应用的统一路由入口；页面跳转使用 `navigate`、`Link` 或 `NavLink`，浏览器前进、后退和刷新必须保持可用。
-* 页面路径、资源 ID、列表 Tab 和可分享的筛选条件属于路由状态；页面内部的画布数据、弹窗、拖拽、撤销重做和异步加载状态继续使用 React state 或合适的 Context。
+* 路径、资源 ID、Tab、筛选条件、分页等可分享导航状态由 React Router 管理；服务端数据和缓存由 RTK Query 管理；草稿、弹窗、拖拽、撤销重做和异步加载等短生命周期状态继续使用组件 state 或合适的 Context。
 * 新增页面必须先在 H5 路由映射中注册明确路径，再实现页面组件；禁止继续向 `H5App.tsx` 添加基于 `if (screen === ...)` 的页面分支作为新的导航方式。
 * 路由参数必须经过编码和校验；需要资源 ID 的页面不能依赖上一个页面残留的内存对象才能渲染，刷新或直接打开深链接时应按 ID 重新加载数据。
 * 需要登录的路由在页面级处理认证和返回目标；未登录时使用现有登录弹窗或登录入口，不要让页面组件自行修改全局导航变量。
@@ -115,14 +115,14 @@
 
 * H5 全局状态只使用 Redux Toolkit 和 React Redux；新增全局状态不得引入其他状态管理方案。
 * 服务端数据默认统一使用一个 RTK Query `apiSlice`，业务模块通过 injected endpoints 扩展，禁止为同一 API 创建平行的查询缓存。
-* 页面、资源和筛选条件状态由 React Router 管理；页面内部的短生命周期状态仍归页面组件、React state 或合适的 Context 管理。
+* 页面和组件状态按职责分层：可分享导航状态由 React Router 管理，服务端数据和缓存由 RTK Query 管理，短生命周期状态由组件 state 或合适的 Context 管理。
 * Redux state 和 Redux action payload 必须可序列化。
 * DOM、ref、函数、事件对象、`File`、`ImageData`、`PointerEvent`、定时器句柄、动画帧句柄等禁止放入 Redux。
 * 不要创建巨大的 `appSlice` 或巨大的全局 Context；状态应按领域拆分，并保持清晰的所有权边界。
-* 派生数据必须放在 `selectXxx` selector 中，组件不要重复拼装跨领域派生逻辑。
+* Redux 中跨组件或跨领域使用的派生数据必须放在 `selectXxx` selector 中；组件内部简单的展示计算可以保留在组件内。
 * Action 默认描述领域事件或业务结果，不要把机械性的 `setXxx` 作为跨组件通信的默认方式。
 * 画布 Pointer movement 等高频交互状态保持在页面或组件本地，只在稳定边界（如提交、结束拖拽、完成绘制）提交到 Redux 或服务端。
-* 每次 Slice 或 Endpoint 迁移都必须补充 reducer、selector、缓存失效（invalidation）和错误路径测试。
+* 每次 Slice 或 Endpoint 迁移都必须按适用范围补充行为相关测试：Slice 至少覆盖 reducer 和 selector；涉及 RTK Query 缓存时覆盖缓存失效（invalidation）；异步请求覆盖成功、失败、取消等适用路径。
 
 ## API 列表与详情接口规范
 
