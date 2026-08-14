@@ -92,10 +92,16 @@ describe('createH5Store', () => {
   it('installs the api reducer and middleware while keeping the chunk state shape exact', () => {
     const store = createH5Store({ storage: new MemoryStorage() });
 
-    expect(Object.keys(store.getState()).sort()).toEqual(['api', 'auth']);
+    expect(Object.keys(store.getState()).sort()).toEqual(['api', 'auth', 'ui']);
     expect(store.getState().api).toEqual(apiSlice.reducer(undefined, { type: '@@init' }));
 
     expect(() => store.dispatch(apiSlice.util.resetApiState())).not.toThrow();
+  });
+
+  it('exports a browser store with the same reducer shape', async () => {
+    const { store } = await import('./store');
+
+    expect(Object.keys(store.getState()).sort()).toEqual(['api', 'auth', 'ui']);
   });
 
   it('keeps serializable checks enabled', () => {
