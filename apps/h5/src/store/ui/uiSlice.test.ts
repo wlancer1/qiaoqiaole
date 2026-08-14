@@ -1,0 +1,126 @@
+import { describe, expect, it } from 'vitest';
+import {
+  globalStatusRequested,
+  loginRequestCancelled,
+  loginRequestCompleted,
+  loginRequestReconciled,
+  loginRequestStarted,
+  routeScopeChanged,
+  statusCleared,
+  statusRequested,
+  uiReducer,
+  type UiState,
+} from './uiSlice';
+
+const initialState: UiState = {
+  currentRouteScope: 'route-a',
+  status: null,
+  loginRequest: null,
+};
+
+function withStatus(state = initialState): UiState {
+  return uiReducer(state, statusRequested({ scopeId: 'route-a', message: '保存成功' }));
+}
+
+function withLoginRequest(state = initialState): UiState {
+  return uiReducer(state, loginRequestStarted({
+    id: 'login-1',
+    scopeId: 'route-a',
+    returnTo: '/projects/1',
+  }));
+}
+
+describe('ui reducer route-scoped status', () => {
+  it('clears the old status when the route scope changes', () => {
+    expect(uiReducer(withStatus(), routeScopeChanged({ scopeId: 'route-b' }))).toEqual({
+      currentRouteScope: 'route-b',
+      status: null,
+      loginRequest: null,
+    });
+  });
+
+  it('accepts status for the current route scope', () => {
+    expect(withStatus()).toEqual({
+      ...initialState,
+      status: { scopeId: 'route-a', message: '保存成功' },
+    });
+  });
+
+  it('ignores status and clear actions from an old route scope', () => {
+    const state = withStatus();
+
+    expect(uiReducer(state, statusRequested({ scopeId: 'route-old', message: '旧提示' }))).toBe(state);
+    expect(uiReducer(state, statusCleared({ scopeId: 'route-old' }))).toBe(state);
+  });
+
+  it('allows a global status to bypass the current route scope', () => {
+    expect(uiReducer(initialState, globalStatusRequested({ message: '登录状态已失效' }))).toEqual({
+      ...initialState,
+      status: { scopeId: 'global', message: '登录状态已失效' },
+    });
+  });
+});
+
+describe('ui reducer login request metadata', () => {
+  it('keeps the first valid login returnTo while a request is active', () => {
+    const started = withLoginRequest();
+
+    expect(uiReducer(started, loginRequestStarted({
+      id: 'login-2',
+      scopeId: 'route-b',
+      returnTo: '/projects/2',
+    }))).toBe(started);
+  });
+
+  it('updates the surviving scope and returnTo for a matching reconciliation', () => {
+    expect(uiReducer(withLoginRequest(), loginRequestReconciled({
+      id: 'login-1',
+      scopeId: 'route-b',
+      returnTo: '/profile',
+    }))).toEqual({
+      ...initialState,
+      loginRequest: { id: 'login-1', scopeId: 'route-b', returnTo: '/profile' },
+    });
+  });
+
+  it('ignores reconciliation for a stale login request ID', () => {
+    const state = withLoginRequest();
+
+    expect(uiReducer(state, loginRequestReconciled({
+      id: 'login-old',
+      scopeId: 'route-b',
+      returnTo: '/profile',
+    }))).toBe(state);
+  });
+
+  it('completes or cancels only the matching login request ID', () => {
+    const state = withLoginRequest();
+
+    expect(uiReducer(state, loginRequestCompleted({ id: 'login-old' }))).toBe(state);
+    expect(uiReducer(state, loginRequestCancelled({ id: 'login-old' }))).toBe(state);
+    expect(uiReducer(state, loginRequestCompleted({ id: 'login-1' }))).toEqual(initialState);
+    expect(uiReducer(state, loginRequestCancelled({ id: 'login-1' }))).toEqual(initialState);
+  });
+});
+
+describe('ui reducer serializability', () => {
+  it('keeps every state and action serializable', () => {
+    const actions = [
+      routeScopeChanged({ scopeId: 'route-b' }),
+      statusRequested({ scopeId: 'route-b', message: '完成' }),
+      statusCleared({ scopeId: 'route-b' }),
+      globalStatusRequested({ message: '全局提示' }),
+      loginRequestStarted({ id: 'login-1', scopeId: 'route-b', returnTo: '/projects/1' }),
+      loginRequestReconciled({ id: 'login-1', scopeId: 'route-c' }),
+      loginRequestCompleted({ id: 'login-1' }),
+      loginRequestCancelled({ id: 'login-1' }),
+    ];
+    let state = initialState;
+
+    for (const action of actions) {
+      expect(() => JSON.stringify(action)).not.toThrow();
+      state = uiReducer(state, action);
+      expect(() => JSON.stringify(state)).not.toThrow();
+    }
+  });
+});
