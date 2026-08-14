@@ -1,4 +1,6 @@
-FROM node:22-alpine
+# better-sqlite3 uses the native SQLite driver. Debian slim has a supported
+# glibc runtime and prebuilt native binaries for the production Node version.
+FROM node:22-bookworm-slim
 
 WORKDIR /app
 

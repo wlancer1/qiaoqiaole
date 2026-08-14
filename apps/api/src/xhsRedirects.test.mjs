@@ -89,4 +89,13 @@ describe('validated Xiaohongshu redirects', () => {
     expect(response).toMatchObject({ ok: false, status: 508 });
     expect(fetchImpl).toHaveBeenCalledTimes(5);
   });
+
+  test('passes an abort signal to every upstream request', async () => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce(upstreamResponse(200));
+    const logger = { info: vi.fn() };
+
+    await fetchXiaohongshuPage('https://xhslink.cn/o/1', logger, { fetchImpl });
+
+    expect(fetchImpl.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+  });
 });

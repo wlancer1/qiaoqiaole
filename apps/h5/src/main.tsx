@@ -1,5 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { BrowserRouter } from 'react-router-dom';
 import H5App from './H5App';
 import './styles.css';
 
@@ -11,7 +12,7 @@ async function renderApp() {
     ? React.createElement((await import('./pages/beading/BeadingSessionFixture')).BeadingSessionFixture)
     : <H5App />;
   ReactDOM.createRoot(document.getElementById('root')!).render(
-    <React.StrictMode>{content}</React.StrictMode>,
+    <React.StrictMode><BrowserRouter basename={import.meta.env.BASE_URL}>{content}</BrowserRouter></React.StrictMode>,
   );
 }
 

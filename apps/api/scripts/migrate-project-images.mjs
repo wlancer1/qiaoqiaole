@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
-import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import initSqlJs from 'sql.js';
 import { loadEnvFile } from '../src/env.mjs';
+import { openSqliteDatabase } from '../src/sqliteStore.mjs';
 import { loadTencentCosConfig, uploadToTencentCos } from '../src/tencentCos.mjs';
 
 loadEnvFile();
@@ -65,20 +65,12 @@ function printUsage() {
 `);
 }
 
-async function openDatabase(filename) {
-  const SQL = await initSqlJs();
-  const data = await readFile(filename);
-  return new SQL.Database(data);
-}
-
 function rowsFromQuery(db) {
-  const result = db.exec('SELECT id, user_id, name, source_image, thumbnail_image FROM projects ORDER BY created_at ASC, id ASC');
-  if (!result[0]) return [];
-  const { columns, values } = result[0];
-  return values.map((value) => Object.fromEntries(columns.map((column, index) => [column, value[index]])));
+  return db.prepare('SELECT id, user_id, name, source_image, thumbnail_image FROM projects ORDER BY created_at ASC, id ASC').all();
 }
 
-async function backupDatabase(dbPath, backupDir) {
+async function backupDatabase(db, dbPath, backupDir) {
+  db.pragma('wal_checkpoint(TRUNCATE)');
   await mkdir(backupDir, { recursive: true });
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const backupPath = path.join(backupDir, `${path.basename(dbPath)}.before-project-image-migration.${timestamp}.bak`);
@@ -99,7 +91,7 @@ async function migrate() {
   const parsedLimit = Number(getArg(args, '--limit', '0'));
   const limit = Number.isInteger(parsedLimit) && parsedLimit > 0 ? parsedLimit : Number.POSITIVE_INFINITY;
 
-  const db = await openDatabase(dbPath);
+  const db = openSqliteDatabase(dbPath);
   const candidates = findLegacyProjectImages(rowsFromQuery(db)).slice(0, limit);
   const allCandidates = findLegacyProjectImages(rowsFromQuery(db));
 
@@ -111,14 +103,16 @@ async function migrate() {
 
   if (!execute) {
     console.log('当前为预览模式，数据库未修改。确认无误后追加 --execute 执行迁移。');
+    db.close();
     return;
   }
   if (candidates.length === 0) {
     console.log('没有需要迁移的 Base64 项目图片。');
+    db.close();
     return;
   }
 
-  const backupPath = await backupDatabase(dbPath, backupDir);
+  const backupPath = await backupDatabase(db, dbPath, backupDir);
   console.log(`数据库备份：${backupPath}`);
   const config = loadTencentCosConfig();
   let success = 0;
@@ -142,7 +136,8 @@ async function migrate() {
       console.error(`[失败] ${item.projectId} ${item.field}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-  await writeFile(dbPath, Buffer.from(db.export()));
+  db.pragma('wal_checkpoint(TRUNCATE)');
+  db.close();
   console.log(`迁移完成：成功 ${success}，失败 ${failed}，未处理 ${Math.max(0, allCandidates.length - candidates.length)}`);
   if (failed > 0) process.exitCode = 1;
 }

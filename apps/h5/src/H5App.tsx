@@ -1,4 +1,5 @@
 import { type ReactNode, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   Bell,
@@ -132,6 +133,7 @@ import {
 } from './pages/split/splitImageProcessing';
 import { prepareBackgroundRemoval } from '@qiaoqiaole/core';
 import { defaultSplitGeometryFromCrop } from './pages/split/splitImageState';
+import { appPathForScreen, routeStateForPath } from './app/h5Routes';
 import { resolveRestoredDisplayName } from './utils/authDisplayName';
 import { createNonce, createRequestId, getPhoneDeviceId, normalizePhone, showTencentCaptcha, signWebSmsRequest } from './utils/phoneAuthClient';
 import { passwordValidationMessage, validatePasswordLength } from './utils/passwordValidation';
@@ -218,13 +220,21 @@ const canvasTools: Array<{ tool: CanvasTool; label: string; icon: IconName }> = 
 ];
 
 function H5App() {
-  const [screen, setScreen] = useState<AppScreen>('home');
-  const [activeTab, setActiveTab] = useState<HomeTab>('home');
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { screen, activeTab } = routeStateForPath(location.pathname);
+  const routePostId = location.pathname.match(/^\/community\/posts\/([^/]+)/)?.[1] || '';
+  const routeAuthorId = location.pathname.match(/^\/community\/users\/([^/]+)/)?.[1] || '';
+  const routeProjectId = location.pathname.match(/^\/projects\/([^/]+)\/(?:edit|beading)\/?$/)?.[1] || '';
+  const routeWarehouseId = location.pathname.match(/^\/warehouses\/([^/]+)\/?$/)?.[1] || '';
   const [activePattern, setActivePattern] = useState<PatternListCard | null>(null);
   const [authorProfile, setAuthorProfile] = useState<AuthorProfile | null>(null);
   const [authorProfilePosts, setAuthorProfilePosts] = useState<PatternListCard[]>([]);
   const [authorProfileError, setAuthorProfileError] = useState('');
   const [isAuthorProfileLoading, setIsAuthorProfileLoading] = useState(false);
+  const [isAuthorProfileLoadingMore, setIsAuthorProfileLoadingMore] = useState(false);
+  const [authorProfileHasMore, setAuthorProfileHasMore] = useState(false);
+  const authorProfilePageRef = useRef(1);
   const authorProfileBackTargetRef = useRef<'discover' | 'detail' | 'following' | 'followers'>('discover');
   const [rows, setRows] = useState<number>(32);
   const [cols, setCols] = useState<number>(32);
@@ -311,6 +321,8 @@ function H5App() {
   const [communityComments, setCommunityComments] = useState<CommunityCommentsResponse['comments']>([]);
   const [notifications, setNotifications] = useState<CommunityNotification[]>([]);
   const [isCommunityLoading, setIsCommunityLoading] = useState(false);
+  const [isCommunityLoadingMore, setIsCommunityLoadingMore] = useState(false);
+  const [communityHasMore, setCommunityHasMore] = useState(false);
   const [isCommunityCommentsLoading, setIsCommunityCommentsLoading] = useState(false);
   const [commentSubmitting, setCommentSubmitting] = useState(false);
   const [commentReplyPendingId, setCommentReplyPendingId] = useState('');
@@ -348,6 +360,7 @@ function H5App() {
   const myWorksBackTargetRef = useRef<'home' | 'profile'>('profile');
   const patternDetailBackTargetRef = useRef<'home' | 'author-profile'>('home');
   const authorProfileReturnPatternRef = useRef<PatternListCard | null>(null);
+  const authorProfileReturnAuthorIdRef = useRef('');
   const closeConfirmDialog = () => setConfirmDialogRequest(null);
   const confirmDialog = confirmDialogRequest ? <ConfirmDialog
     {...confirmDialogRequest}
@@ -415,6 +428,7 @@ function H5App() {
   const authRequestSeqRef = useRef(0);
   const activeWarehouseIdRef = useRef('');
   const communityPostsRequestSeqRef = useRef(0);
+  const communityPageRef = useRef(1);
   const communityCommentsRequestSeqRef = useRef(0);
   const notificationsRequestSeqRef = useRef(0);
   const warehousesRequestSeqRef = useRef(0);
@@ -493,6 +507,38 @@ function H5App() {
   const uploadedSplitImageRef = useRef<UploadedSplitImage | null>(null);
   const splitBackgroundSensitivityFrameRef = useRef(0);
   const queuedBackgroundSensitivityRef = useRef(DEFAULT_BACKGROUND_SENSITIVITY);
+
+  const setActiveTab = (tab: HomeTab) => {
+    navigate(appPathForScreen('home', tab));
+  };
+
+  const setScreen = (nextScreen: AppScreen, resourceId = '') => {
+    if (nextScreen === 'pattern-detail' && resourceId) {
+      navigate(`/community/posts/${encodeURIComponent(resourceId)}`);
+      return;
+    }
+    if (nextScreen === 'pattern-detail' && activePattern?.id) {
+      navigate(`/community/posts/${encodeURIComponent(activePattern.id)}`);
+      return;
+    }
+    if (nextScreen === 'author-profile' && activePattern?.authorId) {
+      navigate(`/community/users/${encodeURIComponent(activePattern.authorId)}`);
+      return;
+    }
+    if (nextScreen === 'canvas' && activeProjectId) {
+      navigate(`/projects/${encodeURIComponent(activeProjectId)}/edit`);
+      return;
+    }
+    if (nextScreen === 'beading' && beadingSession?.projectId) {
+      navigate(`/projects/${encodeURIComponent(beadingSession.projectId)}/beading`);
+      return;
+    }
+    if (nextScreen === 'warehouse-detail' && activeWarehouseId) {
+      navigate(`/warehouses/${encodeURIComponent(activeWarehouseId)}`);
+      return;
+    }
+    navigate(appPathForScreen(nextScreen, activeTab));
+  };
 
   const isCurrentSplitBackgroundJob = (
     jobId: number,
@@ -998,6 +1044,62 @@ function H5App() {
     return body as T;
   };
 
+  useEffect(() => {
+    if (screen !== 'pattern-detail' || !routePostId || activePattern?.id === routePostId) return undefined;
+    let cancelled = false;
+    void requestApi<{ post: CommunityPost }>(`/community/posts/${encodeURIComponent(routePostId)}`)
+      .then((payload) => {
+        if (!cancelled) setActivePattern(toPatternListCard(payload.post));
+      })
+      .catch((error) => {
+        if (!cancelled) setStatus(error instanceof Error ? error.message : '作品读取失败');
+      });
+    return () => { cancelled = true; };
+  }, [activePattern?.id, routePostId, screen]);
+
+  useEffect(() => {
+    if (!routeProjectId || !['canvas', 'beading'].includes(screen) || activeProjectId === routeProjectId) return;
+    if (!authToken) {
+      let hasStoredToken = false;
+      try { hasStoredToken = Boolean(JSON.parse(window.localStorage.getItem(AUTH_STORAGE_KEY) || 'null')?.token); } catch {}
+      if (!hasStoredToken) setShowLoginModal(true);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const payload = await requestApi<{ project: RecentProject }>(`/projects/${encodeURIComponent(routeProjectId)}`, {}, authToken);
+        if (cancelled) return;
+        const detail = payload.project;
+        const nextRows = Math.max(1, Math.round(detail.rows));
+        const nextCols = Math.max(1, Math.round(detail.cols));
+        setRows(nextRows);
+        setCols(nextCols);
+        setCfgRows(nextRows);
+        setCfgCols(nextCols);
+        setCells(parseProjectCells(detail.canvasData, nextRows, nextCols) ?? createBlankCells(nextRows, nextCols));
+        setHistory([]);
+        setFuture([]);
+        setTool('pan');
+        setActiveProjectId(routeProjectId);
+        if (screen === 'beading') {
+          const sessionPayload = await requestApi<{ session: BeadingSession | null }>(`/projects/${encodeURIComponent(routeProjectId)}/beading-session`, {}, authToken);
+          if (!cancelled && sessionPayload.session) setBeadingSession(sessionPayload.session);
+        }
+      } catch (error) {
+        if (!cancelled) setStatus(error instanceof Error ? error.message : '作品读取失败');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [activeProjectId, authToken, routeProjectId, screen]);
+
+  useEffect(() => {
+    if (!authToken || screen !== 'warehouse-detail' || !routeWarehouseId || activeWarehouseId === routeWarehouseId) return;
+    activeWarehouseIdRef.current = routeWarehouseId;
+    setActiveWarehouseId(routeWarehouseId);
+    void loadInventory(routeWarehouseId, authToken);
+  }, [activeWarehouseId, authToken, routeWarehouseId, screen]);
+
   const loadProjectFolders = async (token: string) => {
     try {
       const payload = await requestApi<{ folders: ProjectFolder[] }>('/project-folders', {}, token);
@@ -1069,35 +1171,50 @@ function H5App() {
     }
   };
 
-  const loadAuthorProfile = async (authorId: string, token = authToken) => {
+  const loadAuthorProfile = async (authorId: string, token = authToken, page = 1, append = false) => {
     const requestSeq = authorProfileRequestSeqRef.current + 1;
     authorProfileRequestSeqRef.current = requestSeq;
-    setIsAuthorProfileLoading(true);
-    setAuthorProfileError('');
+    if (append) setIsAuthorProfileLoadingMore(true);
+    else {
+      setIsAuthorProfileLoading(true);
+      setAuthorProfileError('');
+      authorProfilePageRef.current = 1;
+      setAuthorProfileHasMore(false);
+    }
     try {
       const pageSize = 50;
-      let page = 1;
-      let profile: AuthorProfile | null = null;
-      const posts: CommunityPost[] = [];
-      while (true) {
-        const payload = await requestApi<{ profile: AuthorProfile; posts: CommunityPost[] }>(`/community/users/${authorId}/profile?page=${page}&pageSize=${pageSize}`, { headers: token ? { authorization: `Bearer ${token}` } : {} }, token || null);
-        if (authorProfileRequestSeqRef.current !== requestSeq) return;
-        profile = payload.profile;
-        posts.push(...(Array.isArray(payload.posts) ? payload.posts : []));
-        if (payload.posts.length < pageSize) break;
-        page += 1;
-      }
+      const payload = await requestApi<{ profile: AuthorProfile; posts: CommunityPost[]; page?: number; pageSize?: number }>(`/community/users/${authorId}/profile?page=${page}&pageSize=${pageSize}`, { headers: token ? { authorization: `Bearer ${token}` } : {} }, token || null);
       if (authorProfileRequestSeqRef.current !== requestSeq) return;
-      setAuthorProfile(profile);
-      setAuthorProfilePosts(posts.map(toPatternListCard));
+      setAuthorProfile(payload.profile);
+      const posts = (Array.isArray(payload.posts) ? payload.posts : []).map(toPatternListCard);
+      setAuthorProfilePosts((current) => append ? [...current, ...posts] : posts);
+      authorProfilePageRef.current = page;
+      setAuthorProfileHasMore(posts.length === pageSize);
     } catch (error) {
       if (authorProfileRequestSeqRef.current !== requestSeq) return;
-      setAuthorProfile(null);
-      setAuthorProfilePosts([]);
-      setAuthorProfileError(error instanceof Error ? error.message : '作者主页读取失败');
+      if (!append) {
+        setAuthorProfile(null);
+        setAuthorProfilePosts([]);
+        setAuthorProfileError(error instanceof Error ? error.message : '作者主页读取失败');
+      } else {
+        setStatus(error instanceof Error ? error.message : '更多作品读取失败');
+      }
     } finally {
-      if (authorProfileRequestSeqRef.current === requestSeq) setIsAuthorProfileLoading(false);
+      if (authorProfileRequestSeqRef.current === requestSeq) {
+        if (append) setIsAuthorProfileLoadingMore(false);
+        else setIsAuthorProfileLoading(false);
+      }
     }
+  };
+
+  useEffect(() => {
+    if (screen !== 'author-profile' || !routeAuthorId || authorProfile?.id === routeAuthorId) return;
+    void loadAuthorProfile(decodeURIComponent(routeAuthorId));
+  }, [authorProfile?.id, routeAuthorId, screen]);
+
+  const loadMoreAuthorProfile = (authorId: string) => {
+    if (isAuthorProfileLoadingMore || !authorProfileHasMore) return;
+    void loadAuthorProfile(authorId, authToken, authorProfilePageRef.current + 1, true);
   };
 
   const openAuthorProfile = (pattern: PatternListCard, backTarget: 'discover' | 'detail' | 'following' | 'followers' = 'discover') => {
@@ -1110,11 +1227,12 @@ function H5App() {
     authorProfileRequestSeqRef.current += 1;
     authorProfileBackTargetRef.current = nextAuthorBackTarget(backTarget === 'detail' ? 'pattern-detail' : backTarget);
     authorProfileReturnPatternRef.current = backTarget === 'detail' ? pattern : null;
+    authorProfileReturnAuthorIdRef.current = pattern.authorId;
     setActivePattern(pattern);
     setAuthorProfile(null);
     setAuthorProfilePosts([]);
     setAuthorProfileError('');
-    setScreen('author-profile');
+    navigate(`/community/users/${encodeURIComponent(pattern.authorId)}`);
     void loadAuthorProfile(pattern.authorId);
   };
 
@@ -1139,37 +1257,50 @@ function H5App() {
     }, from);
   };
 
-  const loadCommunityPosts = async (sort: 'hot' | 'latest' = communitySort, token = authToken, { preserveOnError = false } = {}) => {
+  const loadCommunityPosts = async (sort: 'hot' | 'latest' = communitySort, token = authToken, { preserveOnError = false, append = false } = {}) => {
     const requestSeq = communityPostsRequestSeqRef.current + 1;
     communityPostsRequestSeqRef.current = requestSeq;
-    setIsCommunityLoading(true);
+    if (append) setIsCommunityLoadingMore(true);
+    else {
+      setIsCommunityLoading(true);
+      communityPageRef.current = 1;
+      setCommunityHasMore(false);
+    }
     try {
-      const allPosts: CommunityPost[] = [];
-      let page = 1;
       const pageSize = 50;
-      while (page <= 20) {
-        const params = new URLSearchParams({ sort, page: String(page), pageSize: String(pageSize) });
-        if (activeTab === 'discover' && debouncedCommunityQuery.trim()) params.set('q', debouncedCommunityQuery.trim());
-        if (activeTab === 'discover' && communitySelectedTags.length) params.set('tags', communitySelectedTags.join(','));
-        const payload = await requestApi<{ posts: CommunityPost[]; tagCounts?: Array<{ tag: string; count: number }> }>(`/community/posts?${params.toString()}`, {
-          headers: token ? { authorization: `Bearer ${token}` } : {},
-        });
-        if (page === 1 && communityPostsRequestSeqRef.current === requestSeq) {
-          setCommunityAvailableTags((payload.tagCounts || []).filter(({ count }) => count > 0).map(({ tag }) => tag));
-        }
-        allPosts.push(...payload.posts);
-        if (payload.posts.length < pageSize) break;
-        page += 1;
+      const page = append ? communityPageRef.current + 1 : 1;
+      const params = new URLSearchParams({ sort, page: String(page), pageSize: String(pageSize) });
+      if (activeTab === 'discover' && debouncedCommunityQuery.trim()) params.set('q', debouncedCommunityQuery.trim());
+      if (activeTab === 'discover' && communitySelectedTags.length) params.set('tags', communitySelectedTags.join(','));
+      const payload = await requestApi<{ posts: CommunityPost[]; tagCounts?: Array<{ tag: string; count: number }> }>(`/community/posts?${params.toString()}`, {
+        headers: token ? { authorization: `Bearer ${token}` } : {},
+      });
+      if (communityPostsRequestSeqRef.current === requestSeq) {
+        setCommunityAvailableTags((payload.tagCounts || []).filter(({ count }) => count > 0).map(({ tag }) => tag));
       }
       if (communityPostsRequestSeqRef.current !== requestSeq) return;
-      setCommunityPosts(sort === 'hot' ? sortCommunityPosts(allPosts) : allPosts);
+      const posts = Array.isArray(payload.posts) ? payload.posts : [];
+      setCommunityPosts((current) => {
+        const next = append ? [...current, ...posts] : posts;
+        return sort === 'hot' ? sortCommunityPosts(next) : next;
+      });
+      communityPageRef.current = page;
+      setCommunityHasMore(posts.length === pageSize);
     } catch (error) {
       if (communityPostsRequestSeqRef.current !== requestSeq) return;
-      if (!preserveOnError) setCommunityPosts([]);
-      setStatus(error instanceof Error ? error.message : '社区稿件读取失败');
+      if (!append && !preserveOnError) setCommunityPosts([]);
+      setStatus(error instanceof Error ? error.message : append ? '更多社区稿件读取失败' : '社区稿件读取失败');
     } finally {
-      if (communityPostsRequestSeqRef.current === requestSeq) setIsCommunityLoading(false);
+      if (communityPostsRequestSeqRef.current === requestSeq) {
+        if (append) setIsCommunityLoadingMore(false);
+        else setIsCommunityLoading(false);
+      }
     }
+  };
+
+  const loadMoreCommunityPosts = () => {
+    if (isCommunityLoadingMore || !communityHasMore) return;
+    void loadCommunityPosts(communitySort, authToken, { append: true });
   };
 
   useEffect(() => {
@@ -1230,7 +1361,7 @@ function H5App() {
       try {
         const payload = await requestApi<{ post: CommunityPost }>(`/community/posts/${notification.projectId}`);
         setActivePattern(toPatternListCard(payload.post));
-        setScreen('pattern-detail');
+        navigate(`/community/posts/${encodeURIComponent(notification.projectId)}`);
         opened = true;
       } catch (error) {
         setStatus(error instanceof Error ? error.message : '作品读取失败');
@@ -1536,10 +1667,23 @@ function H5App() {
     }
   };
 
-  const openSavedProject = (project: RecentProject) => {
-    const nextRows = Math.max(1, Math.round(project.rows));
-    const nextCols = Math.max(1, Math.round(project.cols));
-    const restoredCells = parseProjectCells(project.canvasData, nextRows, nextCols);
+  const openSavedProject = async (project: RecentProject, token = authToken) => {
+    if (!token) {
+      requireLogin((nextToken) => { void openSavedProject(project, nextToken); });
+      return false;
+    }
+    let detail = project;
+    try {
+      setStatus('正在打开作品…');
+      const payload = await requestApi<{ project: RecentProject }>(`/projects/${project.id}`, {}, token);
+      detail = payload.project;
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : '作品读取失败');
+      return false;
+    }
+    const nextRows = Math.max(1, Math.round(detail.rows));
+    const nextCols = Math.max(1, Math.round(detail.cols));
+    const restoredCells = parseProjectCells(detail.canvasData, nextRows, nextCols);
     setRows(nextRows);
     setCols(nextCols);
     setCfgRows(nextRows);
@@ -1555,7 +1699,9 @@ function H5App() {
     setUploadedSplitImage(null);
     setUploadedSourceImageDataUrl('');
     setActiveProjectId(project.id);
-    setScreen('canvas');
+    navigate(`/projects/${encodeURIComponent(project.id)}/edit`);
+    setStatus('');
+    return true;
   };
 
   const startBeadingProject = async (project: RecentProject, token = authToken) => {
@@ -1564,13 +1710,14 @@ function H5App() {
       return;
     }
     setProjectActionTarget(null);
-    openSavedProject(project);
+    const opened = await openSavedProject(project, token);
+    if (!opened) return;
     try {
       const sessionPayload = await requestApi<{ session: BeadingSession }>(`/v1/projects/${project.id}/beading-session`, { method: 'POST', body: JSON.stringify({ warehouseId: activeWarehouseId || undefined }) });
       const inventory = await requestApi<any>(`/v1/beading-sessions/${sessionPayload.session.id}/inventory-check`, { method: 'POST', body: JSON.stringify({}) });
       setBeadingSession(sessionPayload.session);
       setBeadingInventoryCheck(inventory);
-      setScreen('beading');
+      navigate(`/projects/${encodeURIComponent(project.id)}/beading`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : '无法开始拼豆');
     }
@@ -1578,7 +1725,7 @@ function H5App() {
 
   const enterBeadingSession = () => {
     setBeadingInventoryCheck(null);
-    setScreen('beading');
+    if (beadingSession?.projectId) navigate(`/projects/${encodeURIComponent(beadingSession.projectId)}/beading`);
   };
 
   const syncBeadingSessionFromError = (error: unknown, expectedSessionId: string) => {
@@ -2023,7 +2170,7 @@ function H5App() {
 
   const openWarehouse = () => {
     requireLogin(() => {
-      setScreen('warehouse');
+      navigate('/warehouses');
     });
   };
 
@@ -2035,7 +2182,7 @@ function H5App() {
     activeWarehouseIdRef.current = warehouseId;
     setActiveWarehouseId(warehouseId);
     setSelectedWarehouseCodes([]);
-    setScreen('warehouse-detail');
+    navigate(`/warehouses/${encodeURIComponent(warehouseId)}`);
     void loadInventory(warehouseId, token);
   };
 
@@ -2179,7 +2326,7 @@ function H5App() {
     setPanY(0);
     clearReferenceImage();
     setShowCreateCanvasModal(false);
-    setScreen('canvas');
+    navigate('/canvas');
   };
 
   const commitCells = (nextCellsOrUpdater: Cell[] | ((current: Cell[]) => Cell[])) => {
@@ -2510,7 +2657,7 @@ function H5App() {
     setPanX(0);
     setPanY(0);
     clearReferenceImage();
-    setScreen('canvas');
+    navigate('/canvas');
   };
 
   const openSplitPreview = () => {
@@ -3308,7 +3455,7 @@ function H5App() {
       onStart={() => { void startBeadingProject(target); }}
       onEdit={() => {
         setProjectActionTarget(null);
-        openSavedProject(target);
+        void openSavedProject(target);
       }}
       onShare={() => {
         void shareSavedProject(target);
@@ -3426,6 +3573,9 @@ function H5App() {
   }
 
   if (screen === 'canvas') {
+    if (routeProjectId && activeProjectId !== routeProjectId) {
+      return withAppOverlays(<main className="h5-canvas-page" aria-label="H5 画布编辑器"><p className="community-empty">正在加载作品…</p></main>);
+    }
     return withAppOverlays(<CanvasPage
       fileInputRef={fileInputRef}
       handleUpload={handleUpload}
@@ -3560,6 +3710,10 @@ function H5App() {
     </>);
   }
 
+  if (screen === 'beading') {
+    return withAppOverlays(<main className="beading-page" aria-label="拼豆进度"><p className="community-empty">正在加载拼豆进度…</p></main>);
+  }
+
   if (screen === 'warehouse') {
     return withAppOverlays(<WarehouseListPage
       status={status}
@@ -3582,6 +3736,9 @@ function H5App() {
   }
 
   if (screen === 'warehouse-detail') {
+    if (routeWarehouseId && activeWarehouseId !== routeWarehouseId) {
+      return withAppOverlays(<main className="warehouse-page" aria-label="豆子仓库"><p className="community-empty">正在加载仓库…</p></main>);
+    }
     return withAppOverlays(<WarehousePage
       status={status}
       setActiveTab={setActiveTab}
@@ -3613,61 +3770,80 @@ function H5App() {
   }
 
   if (screen === 'pattern-detail') {
+    const detailPattern = routePostId
+      ? (activePattern?.id === routePostId ? activePattern : undefined)
+      : (activePattern ?? communityCards[0]);
+    if (!detailPattern) {
+      return withAppOverlays(<main className="pattern-detail-page" aria-label="图纸详情页"><p className="community-empty">正在加载作品…</p></main>);
+    }
     return withAppOverlays(
       <PatternDetailPage
-        pattern={activePattern ?? communityCards[0]}
+        pattern={detailPattern}
         currentUserId={authUserId}
         isLoggedIn={isLoggedIn}
         comments={communityComments}
         isLoadingComments={isCommunityCommentsLoading}
-        onLoadComments={() => activePattern && void loadCommunityComments(activePattern.id)}
-        onOpenAuthor={() => activePattern && openAuthorProfile(activePattern, 'detail')}
-        onLike={() => activePattern && void likeCommunityPost(activePattern.id)}
-        onFollow={() => activePattern?.authorId && void toggleCommunityFollow(activePattern.authorId, Boolean(activePattern.isFollowing))}
-        onShare={() => activePattern && void shareCommunityPost(activePattern.id)}
-        onCopyToRepository={() => activePattern && void copyCommunityPattern(activePattern.id)}
-        copyingToRepository={copyingPatternId === activePattern?.id}
-        onComment={(content) => activePattern && void addCommunityComment(activePattern.id, content)}
-        onReply={(commentId, content) => activePattern && void addCommunityComment(activePattern.id, content, commentId)}
-        onDeleteComment={(commentId) => activePattern && void deleteCommunityComment(activePattern.id, commentId)}
+        onLoadComments={() => void loadCommunityComments(detailPattern.id)}
+        onOpenAuthor={() => openAuthorProfile(detailPattern, 'detail')}
+        onLike={() => void likeCommunityPost(detailPattern.id)}
+        onFollow={() => detailPattern.authorId && void toggleCommunityFollow(detailPattern.authorId, Boolean(detailPattern.isFollowing))}
+        onShare={() => void shareCommunityPost(detailPattern.id)}
+        onCopyToRepository={() => void copyCommunityPattern(detailPattern.id)}
+        copyingToRepository={copyingPatternId === detailPattern.id}
+        onComment={(content) => void addCommunityComment(detailPattern.id, content)}
+        onReply={(commentId, content) => void addCommunityComment(detailPattern.id, content, commentId)}
+        onDeleteComment={(commentId) => void deleteCommunityComment(detailPattern.id, commentId)}
         commentSubmitting={commentSubmitting}
         commentReplyPendingId={commentReplyPendingId}
         commentDeletePendingId={commentDeletePendingId}
         onLogin={() => setShowLoginModal(true)}
         onBack={() => {
           if (patternDetailBackTargetRef.current === 'author-profile') {
-            setScreen('author-profile');
+            const authorId = authorProfileReturnAuthorIdRef.current || authorProfileReturnPatternRef.current?.authorId || '';
+            if (authorId) navigate('/community/users/' + encodeURIComponent(authorId));
+            else navigate('/discover');
             return;
           }
-          setScreen('home');
-          setActiveTab('discover');
+          navigate('/discover');
         }}
       />
     );
   }
 
   if (screen === 'author-profile') {
+    const authorId = authorProfile?.id || routeAuthorId || activePattern?.authorId || '';
+    const authorPattern = routeAuthorId && activePattern?.authorId !== routeAuthorId ? undefined : (activePattern ?? communityCards[0]);
     return withAppOverlays(<AuthorProfilePage
         patterns={authorProfilePosts}
-        authorPattern={activePattern ?? communityCards[0]}
+        authorPattern={authorPattern}
         authorProfile={authorProfile ?? undefined}
         loading={isAuthorProfileLoading}
+        loadingMore={isAuthorProfileLoadingMore}
+        hasMore={authorProfileHasMore}
+        onLoadMore={() => authorId && loadMoreAuthorProfile(authorId)}
         error={authorProfileError}
-        onRetry={() => activePattern?.authorId && void loadAuthorProfile(activePattern.authorId)}
+        onRetry={() => authorId && void loadAuthorProfile(authorId)}
         currentUserId={authUserId}
         onBack={() => {
           const returnTarget = authorProfileBackTargetRef.current;
           const returnToDetail = returnTarget === 'detail';
           if (returnToDetail && authorProfileReturnPatternRef.current) setActivePattern(authorProfileReturnPatternRef.current);
-          setScreen(returnToDetail ? 'pattern-detail' : returnTarget === 'following' ? 'following' : returnTarget === 'followers' ? 'followers' : 'home');
-          setActiveTab(returnTarget === 'discover' || returnTarget === 'detail' ? 'discover' : 'profile');
+          if (returnToDetail && authorProfileReturnPatternRef.current) {
+            navigate(`/community/posts/${encodeURIComponent(authorProfileReturnPatternRef.current.id)}`);
+          } else if (returnTarget === 'following') {
+            navigate('/following');
+          } else if (returnTarget === 'followers') {
+            navigate('/followers');
+          } else {
+            navigate(returnTarget === 'discover' || returnTarget === 'detail' ? '/discover' : '/profile');
+          }
         }}
         onOpen={(pattern) => {
           patternDetailBackTargetRef.current = 'author-profile';
           setActivePattern(pattern);
-          setScreen('pattern-detail');
+          navigate(`/community/posts/${encodeURIComponent(pattern.id)}`);
         }}
-        onFollow={() => activePattern?.authorId && void toggleCommunityFollow(activePattern.authorId, Boolean(authorProfile?.isFollowing ?? activePattern.isFollowing))}
+        onFollow={() => authorId && void toggleCommunityFollow(authorId, Boolean(authorProfile?.isFollowing ?? activePattern?.isFollowing))}
       />);
   }
 
@@ -3675,7 +3851,7 @@ function H5App() {
     return withAppOverlays(
       <MyWorksPage
         projects={sortedRecentProjects}
-          onBack={() => { setScreen('home'); setActiveTab(myWorksBackTargetRef.current); }}
+          onBack={() => navigate(myWorksBackTargetRef.current === 'profile' ? '/profile' : '/')}
         onOpen={openProjectActions}
         folders={projectFolders}
         activeFolderId={activeProjectFolderId}
@@ -3693,7 +3869,7 @@ function H5App() {
         users={followingUsers}
         loading={isFollowingLoading}
         error={followingError}
-        onBack={() => { setScreen('home'); setActiveTab('profile'); }}
+        onBack={() => navigate('/profile')}
         onRetry={() => void loadFollowingUsers()}
         onOpenUser={(user) => openFollowUserProfile(user, 'following')}
       />);
@@ -3704,7 +3880,7 @@ function H5App() {
         users={followersUsers}
         loading={isFollowersLoading}
         error={followersError}
-        onBack={() => { setScreen('home'); setActiveTab('profile'); }}
+        onBack={() => navigate('/profile')}
         onRetry={() => void loadFollowersUsers()}
         onOpenUser={(user) => openFollowUserProfile(user, 'followers')}
       />);
@@ -3727,6 +3903,7 @@ function H5App() {
     cfgCols={cfgCols} setCfgCols={setCfgCols} cfgRows={cfgRows} setCfgRows={setCfgRows}
     normalizeGridSize={normalizeGridSize} parseGridSizeInput={parseGridSizeInput} createBlankCanvas={createBlankCanvas} requireLogin={requireLogin}
     setStatus={setStatus} patternListCards={communityCards} setActivePattern={setActivePattern} setScreen={setScreen} openAuthorProfile={openAuthorProfile}
+    communityHasMore={communityHasMore} isCommunityLoadingMore={isCommunityLoadingMore} loadMoreCommunityPosts={loadMoreCommunityPosts}
     notifications={notifications} loadNotifications={loadNotifications} openNotification={openNotification}
     warehouses={warehouses} stockedColorCount={stockedColorCount} totalWarehouseStock={totalWarehouseStock}
     activeWarehouse={activeWarehouse} mardColors={MARD_221_COLORS} openWarehouse={openWarehouse}

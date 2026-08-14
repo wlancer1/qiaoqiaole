@@ -2,6 +2,10 @@
 
 ### Added / Changed / Fixed
 
+- Replaced the API's in-memory `sql.js` snapshot persistence with file-backed native SQLite through `better-sqlite3` in WAL mode, added native-store regression coverage, updated the API image base, and migrated the legacy project-image script to direct SQLite writes.
+- Optimized community author profiles and comments to avoid loading heavy project fields, added bounded community/author pagination with load-more UI, and added 15-second Xiaohongshu upstream timeouts.
+- Affected modules: `apps/api/src/sqliteStore.mjs`, `apps/api/src/server.mjs`, `apps/api/scripts/migrate-project-images.mjs`, `apps/api/Dockerfile`, H5 community/pattern pages, and related tests.
+
 - Added H5 canvas/grid background-removal controls, transparent-cell sampling, quick-split bounds handling, Xiaohongshu multi-image selection, and related editor/home regressions.
 - Affected modules: H5 canvas, editor, home, split, project-folder UI, `packages/core/src/domain/grid.ts`, and related tests/docs.
 

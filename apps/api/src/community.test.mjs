@@ -253,19 +253,22 @@ describe('community API', () => {
     await shareProject(created.body.project.id, headers);
 
     const projects = await request('/api/projects', { headers });
+    const projectDetail = await request(`/api/projects/${created.body.project.id}`, { headers });
     const posts = await request('/api/community/posts?sort=latest');
     const savedProject = projects.body.projects.find((item) => item.id === created.body.project.id);
+    const savedProjectDetail = projectDetail.body.project;
     const sharedPost = posts.body.posts.find((item) => item.id === created.body.project.id);
 
-    expect(savedProject.sourceImage).toMatch(/^\/api\/project-assets\?path=/);
+    expect(savedProject.sourceImage).toBeUndefined();
     expect(savedProject.thumbnailImage).toMatch(/^\/api\/project-assets\?path=/);
-    expect(new URL(savedProject.sourceImage, 'http://127.0.0.1').searchParams.get('access')).toBeTruthy();
+    expect(savedProjectDetail.sourceImage).toMatch(/^\/api\/project-assets\?path=/);
+    expect(new URL(savedProjectDetail.sourceImage, 'http://127.0.0.1').searchParams.get('access')).toBeTruthy();
     expect(sharedPost.sourceImage).toBeUndefined();
     expect(new URL(sharedPost.thumbnailImage, 'http://127.0.0.1').searchParams.get('path')).toBe(new URL(savedProject.thumbnailImage, 'http://127.0.0.1').searchParams.get('path'));
 
     const detail = await request(`/api/community/posts/${created.body.project.id}`);
     expect(new URL(detail.body.post.sourceImage, 'http://127.0.0.1').searchParams.get('access')).toBeNull();
-    expect(new URL(detail.body.post.sourceImage, 'http://127.0.0.1').searchParams.get('path')).toBe(new URL(savedProject.sourceImage, 'http://127.0.0.1').searchParams.get('path'));
+    expect(new URL(detail.body.post.sourceImage, 'http://127.0.0.1').searchParams.get('path')).toBe(new URL(savedProjectDetail.sourceImage, 'http://127.0.0.1').searchParams.get('path'));
   });
 
   it('keeps a COS thumbnail renderable when copying a shared project', async () => {
@@ -373,6 +376,50 @@ describe('community API', () => {
     expect(listed.status).toBe(200);
     expect(listed.body.projects.length).toBeGreaterThanOrEqual(10);
     expect(listed.body.projects.some((project) => project.name === '作品 0')).toBe(true);
+  });
+
+  it('keeps canvas data out of the project list and returns it from project details', async () => {
+    const headers = { authorization: `Bearer ${token}` };
+    const canvasData = JSON.stringify([{ x: 0, y: 0, color: '#ff0000', transparent: false }]);
+    const created = await request('/api/projects', {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ name: '延迟加载作品', rows: 1, cols: 1, canvasData }),
+    });
+
+    const listed = await request('/api/projects', { headers });
+    const detail = await request(`/api/projects/${created.body.project.id}`, { headers });
+
+    expect(listed.status).toBe(200);
+    expect(listed.body.projects.find((project) => project.id === created.body.project.id)).not.toHaveProperty('canvasData');
+    expect(detail.status).toBe(200);
+    expect(detail.body.project.canvasData).toBe(canvasData);
+  });
+
+  it('keeps heavy project fields out of author profile post summaries', async () => {
+    const headers = { authorization: `Bearer ${token}` };
+    const created = await request('/api/projects', {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: '作者主页轻量作品',
+        rows: 2,
+        cols: 2,
+        thumbnailImagePath: 'data:image/png;base64,AA==',
+        canvasData: JSON.stringify([{ color: '#ff0000' }]),
+      }),
+    });
+    await shareProject(created.body.project.id, headers);
+
+    const profile = await request(`/api/community/users/${userId}/profile?page=1&pageSize=20`);
+    const post = profile.body.posts.find((item) => item.name === '作者主页轻量作品');
+
+    expect(profile.status).toBe(200);
+    expect(post).toBeDefined();
+    expect(post).not.toHaveProperty('sourceImage');
+    expect(post).not.toHaveProperty('canvasData');
+    expect(post).not.toHaveProperty('beadList');
+    expect(post.thumbnailImage).toBe('data:image/png;base64,AA==');
   });
 
   it('counts comment length by Unicode characters instead of UTF-16 code units', async () => {

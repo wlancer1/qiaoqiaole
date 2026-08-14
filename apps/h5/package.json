@@ -5,6 +5,7 @@
   "type": "module",
   "dependencies": {
     "lucide-react": "^1.28.0",
+    "react-router-dom": "^7.18.2",
     "react-zoom-pan-pinch": "^4.0.3"
   }
 }

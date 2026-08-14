@@ -10,7 +10,7 @@ import { CommentAvatar } from './CommentAvatar';
 import { CommunityPatternCard } from '../community/CommunityPatternCard';
 import type { ProjectFolder } from '../projects/projectFolders';
 
-export function AuthorProfilePage({ patterns, authorPattern, authorProfile, loading = false, error = '', currentUserId = '', onBack, onOpen, onFollow, onRetry }: { patterns: PatternListCard[]; authorPattern?: PatternListCard; authorProfile?: { id: string; name: string; avatarUrl?: string | null; postsCount: number; likesCount: number; followersCount: number; isFollowing: boolean }; loading?: boolean; error?: string; currentUserId?: string; onBack: () => void; onOpen: (pattern: PatternListCard) => void; onFollow?: () => void; onRetry?: () => void }) {
+export function AuthorProfilePage({ patterns, authorPattern, authorProfile, loading = false, error = '', currentUserId = '', onBack, onOpen, onFollow, onRetry, hasMore = false, loadingMore = false, onLoadMore }: { patterns: PatternListCard[]; authorPattern?: PatternListCard; authorProfile?: { id: string; name: string; avatarUrl?: string | null; postsCount: number; likesCount: number; followersCount: number; isFollowing: boolean }; loading?: boolean; error?: string; currentUserId?: string; onBack: () => void; onOpen: (pattern: PatternListCard) => void; onFollow?: () => void; onRetry?: () => void; hasMore?: boolean; loadingMore?: boolean; onLoadMore?: () => void }) {
   const authorName = authorProfile?.name || authorPattern?.author || '作者';
   const authorAvatar = authorProfile?.avatarUrl ?? authorPattern?.authorAvatar;
   const isSelf = Boolean(authorProfile?.id && authorProfile.id === currentUserId);
@@ -50,6 +50,7 @@ export function AuthorProfilePage({ patterns, authorPattern, authorProfile, load
           </button>
         ))}
       </section> : <section className="author-work-empty" aria-label="暂无已分享作品"><strong>还没有分享作品</strong><span>作者分享作品后会显示在这里</span></section>}
+      {!loading && !error && hasMore ? <button className="community-load-more" type="button" onClick={onLoadMore} disabled={loadingMore}>{loadingMore ? '加载中…' : '加载更多作品'}</button> : null}
     </main>
   );
 }
@@ -217,7 +218,7 @@ export function FollowersPage(props: Omit<FollowListPageProps, 'mode'>) {
   return <FollowingPage {...props} mode="followers" />;
 }
 
-export function PatternDiscoverPage({ patterns, activeSort = 'hot', query = '', selectedTags = [], availableTags = [], onSortChange, onQueryChange, onTagsChange, onOpen, onOpenAuthor }: {
+export function PatternDiscoverPage({ patterns, activeSort = 'hot', query = '', selectedTags = [], availableTags = [], onSortChange, onQueryChange, onTagsChange, onOpen, onOpenAuthor, hasMore = false, loadingMore = false, onLoadMore }: {
   patterns: PatternListCard[];
   activeSort?: 'hot' | 'latest';
   query?: string;
@@ -228,6 +229,9 @@ export function PatternDiscoverPage({ patterns, activeSort = 'hot', query = '', 
   onTagsChange?: (tags: string[]) => void;
   onOpen: (pattern: PatternListCard) => void;
   onOpenAuthor: (pattern: PatternListCard) => void;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
 }) {
   const sortTabs: Array<{ label: string; sort: 'hot' | 'latest'; active: boolean }> = [
     { label: '最新', sort: 'latest', active: activeSort === 'latest' },
@@ -271,6 +275,7 @@ export function PatternDiscoverPage({ patterns, activeSort = 'hot', query = '', 
             </div>
           ))}
         </section>
+        {hasMore ? <button className="community-load-more" type="button" onClick={onLoadMore} disabled={loadingMore}>{loadingMore ? '加载中…' : '加载更多作品'}</button> : null}
       </div>
     </section>
   );

@@ -1334,6 +1334,8 @@ input:focus-visible {
 
 .detail-comment-compose button:disabled { opacity: 0.45; }
 .community-empty { color: #7a8799; font-size: 0.4rem; }
+.community-load-more { display: block; margin: .4444rem auto .5714rem; padding: .254rem .5714rem; border: 1px solid var(--line, #deded9); border-radius: .4444rem; background: var(--panel, #fff); color: var(--blue, #208edc); font-size: .381rem; cursor: pointer; }
+.community-load-more:disabled { opacity: .6; cursor: wait; }
 
 .detail-bottom-actions {
   position: fixed;

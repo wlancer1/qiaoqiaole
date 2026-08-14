@@ -1,8 +1,7 @@
 import http from 'node:http';
 import { createHmac, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { openSqliteDatabase } from './sqliteStore.mjs';
 import path from 'node:path';
-import initSqlJs from 'sql.js';
 import {
   decodeHtml,
   extractUrlFromText,
@@ -32,6 +31,7 @@ const AUTH_USERNAME = requiredEnv('QIAOQIAOLE_USERNAME');
 const AUTH_PASSWORD = requiredEnv('QIAOQIAOLE_PASSWORD');
 const SESSION_DAYS = 30;
 const MAX_EXTRACT_IMAGE_BYTES = 20 * 1024 * 1024;
+const XHS_UPSTREAM_TIMEOUT_MS = 15 * 1000;
 const MAX_PROJECT_IMAGE_BYTES = 20 * 1024 * 1024;
 const PROJECT_ASSET_ACCESS_SECONDS = 15 * 60;
 const COMMUNITY_TAGS = ['动物', '人物', '植物', '食物', '风景', '动漫', '游戏', '节日', '文字', '新手', '其他'];
@@ -47,14 +47,11 @@ const MARD_COLOR_RANGES = {
   M: 15,
 };
 
-const SQL = await initSqlJs();
-const db = await openDatabase(DB_PATH);
+const db = openSqliteDatabase(DB_PATH);
 initSchema();
-let persistQueue = Promise.resolve();
 let communityTagCountsCache = null;
 let phoneAuthService;
 let beadingService;
-void persist();
 
 const server = http.createServer(async (request, response) => {
   try {
@@ -72,25 +69,19 @@ server.listen(PORT, () => {
   console.log(`qiaoqiaole api listening on :${PORT}`);
 });
 
-process.on('SIGTERM', () => { void closeRedisClient().finally(() => server.close()); });
-process.on('SIGINT', () => { void closeRedisClient().finally(() => server.close()); });
+const shutdown = () => {
+  void closeRedisClient().finally(() => {
+    db.close();
+    server.close();
+  });
+};
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
 
 function requiredEnv(name) {
   const value = String(process.env[name] || '').trim();
   if (!value) throw new Error(`${name} must be configured`);
   return value;
-}
-
-async function openDatabase(filename) {
-  try {
-    const data = await readFile(filename);
-    return new SQL.Database(data);
-  } catch (error) {
-    if (error?.code === 'ENOENT') {
-      return new SQL.Database();
-    }
-    throw error;
-  }
 }
 
 function initSchema() {
@@ -416,12 +407,8 @@ function initSchema() {
 }
 
 async function persist() {
-  const operation = persistQueue.catch(() => {}).then(async () => {
-    await mkdir(path.dirname(DB_PATH), { recursive: true });
-    await writeFile(DB_PATH, Buffer.from(db.export()));
-  });
-  persistQueue = operation;
-  return operation;
+  // better-sqlite3 commits writes directly to the database file. Keep this
+  // compatibility hook because existing services await persist() after writes.
 }
 
 async function withTransaction(work) {
@@ -655,6 +642,9 @@ async function route(request, response) {
     return deleteProject(response, user.id, projectDeleteMatch[1]);
   }
   const projectMatch = url.pathname.match(/^\/api\/projects\/([^/]+)$/);
+  if (projectMatch && request.method === 'GET') {
+    return getProjectDetail(response, user.id, projectMatch[1]);
+  }
   if (projectMatch && request.method === 'PUT') {
     return updateProject(request, response, user.id, projectMatch[1]);
   }
@@ -921,6 +911,7 @@ async function probeImageUrl(imageUrl) {
   try {
     const response = await fetch(imageUrl, {
       headers: imageRequestHeaders(),
+      signal: AbortSignal.timeout(XHS_UPSTREAM_TIMEOUT_MS),
     });
     const details = summarizeXhsUpstreamResponse(response);
     if (!response.ok) return { reachable: false, details };
@@ -972,6 +963,7 @@ async function proxyXiaohongshuImage(url, response) {
   try {
     const imageResponse = await fetch(imageUrl, {
       headers: imageRequestHeaders(),
+      signal: AbortSignal.timeout(XHS_UPSTREAM_TIMEOUT_MS),
     });
     logger.info('proxy_upstream_response', summarizeXhsUpstreamResponse(imageResponse));
     if (!imageResponse.ok) {
@@ -1014,6 +1006,7 @@ async function fetchImageDataUrl(imageUrl, logger) {
   const startedAt = Date.now();
   const imageResponse = await fetch(imageUrl, {
     headers: imageRequestHeaders(),
+    signal: AbortSignal.timeout(XHS_UPSTREAM_TIMEOUT_MS),
   });
   logger.info('download_upstream_response', {
     ...summarizeXhsUpstreamResponse(imageResponse),
@@ -1306,7 +1299,7 @@ async function uploadProjectImage(input) {
 
 function listProjects(response, userId) {
   const projects = getAll(
-    `SELECT id, folder_id AS folderId, name, rows, cols, tone, source_image AS sourceImage, thumbnail_image AS thumbnailImage, canvas_data AS canvasData,
+    `SELECT id, folder_id AS folderId, name, rows, cols, tone, thumbnail_image AS thumbnailImage,
             shared_to_community AS sharedToCommunity, shared_at AS sharedAt, likes_count AS likesCount,
             created_at AS createdAt, updated_at AS updatedAt
      FROM projects
@@ -1317,9 +1310,29 @@ function listProjects(response, userId) {
   sendJson(response, 200, {
     projects: projects.map((project) => ({
       ...project,
-      sourceImage: resolveProjectImage(project.sourceImage, userId),
       thumbnailImage: resolveProjectImage(project.thumbnailImage, userId),
     })),
+  });
+}
+
+function getProjectDetail(response, userId, projectId) {
+  const project = getOne(
+    `SELECT id, folder_id AS folderId, name, rows, cols, tone,
+            source_image AS sourceImage, thumbnail_image AS thumbnailImage, canvas_data AS canvasData,
+            bead_list AS beadList, revision, shared_to_community AS sharedToCommunity,
+            shared_at AS sharedAt, likes_count AS likesCount,
+            created_at AS createdAt, updated_at AS updatedAt
+     FROM projects
+     WHERE id = ? AND user_id = ?`,
+    [projectId, userId],
+  );
+  if (!project) return sendJson(response, 404, { error: 'NOT_FOUND', message: '作品不存在' });
+  return sendJson(response, 200, {
+    project: {
+      ...project,
+      sourceImage: resolveProjectImage(project.sourceImage, userId),
+      thumbnailImage: resolveProjectImage(project.thumbnailImage, userId),
+    },
   });
 }
 
@@ -1771,17 +1784,14 @@ function listAuthorProfile(response, viewerId, authorId, pagination = { page: 1,
   if (!profile) return sendJson(response, 404, { error: 'NOT_FOUND', message: '用户不存在' });
   const posts = getAll(
     `SELECT p.id, p.name, p.rows, p.cols, p.tone,
-            p.source_image AS sourceImage, p.thumbnail_image AS thumbnailImage, p.canvas_data AS canvasData, p.bead_list AS beadList,
+            p.thumbnail_image AS thumbnailImage,
             p.shared_at AS sharedAt, p.likes_count AS likesCount,
             u.id AS authorId, COALESCE(NULLIF(u.nickname, ''), u.username) AS author, u.avatar_url AS authorAvatar,
-            COUNT(DISTINCT c.id) AS commentsCount,
-            CASE WHEN l.user_id IS NULL THEN 0 ELSE 1 END AS likedByMe,
+            (SELECT COUNT(*) FROM project_comments c WHERE c.project_id = p.id) AS commentsCount,
+            CASE WHEN EXISTS (SELECT 1 FROM project_likes l WHERE l.project_id = p.id AND l.user_id = ?) THEN 1 ELSE 0 END AS likedByMe,
             CASE WHEN EXISTS (SELECT 1 FROM follows f WHERE f.follower_id = ? AND f.following_id = u.id) THEN 1 ELSE 0 END AS isFollowing
      FROM projects p JOIN users u ON u.id = p.user_id
-     LEFT JOIN project_comments c ON c.project_id = p.id
-     LEFT JOIN project_likes l ON l.project_id = p.id AND l.user_id = ?
      WHERE p.user_id = ? AND p.shared_to_community = 1
-     GROUP BY p.id, l.user_id
      ORDER BY p.shared_at DESC, p.id DESC
      LIMIT ? OFFSET ?`,
     [viewerId || '', viewerId || '', authorId, pagination.pageSize, pagination.offset],
@@ -1790,7 +1800,12 @@ function listAuthorProfile(response, viewerId, authorId, pagination = { page: 1,
 }
 
 function assertSharedProject(response, userId, projectId) {
-  const post = getCommunityPost(userId, projectId);
+  const post = getOne(
+    `SELECT id, user_id AS authorId, name
+     FROM projects
+     WHERE id = ? AND shared_to_community = 1`,
+    [projectId],
+  );
   if (!post) {
     sendJson(response, 404, { error: 'NOT_FOUND', message: '社区稿件不存在' });
     return null;
@@ -1864,14 +1879,25 @@ function listProjectComments(response, userId, projectId, pagination = { page: 1
   if (comments.length) {
     const placeholders = comments.map(() => '?').join(', ');
     const replies = getAll(
-      `SELECT c.id, c.project_id AS projectId, c.content, c.parent_id AS parentId,
-              c.reply_to_user_id AS replyToUserId, c.created_at AS createdAt, u.id AS authorId,
+      `WITH RECURSIVE comment_tree AS (
+         SELECT c.id, c.project_id AS projectId, c.content, c.parent_id AS parentId,
+                c.reply_to_user_id AS replyToUserId, c.created_at AS createdAt, c.user_id AS userId
+         FROM project_comments c
+         WHERE c.project_id = ? AND c.parent_id IN (${placeholders})
+         UNION ALL
+         SELECT c.id, c.project_id AS projectId, c.content, c.parent_id AS parentId,
+                c.reply_to_user_id AS replyToUserId, c.created_at AS createdAt, c.user_id AS userId
+         FROM project_comments c JOIN comment_tree parent ON c.parent_id = parent.id
+         WHERE c.project_id = ?
+       )
+       SELECT c.id, c.projectId, c.content, c.parentId,
+              c.replyToUserId, c.createdAt, u.id AS authorId,
               COALESCE(NULLIF(u.nickname, ''), u.username) AS author, u.avatar_url AS authorAvatar,
               COALESCE(NULLIF(ru.nickname, ''), ru.username) AS replyToUserName
-       FROM project_comments c JOIN users u ON u.id = c.user_id
-       LEFT JOIN users ru ON ru.id = c.reply_to_user_id
-       WHERE c.project_id = ? AND c.parent_id IS NOT NULL ORDER BY c.created_at ASC, c.id ASC`,
-      [projectId],
+       FROM comment_tree c JOIN users u ON u.id = c.userId
+       LEFT JOIN users ru ON ru.id = c.replyToUserId
+       ORDER BY c.createdAt ASC, c.id ASC`,
+      [projectId, ...comments.map((comment) => comment.id), projectId],
     ).map((comment) => formatComment(comment));
     const topLevelIds = new Set(comments.map((comment) => comment.id));
     const repliesById = new Map(replies.map((reply) => [reply.id, reply]));
@@ -2173,25 +2199,11 @@ async function readJson(request) {
 }
 
 function getOne(sql, params = []) {
-  const stmt = db.prepare(sql);
-  try {
-    stmt.bind(params);
-    return stmt.step() ? stmt.getAsObject() : null;
-  } finally {
-    stmt.free();
-  }
+  return db.prepare(sql).get(...params) || null;
 }
 
 function getAll(sql, params = []) {
-  const stmt = db.prepare(sql);
-  const rows = [];
-  try {
-    stmt.bind(params);
-    while (stmt.step()) rows.push(stmt.getAsObject());
-    return rows;
-  } finally {
-    stmt.free();
-  }
+  return db.prepare(sql).all(...params);
 }
 
 function sendCors(response) {

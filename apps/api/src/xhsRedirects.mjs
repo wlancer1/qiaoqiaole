@@ -4,6 +4,8 @@ import {
   redactUrl,
 } from './xiaohongshu.mjs';
 
+const XHS_UPSTREAM_TIMEOUT_MS = 15_000;
+
 export function isXhsLinkUrl(url) {
   try {
     const hostname = new URL(url).hostname.toLowerCase();
@@ -27,6 +29,7 @@ export async function fetchWithValidatedXhsRedirects(
       headers: mobileHeaders(currentUrl, {
         includeCookie: redirectCount === 0 ? includeCookieForFirstRequest : useCookie,
       }),
+      signal: AbortSignal.timeout(XHS_UPSTREAM_TIMEOUT_MS),
     });
     const location = response.headers.get('location') || '';
     if (!isRedirectStatus(response.status) || !location) return response;

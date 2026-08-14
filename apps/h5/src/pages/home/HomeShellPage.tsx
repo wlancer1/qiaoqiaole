@@ -249,7 +249,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
                     className="home-template-card"
                     onOpen={(pattern) => {
                       setActivePattern(pattern);
-                      setScreen('pattern-detail');
+                      setScreen('pattern-detail', pattern.id);
                     }}
                   />
                 ))}
@@ -394,9 +394,12 @@ export function HomeShellPage(props: HomeShellPageProps) {
           selectedTags={props.communitySelectedTags}
           onTagsChange={props.setCommunitySelectedTags}
           availableTags={props.communityAvailableTags || []}
+          hasMore={props.communityHasMore}
+          loadingMore={props.isCommunityLoadingMore}
+          onLoadMore={props.loadMoreCommunityPosts}
           onOpen={(pattern: any) => {
             setActivePattern(pattern);
-            setScreen('pattern-detail');
+            setScreen('pattern-detail', pattern.id);
           }}
           onOpenAuthor={(pattern: any) => {
             openAuthorProfile?.(pattern, 'discover');
