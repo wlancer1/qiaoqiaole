@@ -83,7 +83,8 @@ const uiSlice = createSlice({
         state.loginRequest?.id !== action.payload.id
         || action.payload.scopeId !== state.currentRouteScope
       ) return;
-      const returnTo = normalizeReturnTo(action.payload.returnTo);
+      const returnTo = normalizeReturnTo(state.loginRequest.returnTo)
+        ?? normalizeReturnTo(action.payload.returnTo);
       state.loginRequest = {
         id: action.payload.id,
         scopeId: action.payload.scopeId,

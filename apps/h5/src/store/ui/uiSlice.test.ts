@@ -111,7 +111,7 @@ describe('ui reducer login request metadata', () => {
     }))).toBe(started);
   });
 
-  it('updates the surviving scope and returnTo for a matching reconciliation', () => {
+  it('updates the surviving scope while keeping the first valid returnTo', () => {
     const routeBState = uiReducer(withLoginRequest(), routeScopeChanged({ scopeId: 'route-b' }));
 
     expect(uiReducer(routeBState, loginRequestReconciled({
@@ -120,7 +120,39 @@ describe('ui reducer login request metadata', () => {
       returnTo: '  /profile  ',
     }))).toEqual({
       ...routeBState,
-      loginRequest: { id: 'login-1', scopeId: 'route-b', returnTo: '/profile' },
+      loginRequest: { id: 'login-1', scopeId: 'route-b', returnTo: '/projects/1' },
+    });
+  });
+
+  it('preserves an existing returnTo when reconciliation omits or blanks the new value', () => {
+    const routeBState = uiReducer(withLoginRequest(), routeScopeChanged({ scopeId: 'route-b' }));
+    const expected = {
+      ...routeBState,
+      loginRequest: { id: 'login-1', scopeId: 'route-b', returnTo: '/projects/1' },
+    };
+
+    for (const returnTo of [undefined, '', '   ']) {
+      expect(uiReducer(routeBState, loginRequestReconciled({
+        id: 'login-1',
+        scopeId: 'route-b',
+        returnTo,
+      }))).toEqual(expected);
+    }
+  });
+
+  it('uses a valid reconciliation returnTo only when no earlier value exists', () => {
+    const stateWithoutReturnTo = uiReducer(initialState, loginRequestStarted({
+      id: 'login-1',
+      scopeId: 'route-a',
+    }));
+
+    expect(uiReducer(stateWithoutReturnTo, loginRequestReconciled({
+      id: 'login-1',
+      scopeId: 'route-a',
+      returnTo: '  /profile  ',
+    }))).toEqual({
+      ...initialState,
+      loginRequest: { id: 'login-1', scopeId: 'route-a', returnTo: '/profile' },
     });
   });
 
