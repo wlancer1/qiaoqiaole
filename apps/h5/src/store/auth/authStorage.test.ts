@@ -34,6 +34,36 @@ class MemoryStorage implements Storage {
   }
 }
 
+class ThrowingStorage implements Storage {
+  constructor(
+    private readonly operation: 'getItem' | 'setItem' | 'removeItem',
+    private readonly storedValue: string | null = null,
+  ) {}
+
+  get length(): number {
+    return this.storedValue === null ? 0 : 1;
+  }
+
+  clear(): void {}
+
+  getItem(): string | null {
+    if (this.operation === 'getItem') throw new Error('getItem unavailable');
+    return this.storedValue;
+  }
+
+  key(): string | null {
+    return this.storedValue === null ? null : AUTH_STORAGE_KEY;
+  }
+
+  removeItem(): void {
+    if (this.operation === 'removeItem') throw new Error('removeItem unavailable');
+  }
+
+  setItem(): void {
+    if (this.operation === 'setItem') throw new Error('setItem unavailable');
+  }
+}
+
 function storageWith(value: unknown): MemoryStorage {
   const storage = new MemoryStorage();
   storage.setItem(AUTH_STORAGE_KEY, typeof value === 'string' ? value : JSON.stringify(value));
@@ -116,5 +146,27 @@ describe('authStorage', () => {
     expect(readStoredAuth(undefined)).toBeNull();
     expect(() => writeStoredAuth(undefined, { token: 'token-a' })).not.toThrow();
     expect(() => clearStoredAuth(undefined)).not.toThrow();
+  });
+
+  it('returns null without throwing when getItem fails', () => {
+    const storage = new ThrowingStorage('getItem');
+
+    expect(() => readStoredAuth(storage)).not.toThrow();
+    expect(readStoredAuth(storage)).toBeNull();
+  });
+
+  it('does not throw when setItem fails', () => {
+    const storage = new ThrowingStorage('setItem');
+
+    expect(() => writeStoredAuth(storage, { token: 'token-a' })).not.toThrow();
+    expect(readStoredAuth(storage)).toBeNull();
+  });
+
+  it('returns null without throwing when invalid-record removal fails', () => {
+    const storage = new ThrowingStorage('removeItem', '{invalid-json');
+
+    expect(() => readStoredAuth(storage)).not.toThrow();
+    expect(readStoredAuth(storage)).toBeNull();
+    expect(() => clearStoredAuth(storage)).not.toThrow();
   });
 });

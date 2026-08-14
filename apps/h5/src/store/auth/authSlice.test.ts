@@ -60,8 +60,10 @@ describe('createAuthInitialState', () => {
 describe('auth reducer session events', () => {
   it('establishes a session atomically and increments the session generation', () => {
     const restoring = createAuthInitialState({ token: 'token-a', username: 'hint', userId: 'hint-id' });
+    const restoringSnapshot = structuredClone(restoring);
+    const established = authReducer(restoring, sessionEstablished({ token: 'token-a', user }));
 
-    expect(authReducer(restoring, sessionEstablished({ token: 'token-a', user }))).toEqual({
+    expect(established).toEqual({
       status: 'authenticated',
       token: 'token-a',
       user,
@@ -69,6 +71,8 @@ describe('auth reducer session events', () => {
       restoreRequestId: null,
       sessionVersion: 1,
     });
+    expect(restoring).toEqual(restoringSnapshot);
+    expect(established).not.toBe(restoring);
   });
 
   it('accepts invalidation only for the current token and generation', () => {
@@ -119,6 +123,8 @@ describe('auth reducer session events', () => {
 describe('auth reducer profile events', () => {
   it('updates profile fields without changing the session generation', () => {
     const authenticated = establish();
+    const authenticatedSnapshot = structuredClone(authenticated);
+    const originalUser = authenticated.user;
     const updated = authReducer(authenticated, profileUpdated({
       token: authenticated.token,
       sessionVersion: authenticated.sessionVersion,
@@ -131,10 +137,15 @@ describe('auth reducer profile events', () => {
       displayName: 'New name',
       avatarUrl: 'https://example.com/new.png',
     });
+    expect(authenticated).toEqual(authenticatedSnapshot);
+    expect(updated).not.toBe(authenticated);
+    expect(updated.user).not.toBe(originalUser);
   });
 
   it('updates profile stats without changing the session generation', () => {
     const authenticated = establish();
+    const authenticatedSnapshot = structuredClone(authenticated);
+    const originalUser = authenticated.user;
     const updated = authReducer(authenticated, profileStatsUpdated({
       token: authenticated.token,
       sessionVersion: authenticated.sessionVersion,
@@ -143,6 +154,9 @@ describe('auth reducer profile events', () => {
 
     expect(updated.sessionVersion).toBe(authenticated.sessionVersion);
     expect(updated.user).toMatchObject({ likesCount: 30, followingCount: 40, followersCount: 50 });
+    expect(authenticated).toEqual(authenticatedSnapshot);
+    expect(updated).not.toBe(authenticated);
+    expect(updated.user).not.toBe(originalUser);
   });
 
   it('ignores profile changes unless token and generation both match', () => {
@@ -177,6 +191,25 @@ describe('auth selectors and serializability', () => {
     expect(selectAuthStats(rootState)).toEqual({ likesCount: 3, followingCount: 4, followersCount: 5 });
     expect(selectIsAuthenticated(rootState)).toBe(true);
     expect(selectIsAuthenticated({ auth: createAuthInitialState(null) })).toBe(false);
+  });
+
+  it('returns stable stats until the selected user changes', () => {
+    const authenticated = establish();
+    const rootState = { auth: authenticated };
+
+    const first = selectAuthStats(rootState);
+    expect(selectAuthStats(rootState)).toBe(first);
+
+    const updatedAuth = authReducer(authenticated, profileStatsUpdated({
+      token: authenticated.token,
+      sessionVersion: authenticated.sessionVersion,
+      changes: { likesCount: 30, followingCount: 40, followersCount: 50 },
+    }));
+    const updated = selectAuthStats({ auth: updatedAuth });
+
+    expect(updated).not.toBe(first);
+    expect(updated).toEqual({ likesCount: 30, followingCount: 40, followersCount: 50 });
+    expect(selectAuthStats({ auth: updatedAuth })).toBe(updated);
   });
 
   it('contains only plain serializable state values', () => {

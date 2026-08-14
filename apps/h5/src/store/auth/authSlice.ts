@@ -1,4 +1,4 @@
-import { createSlice } from '@reduxjs/toolkit';
+import { createSelector, createSlice } from '@reduxjs/toolkit';
 import {
   profileStatsUpdated,
   profileUpdated,
@@ -95,14 +95,17 @@ export const selectAuthToken = (state: AuthRootState): string => state.auth.toke
 export const selectAuthUserId = (state: AuthRootState): string => state.auth.user?.id ?? '';
 export const selectAuthDisplayName = (state: AuthRootState): string => state.auth.user?.displayName ?? '';
 export const selectAuthAvatarUrl = (state: AuthRootState): string => state.auth.user?.avatarUrl ?? '';
-export const selectAuthStats = (state: AuthRootState): Pick<
+export const selectAuthStats = createSelector(
+  [(state: AuthRootState) => state.auth.user],
+  (user): Pick<
   NonNullable<AuthState['user']>,
   'likesCount' | 'followingCount' | 'followersCount'
-> => ({
-  likesCount: state.auth.user?.likesCount ?? 0,
-  followingCount: state.auth.user?.followingCount ?? 0,
-  followersCount: state.auth.user?.followersCount ?? 0,
-});
+  > => ({
+    likesCount: user?.likesCount ?? 0,
+    followingCount: user?.followingCount ?? 0,
+    followersCount: user?.followersCount ?? 0,
+  }),
+);
 export const selectIsAuthenticated = (state: AuthRootState): boolean => (
   state.auth.status === 'authenticated'
 );
