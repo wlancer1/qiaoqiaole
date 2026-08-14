@@ -49,8 +49,17 @@ const uiSlice = createSlice({
       };
     },
     loginRequestStarted: (state, action: PayloadAction<LoginRequest>) => {
-      if (state.loginRequest || action.payload.scopeId !== state.currentRouteScope) return;
-      state.loginRequest = action.payload;
+      if (action.payload.scopeId !== state.currentRouteScope) return;
+      if (!state.loginRequest) {
+        state.loginRequest = action.payload;
+        return;
+      }
+      if (
+        state.loginRequest.scopeId !== action.payload.scopeId
+        || state.loginRequest.returnTo
+        || !action.payload.returnTo?.trim()
+      ) return;
+      state.loginRequest.returnTo = action.payload.returnTo;
     },
     loginRequestReconciled: (state, action: PayloadAction<LoginRequest>) => {
       if (state.loginRequest?.id !== action.payload.id) return;

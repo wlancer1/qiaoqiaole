@@ -62,9 +62,40 @@ describe('ui reducer route-scoped status', () => {
 });
 
 describe('ui reducer login request metadata', () => {
-  it('keeps the first valid login returnTo while a request is active', () => {
+  it('keeps the active request id and scope while ignoring a later request', () => {
     const started = withLoginRequest();
 
+    expect(uiReducer(started, loginRequestStarted({
+      id: 'login-2',
+      scopeId: 'route-a',
+      returnTo: '/projects/2',
+    }))).toBe(started);
+  });
+
+  it('fills an empty returnTo from a later request in the current scope', () => {
+    const startedWithoutReturnTo = uiReducer(initialState, loginRequestStarted({
+      id: 'login-1',
+      scopeId: 'route-a',
+    }));
+
+    expect(uiReducer(startedWithoutReturnTo, loginRequestStarted({
+      id: 'login-2',
+      scopeId: 'route-a',
+      returnTo: '/projects/2',
+    }))).toEqual({
+      ...initialState,
+      loginRequest: { id: 'login-1', scopeId: 'route-a', returnTo: '/projects/2' },
+    });
+  });
+
+  it('does not overwrite an existing returnTo or accept another scope', () => {
+    const started = withLoginRequest();
+
+    expect(uiReducer(started, loginRequestStarted({
+      id: 'login-2',
+      scopeId: 'route-a',
+      returnTo: '/projects/2',
+    }))).toBe(started);
     expect(uiReducer(started, loginRequestStarted({
       id: 'login-2',
       scopeId: 'route-b',
