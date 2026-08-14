@@ -31,13 +31,13 @@ function Probe() {
   );
 }
 
-function LoginProbe({ onReady }: { onReady: (pending: Promise<boolean>) => void }) {
+function LoginProbe({ onReady }: { onReady: (pending: Promise<boolean>, gate: ReturnType<typeof useAuthGate>) => void }) {
   const gate = useAuthGate();
   const location = useLocation();
   const scopeId = routeScopeId(location);
   useEffect(() => {
     gate.attach('route-test');
-    onReady(gate.require({ scopeId, returnTo: '/discover' }));
+    onReady(gate.require({ scopeId, returnTo: '/discover' }), gate);
     return () => gate.release('route-test');
   }, [gate, onReady, scopeId]);
   return null;
@@ -79,17 +79,25 @@ describe('RouteScopeBridge', () => {
   it('settles the old gate waiter before the next route creates its reconciled request', async () => {
     const store = createH5Store({ storage: undefined });
     const pendingRequests: Promise<boolean>[] = [];
-    const renderer = create(
-      <Provider store={store}>
-        <MemoryRouter initialEntries={['/discover']}>
-          <AuthGateProvider>
-            <RouteScopeBridge />
-            <LoginProbe onReady={(pending) => pendingRequests.push(pending)} />
-            <Probe />
-          </AuthGateProvider>
-        </MemoryRouter>
-      </Provider>,
-    );
+    let gate!: ReturnType<typeof useAuthGate>;
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <Provider store={store}>
+          <MemoryRouter initialEntries={['/discover']}>
+            <AuthGateProvider>
+              <RouteScopeBridge />
+              <LoginProbe onReady={(pending, nextGate) => {
+                pendingRequests.push(pending);
+                gate = nextGate;
+              }} />
+              <Probe />
+            </AuthGateProvider>
+          </MemoryRouter>
+        </Provider>,
+      );
+      await Promise.resolve();
+    });
     renderers.push(renderer);
     await act(async () => { await Promise.resolve(); });
     expect(pendingRequests).toHaveLength(1);
@@ -104,5 +112,7 @@ describe('RouteScopeBridge', () => {
       scopeId: expect.stringContaining(':/profile?tab=likes'),
       returnTo: '/discover',
     });
+    gate.completeLogin(store.getState().ui.loginRequest!.id);
+    await expect(pendingRequests[1]).resolves.toBe(true);
   });
 });

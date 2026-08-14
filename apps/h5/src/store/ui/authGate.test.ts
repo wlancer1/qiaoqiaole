@@ -56,6 +56,24 @@ describe('createAuthGate', () => {
     await expect(Promise.all([first, second, third])).resolves.toEqual([true, true, true]);
   });
 
+  it('accepts only safe same-origin path return targets', async () => {
+    const harness = createHarness();
+    const gate = createAuthGate(harness);
+    gate.attach('app');
+    const safe = gate.require({ scopeId: 'route-a', returnTo: '/foo' });
+    const requestId = harness.getState().ui.loginRequest!.id;
+    expect(harness.getState().ui.loginRequest?.returnTo).toBe('/foo');
+    gate.cancelLogin(requestId);
+    await expect(safe).resolves.toBe(false);
+
+    for (const returnTo of ['//evil.example', 'https://evil.example', 'javascript:alert(1)', '/foo\n/bar']) {
+      const pending = gate.require({ scopeId: 'route-a', returnTo });
+      expect(harness.getState().ui.loginRequest?.returnTo).toBeUndefined();
+      gate.cancelLogin(harness.getState().ui.loginRequest!.id);
+      await expect(pending).resolves.toBe(false);
+    }
+  });
+
   it('settles old scope, preserves surviving waiters, and reconciles UI metadata', async () => {
     const harness = createHarness();
     const gate = createAuthGate(harness);
@@ -94,6 +112,36 @@ describe('createAuthGate', () => {
     expect(harness.getState().ui.loginRequest?.id).toBe(requestId);
     gate.cancelLogin(requestId);
     await expect(pending).resolves.toBe(false);
+  });
+
+  it('completes only waiters in the current UI scope', async () => {
+    const harness = createHarness();
+    const gate = createAuthGate(harness);
+    gate.attach('app');
+    const current = gate.require({ scopeId: 'route-a' });
+    harness.dispatch(routeScopeChanged({ scopeId: 'route-b' }));
+    const old = gate.require({ scopeId: 'route-b' });
+    const requestId = harness.getState().ui.loginRequest!.id;
+    gate.completeLogin(requestId);
+    await expect(current).resolves.toBe(false);
+    await expect(old).resolves.toBe(true);
+  });
+
+  it('does not let a released old gate cancel a same-named request from a new gate', async () => {
+    const harness = createHarness();
+    const oldGate = createAuthGate(harness);
+    oldGate.attach('old');
+    const oldPending = oldGate.require({ scopeId: 'route-a' });
+    oldGate.release('old');
+
+    const newGate = createAuthGate(harness);
+    newGate.attach('new');
+    const newPending = newGate.require({ scopeId: 'route-a' });
+    await Promise.resolve();
+    expect(harness.getState().ui.loginRequest?.id).not.toBeNull();
+    newGate.cancelLogin(harness.getState().ui.loginRequest!.id);
+    await expect(oldPending).resolves.toBe(false);
+    await expect(newPending).resolves.toBe(false);
   });
 
   it('defers final release so StrictMode attach/release replay does not cancel', async () => {

@@ -40,16 +40,22 @@ type Waiter = AuthGateRequireOptions & {
 
 function normalizeReturnTo(returnTo?: string): string | undefined {
   const normalized = returnTo?.trim();
-  return normalized || undefined;
+  if (!normalized || !normalized.startsWith('/') || normalized.startsWith('//')) return undefined;
+  if (/^[a-z][a-z\d+.-]*:/i.test(normalized)) return undefined;
+  if (/[\u0000-\u001f\u007f]/.test(normalized)) return undefined;
+  return normalized;
 }
 
-function createRequestId(sequence: number): string {
-  return `login-${sequence}`;
+let nextGateNumber = 0;
+
+function createRequestId(gateId: string, sequence: number): string {
+  return `${gateId}-login-${sequence}`;
 }
 
 export function createAuthGate({ getState, dispatch }: AuthGateDependencies): AuthGate {
   const waiters: Waiter[] = [];
   const owners = new Set<string>();
+  const gateId = `gate-${++nextGateNumber}`;
   let nextRequestNumber = 0;
   let activeRequestId: string | null = null;
   let releaseGeneration = 0;
@@ -101,7 +107,7 @@ export function createAuthGate({ getState, dispatch }: AuthGateDependencies): Au
       const shouldAnnounce = activeRequestId === null || Boolean(returnTo);
       if (activeRequestId === null) {
         nextRequestNumber += 1;
-        activeRequestId = createRequestId(nextRequestNumber);
+        activeRequestId = createRequestId(gateId, nextRequestNumber);
       }
       if (!shouldAnnounce) return promise;
       dispatch(loginRequestStarted({
@@ -121,7 +127,9 @@ export function createAuthGate({ getState, dispatch }: AuthGateDependencies): Au
       if (activeRequestId !== requestId) return;
       dispatch(loginRequestCompleted({ id: requestId }));
       activeRequestId = null;
-      settle(true, () => true);
+      const currentScope = getState().ui.currentRouteScope;
+      settle(true, (waiter) => waiter.scopeId === currentScope);
+      settle(false, () => true);
     },
 
     cancelLogin(requestId) {
