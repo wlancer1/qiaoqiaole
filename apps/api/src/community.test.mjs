@@ -73,6 +73,18 @@ afterAll(async () => {
 });
 
 describe('community API', () => {
+  it('paginates the authenticated project list and keeps list responses lightweight', async () => {
+    const listed = await request('/api/projects?page=1&pageSize=1', { headers: { authorization: `Bearer ${token}` } });
+
+    expect(listed.status).toBe(200);
+    expect(listed.body.page).toBe(1);
+    expect(listed.body.pageSize).toBe(1);
+    expect(typeof listed.body.hasMore).toBe('boolean');
+    expect(listed.body.projects.length).toBeLessThanOrEqual(1);
+    expect(listed.body.projects[0]).not.toHaveProperty('canvasData');
+    expect(listed.body.projects[0]).not.toHaveProperty('beadList');
+  });
+
   it('returns only tags that are used by shared community posts', async () => {
     const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
     const created = await request('/api/projects', {

@@ -26,6 +26,19 @@ describe('PatternDiscoverPage', () => {
   });
 });
 
+describe('MyWorksPage thumbnails', () => {
+  it('uses a neutral placeholder instead of generated artwork when a project has no image', () => {
+    const markup = renderToStaticMarkup(createElement(MyWorksPage, {
+      projects: [{ id: 'project-without-image', name: '无图作品', rows: 16, cols: 16, tone: 'recent-flower', createdAt: '', updatedAt: '' }],
+      onBack: vi.fn(),
+      onOpen: vi.fn(),
+    }));
+
+    expect(markup).toContain('my-work-thumb-placeholder');
+    expect(markup).not.toContain('my-work-thumb-grid');
+  });
+});
+
 describe('PatternDetailPage layout contract', () => {
   it('clips the preview image to its fixed hero area', () => {
     const styles = fs.readFileSync(path.resolve('apps/h5/src/styles.css'), 'utf8');

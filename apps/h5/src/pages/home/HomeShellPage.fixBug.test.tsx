@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { HomeShellPage, PhoneLoginModal, ProfileEditModal, XhsImagePickerModal } from './HomeShellPage';
 
 const props = {
-  phoneNumber: '', setPhoneNumber: vi.fn(), phonePassword: '1234567', setPhonePassword: vi.fn(), phoneConfirmPassword: '', setPhoneConfirmPassword: vi.fn(), phoneCode: '', setPhoneCode: vi.fn(), phoneAuthMode: 'login', setPhoneAuthMode: vi.fn(), phoneAgreement: true, setPhoneAgreement: vi.fn(), phoneAuthError: '', phoneSending: false, phoneVerifying: false, phoneCountdown: 0, sendPhoneCode: vi.fn(), submitPhoneLogin: vi.fn(), submitPhoneRegister: vi.fn(), closeLoginModal: vi.fn(), logoutPhone: vi.fn(),
+  phoneNumber: '', setPhoneNumber: vi.fn(), phonePassword: '1234567', setPhonePassword: vi.fn(), phoneConfirmPassword: '', setPhoneConfirmPassword: vi.fn(), phoneCode: '', setPhoneCode: vi.fn(), phoneAuthMode: 'login', setPhoneAuthMode: vi.fn(), phoneAgreement: true, setPhoneAgreement: vi.fn(), phoneAuthError: '', phoneSending: false, phoneVerifying: false, phoneCountdown: 0, sendPhoneCode: vi.fn(), submitPhoneLogin: vi.fn(), submitPhoneRegister: vi.fn(), closeLoginModal: vi.fn(), logoutPhone: vi.fn(), rememberPassword: true, setRememberPassword: vi.fn(),
 };
 
 describe('phone login bug fixes', () => {
@@ -15,6 +15,14 @@ describe('phone login bug fixes', () => {
     expect(markup).toContain('密码至少需要 8 位');
     expect(markup).toContain('phone-login-submit');
     expect(markup).toContain('home-create-submit');
+  });
+
+  it('shows the remember-password option only for phone login', () => {
+    const loginMarkup = renderToStaticMarkup(createElement(PhoneLoginModal, props));
+    expect(loginMarkup).toContain('记住手机号和密码');
+
+    const registerMarkup = renderToStaticMarkup(createElement(PhoneLoginModal, { ...props, phoneAuthMode: 'register' }));
+    expect(registerMarkup).not.toContain('记住手机号和密码');
   });
 });
 
@@ -35,6 +43,12 @@ describe('profile editing', () => {
     expect(markup).toContain('更换头像');
     expect(markup).toContain('用户名');
     expect(markup).toContain('测试用户');
+  });
+
+  it('centers the nested loading wrapper and fallback icon in the profile avatar', () => {
+    const styles = fs.readFileSync(path.resolve('apps/h5/src/styles.css'), 'utf8');
+    expect(styles).toContain('.profile-avatar-content .image-with-skeleton');
+    expect(styles).toContain('.profile-avatar-content .image-with-skeleton > svg');
   });
 });
 
@@ -59,6 +73,12 @@ function collectElements(node: ReactNode): TestElement[] {
 }
 
 describe('home recent project actions', () => {
+  it('does not retain the old colored recent-project artwork styles', () => {
+    const styles = fs.readFileSync(path.resolve('apps/h5/src/styles.css'), 'utf8');
+    expect(styles).not.toContain('.recent-flower .home-recent-thumb');
+    expect(styles).not.toContain('.recent-bear .home-recent-thumb');
+  });
+
   it('opens the supplied action sheet when a recent project card is selected', () => {
     const project = {
       id: 'recent-1',
@@ -145,6 +165,7 @@ describe('home recent project actions', () => {
 
     const markup = renderToStaticMarkup(shell);
     expect(markup).toContain('data-testid="recent-project-action-sheet"');
+    expect(markup).toContain('home-recent-thumb-placeholder');
 
     const recentCard = collectElements(shell).find((element) => element.props.className?.includes('home-recent-card'));
     expect(recentCard).toBeDefined();

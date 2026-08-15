@@ -4,6 +4,8 @@ import { createAuthInitialState, authReducer } from './auth/authSlice';
 import { readStoredAuth } from './auth/authStorage';
 import { createAuthListenerMiddleware } from './auth/authListener';
 import { uiReducer } from './ui/uiSlice';
+import { projectReducer } from './projects/projectSlice';
+import { warehouseReducer } from './warehouses/warehouseSlice';
 
 export type H5StoreOptions = {
   storage?: Storage;
@@ -29,6 +31,8 @@ export function createH5Store(options: H5StoreOptions = {}) {
     reducer: {
       api: apiSlice.reducer,
       auth: authReducer,
+      projects: projectReducer,
+      warehouses: warehouseReducer,
       ui: uiReducer,
     },
     preloadedState: {

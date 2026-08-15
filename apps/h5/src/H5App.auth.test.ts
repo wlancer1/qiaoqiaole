@@ -23,6 +23,24 @@ describe('H5App canvas authentication fallback', () => {
     expect(source).toContain('projectFolderSheetOpen={showProjectFolderCreate}');
   });
 
+  it('restores and persists remembered phone login credentials without changing the session record', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+
+    expect(source).toContain('readRememberedPhoneLogin(window.localStorage)');
+    expect(source).toContain('writeRememberedPhoneLogin(window.localStorage, { phone, password: phonePassword })');
+    expect(source).toContain('clearRememberedPhoneLogin(window.localStorage);');
+    expect(source).toContain('rememberPassword={rememberPassword} setRememberPassword={setRememberPassword}');
+    expect(source).toContain("phoneAuthMode !== 'login'");
+  });
+
+  it('does not persist remembered credentials from the registration flow', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+    const phoneAuthBody = source.match(/const submitPhoneAuth = async \(mode: 'login' \| 'register'\) => \{([\s\S]*?)\n  \};/)?.[1] ?? '';
+
+    expect(phoneAuthBody).toContain("if (mode === 'login')");
+    expect(phoneAuthBody).toContain('writeRememberedPhoneLogin');
+  });
+
   it('keeps create and move state at the top layer while requests are pending', () => {
     const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
 
@@ -45,8 +63,7 @@ describe('H5App canvas authentication fallback', () => {
     const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
     const logoutBody = source.match(/const logoutPhone = async \(\) => \{([\s\S]*?)\n  \};/)?.[1] ?? '';
 
-    expect(logoutBody).toContain('setFollowingCount(0);');
-    expect(logoutBody).toContain('setFollowersCount(0);');
+    expect(logoutBody).toContain('dispatch(logoutSession())');
     expect(logoutBody).toContain('setFollowingUsers([]);');
     expect(logoutBody).toContain('setFollowersUsers([]);');
   });

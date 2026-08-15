@@ -1,11 +1,13 @@
 import { Heart, MessageCircle } from 'lucide-react';
 import type { PatternListCard } from '../shared/h5Types';
+import { ImageWithSkeleton } from '../shared/ImageWithSkeleton';
 import { UserAvatar } from '../shared/UserAvatar';
 
 type CommunityPatternCardProps = {
   pattern: PatternListCard;
   className?: string;
   dataCardIndex?: number;
+  loading?: 'eager' | 'lazy';
   onOpen: (pattern: PatternListCard) => void;
   onOpenAuthor?: (pattern: PatternListCard) => void;
 };
@@ -18,7 +20,7 @@ function formatPatternCount(value: string) {
   return Number.isFinite(numericValue) && numericValue >= 100 ? '99+' : value;
 }
 
-export function CommunityPatternCard({ pattern, className = '', dataCardIndex, onOpen, onOpenAuthor }: CommunityPatternCardProps) {
+export function CommunityPatternCard({ pattern, className = '', dataCardIndex, loading = 'lazy', onOpen, onOpenAuthor }: CommunityPatternCardProps) {
   return (
     <button
       className={className ? `pattern-card ${className}` : 'pattern-card'}
@@ -27,7 +29,7 @@ export function CommunityPatternCard({ pattern, className = '', dataCardIndex, o
       onClick={() => onOpen(pattern)}
     >
       <div className={`pattern-art ${pattern.tone}`} aria-hidden="true">
-        {pattern.image ? <img className="pattern-card-image" src={pattern.image} alt="" /> : <div className="pattern-card-empty">暂无预览图</div>}
+        <ImageWithSkeleton src={pattern.image} alt="" imageClassName="pattern-card-image" loading={loading} fallback={<div className="pattern-card-empty">暂无预览图</div>} />
       </div>
       <div className="pattern-card-body">
         <h2>{pattern.title}</h2>

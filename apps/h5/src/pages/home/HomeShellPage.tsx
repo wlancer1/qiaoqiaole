@@ -2,6 +2,7 @@ import { HomeUploadHero } from '../../flow/H5FlowComponents';
 import { AuthorProfilePage, PatternDetailPage, PatternDiscoverPage, PatternMessagesPage } from '../../patterns/H5PatternPages';
 import { CommunityPatternCard } from '../../community/CommunityPatternCard';
 import { Icon } from '../../shared/h5Icons';
+import { ImageWithSkeleton } from '../../shared/ImageWithSkeleton';
 import { UserAvatar } from '../../shared/UserAvatar';
 import { Heart, LogOut, MessageCircle } from 'lucide-react';
 import type { ReactNode } from 'react';
@@ -9,14 +10,19 @@ import { passwordValidationMessage } from '../../utils/passwordValidation';
 
 type HomeShellPageProps = Record<string, any> & { actionSheet?: ReactNode };
 
+function RecentProjectThumbnailPlaceholder() {
+  return <div className="home-recent-thumb home-recent-thumb-placeholder" aria-hidden="true" />;
+}
+
 export function PhoneLoginModal(props: Record<string, any>) {
   const {
     phoneNumber, setPhoneNumber, phonePassword, setPhonePassword, phoneConfirmPassword, setPhoneConfirmPassword, phoneCode, setPhoneCode, phoneAuthMode, setPhoneAuthMode, phoneAgreement, setPhoneAgreement,
     phoneAuthError, phoneSending, phoneVerifying, phoneCountdown, sendPhoneCode, submitPhoneLogin, submitPhoneRegister, closeLoginModal, logoutPhone,
+    rememberPassword, setRememberPassword,
   } = props;
   const passwordError = passwordValidationMessage(phonePassword);
   return (
-    <div className="home-create-modal" role="dialog" aria-label="手机号登录">
+    <div className="home-create-modal" role="dialog" aria-modal="true" aria-label="手机号登录">
       <div className="home-create-panel phone-login-panel">
         <div className="home-create-head">
           <strong>手机号{phoneAuthMode === 'register' ? '注册' : '登录'}</strong>
@@ -57,6 +63,12 @@ export function PhoneLoginModal(props: Record<string, any>) {
             </div>
           </label> : null}
         </div>
+        {phoneAuthMode === 'login' ? (
+          <label className="phone-remember-row">
+            <input type="checkbox" checked={Boolean(rememberPassword)} onChange={(event) => setRememberPassword(event.target.checked)} />
+            <span>记住手机号和密码</span>
+          </label>
+        ) : null}
         <label className="phone-agreement-row">
           <input type="checkbox" checked={phoneAgreement} onChange={(event) => setPhoneAgreement(event.target.checked)} />
           <span>我已阅读并同意用户协议和隐私政策</span>
@@ -152,15 +164,15 @@ function LogoutConfirmModal({ onCancel, onConfirm }: { onCancel: () => void; onC
 export function HomeShellPage(props: HomeShellPageProps) {
   const {
     fileInputRef, handleUpload, status, activeTab, recentProjects, onOpenRecentProject, actionSheet,
-    openUpload, isLoggedIn, loginName, setLoginName, loginPassword, setLoginPassword, submitLogin, isAuthenticating, showLoginModal,
-    setShowLoginModal, showUploadModal, closeUploadModal, showXhsInput, setShowXhsInput, xhsLink, setXhsLink,
+    openUpload, isLoggedIn, loginName, loginPassword, setLoginPassword, submitLogin, isAuthenticating, isLoginModalOpen,
+    openLogin, closeLogin, showUploadModal, closeUploadModal, showXhsInput, setShowXhsInput, xhsLink, setXhsLink,
     xhsExtractedImages, isExtractingXhs, chooseLocalDrawing, extractXiaohongshuImage, importXhsImage, showXhsImagePicker, closeXhsImagePicker,
     xhsPreviewSrc, usedColors, colorCodeOf, quickTools, showCreateCanvasModal, setShowCreateCanvasModal, openCreateCanvasModal,
     openBlankCanvasCreation,
     cfgCols, setCfgCols, cfgRows, setCfgRows, normalizeGridSize, parseGridSizeInput, createBlankCanvas, requireLogin,
     setStatus, patternListCards, homeTemplateCards, setActivePattern, setScreen, openAuthorProfile, warehouses, stockedColorCount, totalWarehouseStock,
-    activeWarehouse, mardColors, openWarehouse, setActiveTab, communitySort, setCommunitySort, authRequestSeqRef, pendingAuthActionRef,
-    setIsAuthenticating, logoutPhone, showLogoutConfirm, setShowLogoutConfirm, notifications, loadNotifications, openNotification,
+    activeWarehouse, mardColors, openWarehouse, setActiveTab, communitySort, setCommunitySort,
+    logoutPhone, showLogoutConfirm, setShowLogoutConfirm, notifications, loadNotifications, openNotification,
     profileAvatarUrl, receivedLikesCount = 0, followingCount = 0, followersCount = 0, showProfileEditModal, openProfileEdit, profileEditModal, confirmDialog, requestConfirm, openMyWorks,
   } = props;
   const unreadNotificationCount = (notifications ?? []).filter((item: { isRead?: boolean }) => !item.isRead).length;
@@ -208,16 +220,16 @@ export function HomeShellPage(props: HomeShellPageProps) {
                   <div className="home-recent-empty-art" aria-hidden="true"><Icon name="folder" /></div>
                   <strong>登录后查看最近项目</strong>
                   <span>登录后会自动同步你的创作记录</span>
-                  <button type="button" onClick={() => setShowLoginModal(true)}>立即登录</button>
+                  <button type="button" onClick={openLogin}>立即登录</button>
                 </div>
               ) : recentProjects.length > 0 ? (
                 <div className="home-recent-row" aria-label="最近项目列表">
                   {recentProjects.slice(0, 4).map((project: any) => (
                     <button className={`home-recent-card ${project.tone || 'recent-flower'}`} key={project.id} data-project-card-id={project.id} type="button" onClick={() => onOpenRecentProject(project)}>
                       {(project.thumbnailImage || project.sourceImage) ? (
-                        <img className="home-recent-thumb home-recent-thumb-image" src={project.thumbnailImage || project.sourceImage} alt="" />
+                        <ImageWithSkeleton className="home-recent-thumb" imageClassName="home-recent-thumb-image" src={project.thumbnailImage || project.sourceImage} alt="" fallback={<RecentProjectThumbnailPlaceholder />} />
                       ) : (
-                        <div className="home-recent-thumb" aria-hidden="true"><span /><i /></div>
+                        <RecentProjectThumbnailPlaceholder />
                       )}
                       <strong>{project.cols}×{project.rows}</strong>
                       <span>{project.name}</span>
@@ -247,6 +259,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
                     key={template.id}
                     pattern={template}
                     className="home-template-card"
+                    loading="eager"
                     onOpen={(pattern) => {
                       setActivePattern(pattern);
                       setScreen('pattern-detail', pattern.id);
@@ -382,7 +395,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
               xhsPreviewSrc={xhsPreviewSrc}
             />
           ) : null}
-          {showLoginModal ? <PhoneLoginModal {...props} /> : null}
+          {isLoginModalOpen ? <PhoneLoginModal {...props} /> : null}
         </section>
       ) : activeTab === 'discover' ? (
         <PatternDiscoverPage
@@ -413,7 +426,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
           onDiscover={() => setActiveTab('discover')}
           onUpload={() => openUpload('bead')}
           onProfile={() => setActiveTab('profile')}
-          onLogin={() => setShowLoginModal(true)}
+          onLogin={openLogin}
           onOpenNotification={openNotification}
         />
       ) : (
@@ -471,7 +484,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
             <button className="profile-row" type="button" aria-label="打开设置" onClick={() => requireLogin(() => setStatus('设置功能即将开放。'))}><span className="profile-row-icon"><Icon name="settings" /></span><span><strong>设置</strong><small>账号、安全与偏好</small></span><em>›</em></button>
           </section>
           {isLoggedIn ? <button className="profile-logout-btn" type="button" onClick={() => requestConfirm({ title: '确认退出登录？', message: '退出后需要重新登录才能同步作品和豆子仓库。', confirmText: '确认退出', danger: true, onConfirm: logoutPhone })}><LogOut aria-hidden="true" /><span>退出登录</span></button> : null}
-          {showLoginModal ? <PhoneLoginModal {...props} /> : null}
+          {isLoginModalOpen ? <PhoneLoginModal {...props} /> : null}
         </section>
       )}
 

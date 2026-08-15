@@ -1,5 +1,6 @@
-import { lazy, type ReactNode, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { lazy, type ReactNode, type SetStateAction, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useStore } from 'react-redux';
 import {
   ArrowLeft,
   Bell,
@@ -107,20 +108,22 @@ import { cropSize, getAutoCropBounds, splitCropRegion, splitPreviewBackTarget, t
 import { defaultSplitImageView } from './utils/splitImageView';
 import { removeGridEdgeBackground } from './utils/gridBackground';
 import { resolveFolderId, type ProjectFolder } from './projects/projectFolders';
+import { getProjectFolders, getRecentProjects } from './projects/projectApi';
 import { CreateProjectFolderSheet, MoveProjectFolderSheet } from './projects/ProjectFolderSheets';
 import { applyCreatedProjectFolder, applyMovedProjectFolder, beginProjectFolderMove, type ProjectFolderCreateOrigin } from './projects/projectFolderFlow';
 import { consumeProjectFolderHistorySentinel, ensureProjectFolderHistorySentinel, resolveProjectFolderHistoryPop } from './projects/projectFolderHistory';
 import { ShareCommunityDialog } from './community/ShareCommunityDialog';
 import { AuthorProfilePage, FollowersPage, FollowingPage, MyWorksPage, PatternDetailPage, PatternDiscoverPage, PatternMessagesPage } from './patterns/H5PatternPages';
 import { quickTools } from './patterns/h5PatternData';
-import { insertCommentReply, removeCommentTree, sortCommunityPosts, toPatternListCard, type CommunityComment, type CommunityCommentsResponse, type CommunityNotification, type CommunityPost } from './community/communityData';
+import { insertCommentReply, removeCommentTree, toPatternListCard, type CommunityComment, type CommunityCommentsResponse, type CommunityNotification, type CommunityPost } from './community/communityData';
 import { nextAuthorBackTarget, nextDetailBackTarget } from './community/communityNavigation';
+import { useCommunityDomain } from './community/useCommunityDomain';
 import { InventoryCheckSheet } from './pages/beading/InventoryCheckSheet';
 import { ProjectActionSheet } from './pages/beading/ProjectActionSheet';
 import type { BeadingSession, InventoryCheck } from './beading/beadingSessionClient';
 import type { Complete, Prepare, Resume, SessionMutation, SessionTransition } from './pages/beading/useBeadingSessionActions';
 import { HomeShellPage, PhoneLoginModal, ProfileEditModal } from './pages/home/HomeShellPage';
-import { refreshHomeData } from './pages/home/homeRefresh';
+import { refreshHomeData, shouldRefreshHomeData } from './pages/home/homeRefresh';
 import {
   cloneImageData,
   DEFAULT_BACKGROUND_SENSITIVITY,
@@ -131,13 +134,24 @@ import { defaultSplitGeometryFromCrop } from './pages/split/splitImageState';
 import { appPathForScreen, routeStateForPath } from './app/h5Routes';
 import { H5RoutedContent } from './app/H5RoutedContent';
 import { PageSkeleton } from './loading/H5LoadingStates';
-import { resolveRestoredDisplayName } from './utils/authDisplayName';
 import { createNonce, createRequestId, getPhoneDeviceId, normalizePhone, showTencentCaptcha, signWebSmsRequest } from './utils/phoneAuthClient';
 import { passwordValidationMessage, validatePasswordLength } from './utils/passwordValidation';
-import { useAppSelector } from './store/hooks';
+import { clearRememberedPhoneLogin, readRememberedPhoneLogin, writeRememberedPhoneLogin } from './store/auth/rememberedPhoneLogin';
+import { useAppDispatch, useAppSelector } from './store/hooks';
 import { selectUiStatus } from './store/ui/uiSlice';
 import { useScopedStatus } from './store/ui/useScopedStatus';
 import { useStatusAutoDismiss } from './store/ui/useStatusAutoDismiss';
+import { useAuthGate } from './store/ui/AuthGateContext';
+import { selectAuthAvatarUrl, selectAuthDisplayName, selectAuthStats, selectAuthToken, selectAuthUserId, selectIsAuthenticated } from './store/auth/authSlice';
+import { profileStatsUpdated, profileUpdated } from './store/auth/authEvents';
+import { logoutSession } from './store/auth/authThunks';
+import { createAuthSessionCoordinator } from './features/auth/authSessionCoordinator';
+import { createAuthAttemptGuard } from './features/auth/authAttemptGuard';
+import type { H5RootState } from './store/store';
+import { foldersLoaded, projectsAppended, projectsLoaded, selectProjectById, selectProjectFolders, selectProjects, selectSortedProjects } from './store/projects/projectSlice';
+import { createProjectFolderThunk, deleteProjectFolderThunk, moveProjectToFolderThunk } from './store/projects/projectThunks';
+import { activeWarehouseChanged, inventoryLoaded, selectActiveWarehouseId, selectWarehouses, selectWarehouseInventory, warehousesLoaded } from './store/warehouses/warehouseSlice';
+import { fetchWarehouseInventory, fetchWarehouses } from './store/warehouses/warehouseThunks';
 import type {
   AlignedGrid,
   AuthorProfile,
@@ -186,7 +200,6 @@ const BEADS_PER_GRAM = 15;
 const WAREHOUSE_LETTERS = ['全部', ...Array.from(new Set(MARD_221_COLORS.map((color) => color.code.charAt(0))))];
 const API_BASE = '/api';
 const CAPTCHA_APP_ID = String((import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_TENCENT_CAPTCHA_APP_ID || '');
-const AUTH_STORAGE_KEY = 'qiaoqiaole.auth';
 type RequestApiError = Error & { status?: number; code?: string; body?: unknown };
 
 const GRID_CONTROL_CELLS = 3;
@@ -227,6 +240,9 @@ const canvasTools: Array<{ tool: CanvasTool; label: string; icon: IconName }> = 
 ];
 
 function H5App() {
+  const dispatch = useAppDispatch();
+  const store = useStore() as { getState: () => H5RootState };
+  const authGate = useAuthGate();
   const location = useLocation();
   const navigate = useNavigate();
   const { screen, activeTab } = routeStateForPath(location.pathname);
@@ -235,13 +251,6 @@ function H5App() {
   const routeProjectId = location.pathname.match(/^\/projects\/([^/]+)\/(?:edit|beading)\/?$/)?.[1] || '';
   const routeWarehouseId = location.pathname.match(/^\/warehouses\/([^/]+)\/?$/)?.[1] || '';
   const [activePattern, setActivePattern] = useState<PatternListCard | null>(null);
-  const [authorProfile, setAuthorProfile] = useState<AuthorProfile | null>(null);
-  const [authorProfilePosts, setAuthorProfilePosts] = useState<PatternListCard[]>([]);
-  const [authorProfileError, setAuthorProfileError] = useState('');
-  const [isAuthorProfileLoading, setIsAuthorProfileLoading] = useState(false);
-  const [isAuthorProfileLoadingMore, setIsAuthorProfileLoadingMore] = useState(false);
-  const [authorProfileHasMore, setAuthorProfileHasMore] = useState(false);
-  const authorProfilePageRef = useRef(1);
   const authorProfileBackTargetRef = useRef<'discover' | 'detail' | 'following' | 'followers'>('discover');
   const [rows, setRows] = useState<number>(32);
   const [cols, setCols] = useState<number>(32);
@@ -257,20 +266,13 @@ function H5App() {
   const [future, setFuture] = useState<Cell[][]>([]);
   const [showPaletteSearch, setShowPaletteSearch] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState('');
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [authUserId, setAuthUserId] = useState('');
-  const [legacyDraftOwnerId, setLegacyDraftOwnerId] = useState('');
-  const [loginName, setLoginName] = useState('');
-  const [profileAvatarUrl, setProfileAvatarUrl] = useState('');
-  const [receivedLikesCount, setReceivedLikesCount] = useState(0);
-  const [followingCount, setFollowingCount] = useState(0);
-  const [followersCount, setFollowersCount] = useState(0);
-  const [followingUsers, setFollowingUsers] = useState<FollowingUser[]>([]);
-  const [followersUsers, setFollowersUsers] = useState<FollowingUser[]>([]);
-  const [isFollowingLoading, setIsFollowingLoading] = useState(false);
-  const [isFollowersLoading, setIsFollowersLoading] = useState(false);
-  const [followingError, setFollowingError] = useState('');
-  const [followersError, setFollowersError] = useState('');
+  const isLoggedIn = useAppSelector(selectIsAuthenticated);
+  const authUserId = useAppSelector(selectAuthUserId);
+  const legacyDraftOwnerId = useAppSelector((state) => state.auth.user?.legacyDraftOwnerId ?? '');
+  const loginName = useAppSelector(selectAuthDisplayName);
+  const profileAvatarUrl = useAppSelector(selectAuthAvatarUrl);
+  const { likesCount: receivedLikesCount, followingCount, followersCount } = useAppSelector(selectAuthStats);
+  const [loginUsernameInput, setLoginUsernameInput] = useState('');
   const [showProfileEditModal, setShowProfileEditModal] = useState(false);
   const [profileEditName, setProfileEditName] = useState('');
   const [profileEditAvatar, setProfileEditAvatar] = useState('');
@@ -280,6 +282,7 @@ function H5App() {
   const [loginPassword, setLoginPassword] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [phonePassword, setPhonePassword] = useState('');
+  const [rememberPassword, setRememberPassword] = useState(false);
   const [phoneConfirmPassword, setPhoneConfirmPassword] = useState('');
   const [phoneCode, setPhoneCode] = useState('');
   const [phoneAuthMode, setPhoneAuthMode] = useState<'login' | 'register'>('login');
@@ -302,9 +305,9 @@ function H5App() {
     setPhoneChallenge(null);
     setPhoneSmsRequestId('');
   };
-  const [authToken, setAuthToken] = useState('');
-  const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
-  const [projectFolders, setProjectFolders] = useState<ProjectFolder[]>([]);
+  const authToken = useAppSelector(selectAuthToken);
+  const authStatus = useAppSelector((state) => state.auth.status);
+  const currentRouteScope = useAppSelector((state) => state.ui.currentRouteScope);
   const [saveFolderId, setSaveFolderId] = useState<string | null>(null);
   const [activeProjectFolderId, setActiveProjectFolderId] = useState<string | null | 'all'>('all');
   const [showProjectFolderCreate, setShowProjectFolderCreate] = useState(false);
@@ -320,31 +323,27 @@ function H5App() {
   const projectFolderMoveReturnFocusRef = useRef<HTMLElement | null>(null);
   const projectActionReturnFocusRef = useRef<HTMLElement | null>(null);
   const [activeProjectId, setActiveProjectId] = useState('');
-  const [communityPosts, setCommunityPosts] = useState<CommunityPost[]>([]);
-  const [communityComments, setCommunityComments] = useState<CommunityCommentsResponse['comments']>([]);
-  const [notifications, setNotifications] = useState<CommunityNotification[]>([]);
-  const [isCommunityLoading, setIsCommunityLoading] = useState(false);
-  const [isCommunityLoadingMore, setIsCommunityLoadingMore] = useState(false);
-  const [communityHasMore, setCommunityHasMore] = useState(false);
-  const [isCommunityCommentsLoading, setIsCommunityCommentsLoading] = useState(false);
-  const [commentSubmitting, setCommentSubmitting] = useState(false);
-  const [commentReplyPendingId, setCommentReplyPendingId] = useState('');
-  const [commentDeletePendingId, setCommentDeletePendingId] = useState('');
-  const [communitySort, setCommunitySort] = useState<'hot' | 'latest'>('hot');
-  const [communityQuery, setCommunityQuery] = useState('');
-  const [debouncedCommunityQuery, setDebouncedCommunityQuery] = useState('');
-  const [communitySelectedTags, setCommunitySelectedTags] = useState<string[]>([]);
-  const [communityAvailableTags, setCommunityAvailableTags] = useState<string[]>([]);
-  const sortedRecentProjects = useMemo(
-    () => [...recentProjects].sort((a, b) => Date.parse(b.updatedAt || b.createdAt) - Date.parse(a.updatedAt || a.createdAt)),
-    [recentProjects],
-  );
-  const activeSavedProject = useMemo(
-    () => recentProjects.find((project) => project.id === activeProjectId) ?? null,
-    [activeProjectId, recentProjects],
-  );
+  const recentProjects = useAppSelector(selectProjects);
+  const projectFolders = useAppSelector(selectProjectFolders);
+  const sortedRecentProjects = useAppSelector(selectSortedProjects);
+  const activeSavedProject = useAppSelector(selectProjectById(activeProjectId));
+  const [projectsHasMore, setProjectsHasMore] = useState(false);
+  const [projectsLoadingMore, setProjectsLoadingMore] = useState(false);
+  const warehouses = useAppSelector(selectWarehouses);
+  const activeWarehouseId = useAppSelector(selectActiveWarehouseId);
+  const beadStock = useAppSelector(selectWarehouseInventory);
+  const setWarehouses = (next: SetStateAction<Warehouse[]>) => dispatch(warehousesLoaded(typeof next === 'function' ? next(warehouses) : next));
+  const setActiveWarehouseId = (warehouseId: string) => dispatch(activeWarehouseChanged(warehouseId));
+  const setBeadStock = (next: SetStateAction<Record<string, number>>) => dispatch(inventoryLoaded(typeof next === 'function' ? next(beadStock) : next));
+  const setRecentProjects = (next: SetStateAction<RecentProject[]>) => {
+    dispatch(projectsLoaded(typeof next === 'function' ? next(recentProjects) : next));
+  };
+  const setProjectFolders = (next: SetStateAction<ProjectFolder[]>) => {
+    dispatch(foldersLoaded(typeof next === 'function' ? next(projectFolders) : next));
+  };
   const [isAuthenticating, setIsAuthenticating] = useState(false);
-  const [showLoginModal, setShowLoginModal] = useState(false);
+  const loginRequest = useAppSelector((state) => state.ui.loginRequest);
+  const isLoginModalOpen = Boolean(loginRequest);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [showSaveProjectModal, setShowSaveProjectModal] = useState(false);
   const [showSaveLoginPrompt, setShowSaveLoginPrompt] = useState(false);
@@ -376,8 +375,6 @@ function H5App() {
   /> : null;
   const [saveProjectName, setSaveProjectName] = useState('未命名作品');
   const [isSavingProject, setIsSavingProject] = useState(false);
-  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
-  const [activeWarehouseId, setActiveWarehouseId] = useState('');
   const [showWarehouseCreateModal, setShowWarehouseCreateModal] = useState(false);
   const [warehouseName, setWarehouseName] = useState('默认豆子仓库');
   const [warehouseRemark, setWarehouseRemark] = useState('');
@@ -386,7 +383,6 @@ function H5App() {
   const [selectedWarehouseCodes, setSelectedWarehouseCodes] = useState<string[]>([]);
   const [warehouseUnit, setWarehouseUnit] = useState<WarehouseUnit>('count');
   const [warehouseAmount, setWarehouseAmount] = useState('100');
-  const [beadStock, setBeadStock] = useState<Record<string, number>>({});
   const [uploadedSplitImage, setUploadedSplitImage] = useState<UploadedSplitImage | null>(null);
   const [uploadedSourceImageDataUrl, setUploadedSourceImageDataUrl] = useState('');
   const [isBackgroundProcessing, setIsBackgroundProcessing] = useState(false);
@@ -424,20 +420,25 @@ function H5App() {
   const [isReferenceMinimized, setIsReferenceMinimized] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const referenceInputRef = useRef<HTMLInputElement | null>(null);
-  const pendingAuthActionRef = useRef<((token: string) => void) | null>(null);
   const xhsRequestSeqRef = useRef(0);
   const xhsImportSeqRef = useRef(0);
   const canvasBackgroundJobRef = useRef(0);
-  const authRequestSeqRef = useRef(0);
+  const authAttemptGuardRef = useRef(createAuthAttemptGuard());
+  const authSessionCoordinator = useMemo(() => createAuthSessionCoordinator({
+    dispatch,
+    completeLogin: (requestId) => authGate.completeLogin(requestId),
+    isCurrentLoginRequest: (requestId) => store.getState().ui.loginRequest?.id === requestId,
+  }), [authGate, dispatch, store]);
   const activeWarehouseIdRef = useRef('');
-  const communityPostsRequestSeqRef = useRef(0);
-  const communityPageRef = useRef(1);
-  const communityCommentsRequestSeqRef = useRef(0);
-  const notificationsRequestSeqRef = useRef(0);
   const warehousesRequestSeqRef = useRef(0);
   const inventoryRequestSeqRef = useRef(0);
   const recentProjectsRequestSeqRef = useRef(0);
-  const authorProfileRequestSeqRef = useRef(0);
+  const recentProjectsPageRef = useRef(1);
+  const homeDataRefreshRef = useRef<{ lastRefreshedAt: number; token: string; pending: Promise<unknown> | null }>({
+    lastRefreshedAt: 0,
+    token: '',
+    pending: null,
+  });
   const saveProjectInFlightRef = useRef(false);
   const cellsRef = useRef(cells);
   const canvasArtboardRef = useRef<HTMLDivElement | null>(null);
@@ -575,7 +576,7 @@ function H5App() {
   const hasBlockingModal = Boolean(
     confirmDialogRequest
       || showProfileEditModal
-      || showLoginModal
+      || isLoginModalOpen
       || showSaveLoginPrompt
       || showSaveProjectModal
       || showUploadModal
@@ -693,48 +694,16 @@ function H5App() {
   }, [phoneCountdown]);
 
   useEffect(() => {
-    let cancelled = false;
-    const restoreSession = async () => {
-      let stored: { token?: string; username?: string; userId?: string } | null = null;
-      try {
-        const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
-        stored = raw ? JSON.parse(raw) as { token?: string; username?: string; userId?: string } : null;
-      } catch {
-        stored = null;
-      }
-      if (!stored?.token) return;
-
-      try {
-        const response = await fetch(`${API_BASE}/me`, {
-          headers: { authorization: `Bearer ${stored.token}` },
-        });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(payload.message || '登录状态已失效');
-        if (cancelled) return;
-        if (!payload.user || typeof payload.user !== 'object') throw new Error('登录状态响应无效');
-        setAuthToken(stored.token);
-        setAuthUserId(payload.user.id || stored.userId || '');
-        setLegacyDraftOwnerId((stored.username || '').trim());
-        setLoginName(resolveRestoredDisplayName(payload.user, stored.username));
-        setProfileAvatarUrl(String(payload.user.avatarUrl || ''));
-        setReceivedLikesCount(Number(payload.likesCount || 0));
-        setFollowingCount(Number(payload.followingCount || 0));
-        setFollowersCount(Number(payload.followersCount || 0));
-        setIsLoggedIn(true);
-        await loadRecentProjects(stored.token);
-        await loadCommunityPosts('hot', stored.token);
-        await loadNotifications(stored.token);
-        await loadWarehouses(stored.token);
-      } catch {
-        window.localStorage.removeItem(AUTH_STORAGE_KEY);
-      }
-    };
-
-    void restoreSession();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    if (!isLoginModalOpen || phoneAuthMode !== 'login') return;
+    const remembered = readRememberedPhoneLogin(window.localStorage);
+    if (!remembered) {
+      setRememberPassword(false);
+      return;
+    }
+    setPhoneNumber(remembered.phone);
+    setPhonePassword(remembered.password);
+    setRememberPassword(true);
+  }, [phoneAuthMode, isLoginModalOpen]);
 
   const openProfileEdit = () => {
     setProfileEditName(loginName);
@@ -784,8 +753,11 @@ function H5App() {
         method: 'PATCH',
         body: JSON.stringify({ nickname, avatarUrl: profileEditAvatar || null }),
       });
-      setLoginName(payload.user.nickname);
-      setProfileAvatarUrl(payload.user.avatarUrl || '');
+      dispatch(profileUpdated({
+        token: authToken,
+        sessionVersion: store.getState().auth.sessionVersion,
+        changes: { displayName: payload.user.nickname, avatarUrl: payload.user.avatarUrl || '' },
+      }));
       setShowProfileEditModal(false);
     } catch (error) {
       setProfileEditError(error instanceof Error ? error.message : '资料保存失败');
@@ -1007,14 +979,7 @@ function H5App() {
   };
 
   const requestApi = async <T,>(path: string, options: RequestInit = {}, token?: string | null): Promise<T> => {
-    const effectiveToken = token === null ? '' : token || (() => {
-      try {
-        const stored = JSON.parse(window.localStorage.getItem(AUTH_STORAGE_KEY) || 'null') as { token?: string } | null;
-        return stored?.token || authToken;
-      } catch {
-        return '';
-      }
-    })();
+    const effectiveToken = token === null ? '' : token || authToken;
     const response = await fetch(`${API_BASE}${path}`, {
       ...options,
       headers: {
@@ -1035,6 +1000,45 @@ function H5App() {
     return body as T;
   };
 
+  const loadProjectFolders = async (token: string) => {
+    try {
+      const payload = await getProjectFolders(requestApi, token);
+      dispatch(foldersLoaded(payload.folders || []));
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : '文件夹读取失败');
+    }
+  };
+
+  const loadRecentProjects = async (token: string, { preserveOnError = false, append = false } = {}) => {
+    const requestSeq = recentProjectsRequestSeqRef.current + 1;
+    recentProjectsRequestSeqRef.current = requestSeq;
+    const page = append ? recentProjectsPageRef.current + 1 : 1;
+    if (append) setProjectsLoadingMore(true);
+    try {
+      const payload = await getRecentProjects(requestApi, token, { page, pageSize: 20 });
+      if (recentProjectsRequestSeqRef.current !== requestSeq) return;
+      if (append) dispatch(projectsAppended(payload.projects || []));
+      else dispatch(projectsLoaded(payload.projects || []));
+      recentProjectsPageRef.current = payload.page || page;
+      setProjectsHasMore(Boolean(payload.hasMore));
+      if (!append) void loadProjectFolders(token);
+    } catch (error) {
+      if (recentProjectsRequestSeqRef.current !== requestSeq) return;
+      if (!append && !preserveOnError) {
+        dispatch(projectsLoaded([]));
+        setProjectsHasMore(false);
+      }
+      setStatus(error instanceof Error ? error.message : '最近项目读取失败');
+    } finally {
+      if (recentProjectsRequestSeqRef.current === requestSeq && append) setProjectsLoadingMore(false);
+    }
+  };
+
+  const loadMoreRecentProjects = () => {
+    if (!authToken || projectsLoadingMore || !projectsHasMore) return Promise.resolve();
+    return loadRecentProjects(authToken, { append: true });
+  };
+
   useEffect(() => {
     if (screen !== 'pattern-detail' || !routePostId || activePattern?.id === routePostId) return undefined;
     let cancelled = false;
@@ -1050,10 +1054,9 @@ function H5App() {
 
   useEffect(() => {
     if (!routeProjectId || !['canvas', 'beading'].includes(screen) || activeProjectId === routeProjectId) return;
-    if (!authToken) {
-      let hasStoredToken = false;
-      try { hasStoredToken = Boolean(JSON.parse(window.localStorage.getItem(AUTH_STORAGE_KEY) || 'null')?.token); } catch {}
-      if (!hasStoredToken) setShowLoginModal(true);
+    if (authStatus === 'restoring') return;
+    if (authStatus !== 'authenticated' || !authToken) {
+      if (!isLoggedIn) void requireLogin(() => undefined);
       return;
     }
     let cancelled = false;
@@ -1082,130 +1085,25 @@ function H5App() {
       }
     })();
     return () => { cancelled = true; };
-  }, [activeProjectId, authToken, routeProjectId, screen]);
+  }, [activeProjectId, authStatus, authToken, routeProjectId, screen]);
 
   useEffect(() => {
-    if (!authToken || screen !== 'warehouse-detail' || !routeWarehouseId || activeWarehouseId === routeWarehouseId) return;
+    if (authStatus !== 'authenticated' || !authToken || screen !== 'warehouse-detail' || !routeWarehouseId || activeWarehouseId === routeWarehouseId) return;
     activeWarehouseIdRef.current = routeWarehouseId;
     setActiveWarehouseId(routeWarehouseId);
     void loadInventory(routeWarehouseId, authToken);
-  }, [activeWarehouseId, authToken, routeWarehouseId, screen]);
-
-  const loadProjectFolders = async (token: string) => {
-    try {
-      const payload = await requestApi<{ folders: ProjectFolder[] }>('/project-folders', {}, token);
-      setProjectFolders(payload.folders || []);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : '文件夹读取失败');
-    }
-  };
-
-  const loadRecentProjects = async (token: string, { preserveOnError = false } = {}) => {
-    const requestSeq = recentProjectsRequestSeqRef.current + 1;
-    recentProjectsRequestSeqRef.current = requestSeq;
-    try {
-      const response = await fetch(`${API_BASE}/projects`, {
-        headers: { authorization: `Bearer ${token}` },
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.message || '最近项目读取失败');
-      if (recentProjectsRequestSeqRef.current !== requestSeq) return;
-      setRecentProjects(payload.projects as RecentProject[]);
-      void loadProjectFolders(token);
-    } catch (error) {
-      if (recentProjectsRequestSeqRef.current !== requestSeq) return;
-      if (!preserveOnError) setRecentProjects([]);
-      setStatus(error instanceof Error ? error.message : '最近项目读取失败');
-    }
-  };
+  }, [activeWarehouseId, authStatus, authToken, routeWarehouseId, screen]);
 
   const loadFollowingCount = async (token: string) => {
     try {
       const payload = await requestApi<{ likesCount?: number; followingCount?: number; followersCount?: number }>('/me', {}, token);
-      setReceivedLikesCount(typeof payload.likesCount === 'number' ? payload.likesCount : 0);
-      setFollowingCount(typeof payload.followingCount === 'number' ? payload.followingCount : 0);
-      setFollowersCount(typeof payload.followersCount === 'number' ? payload.followersCount : 0);
+      dispatch({ type: 'auth/profileStatsUpdated', payload: { token, sessionVersion: store.getState().auth.sessionVersion, changes: {
+        likesCount: typeof payload.likesCount === 'number' ? payload.likesCount : 0,
+        followingCount: typeof payload.followingCount === 'number' ? payload.followingCount : 0,
+        followersCount: typeof payload.followersCount === 'number' ? payload.followersCount : 0,
+      } } });
     } catch {
-      setReceivedLikesCount(0);
-      setFollowingCount(0);
-      setFollowersCount(0);
     }
-  };
-
-  const loadFollowingUsers = async (token = authToken) => {
-    if (!token) return;
-    setIsFollowingLoading(true);
-    setFollowingError('');
-    try {
-      const payload = await requestApi<{ users: FollowingUser[] }>('/community/following', { headers: { authorization: `Bearer ${token}` } }, token);
-      setFollowingUsers(Array.isArray(payload.users) ? payload.users : []);
-    } catch (error) {
-      setFollowingUsers([]);
-      setFollowingError(error instanceof Error ? error.message : '关注列表读取失败');
-    } finally {
-      setIsFollowingLoading(false);
-    }
-  };
-
-  const loadFollowersUsers = async (token = authToken) => {
-    if (!token) return;
-    setIsFollowersLoading(true);
-    setFollowersError('');
-    try {
-      const payload = await requestApi<{ users: FollowingUser[] }>('/community/followers', { headers: { authorization: `Bearer ${token}` } }, token);
-      setFollowersUsers(Array.isArray(payload.users) ? payload.users : []);
-    } catch (error) {
-      setFollowersUsers([]);
-      setFollowersError(error instanceof Error ? error.message : '粉丝列表读取失败');
-    } finally {
-      setIsFollowersLoading(false);
-    }
-  };
-
-  const loadAuthorProfile = async (authorId: string, token = authToken, page = 1, append = false) => {
-    const requestSeq = authorProfileRequestSeqRef.current + 1;
-    authorProfileRequestSeqRef.current = requestSeq;
-    if (append) setIsAuthorProfileLoadingMore(true);
-    else {
-      setIsAuthorProfileLoading(true);
-      setAuthorProfileError('');
-      authorProfilePageRef.current = 1;
-      setAuthorProfileHasMore(false);
-    }
-    try {
-      const pageSize = 50;
-      const payload = await requestApi<{ profile: AuthorProfile; posts: CommunityPost[]; page?: number; pageSize?: number }>(`/community/users/${authorId}/profile?page=${page}&pageSize=${pageSize}`, { headers: token ? { authorization: `Bearer ${token}` } : {} }, token || null);
-      if (authorProfileRequestSeqRef.current !== requestSeq) return;
-      setAuthorProfile(payload.profile);
-      const posts = (Array.isArray(payload.posts) ? payload.posts : []).map(toPatternListCard);
-      setAuthorProfilePosts((current) => append ? [...current, ...posts] : posts);
-      authorProfilePageRef.current = page;
-      setAuthorProfileHasMore(posts.length === pageSize);
-    } catch (error) {
-      if (authorProfileRequestSeqRef.current !== requestSeq) return;
-      if (!append) {
-        setAuthorProfile(null);
-        setAuthorProfilePosts([]);
-        setAuthorProfileError(error instanceof Error ? error.message : '作者主页读取失败');
-      } else {
-        setStatus(error instanceof Error ? error.message : '更多作品读取失败');
-      }
-    } finally {
-      if (authorProfileRequestSeqRef.current === requestSeq) {
-        if (append) setIsAuthorProfileLoadingMore(false);
-        else setIsAuthorProfileLoading(false);
-      }
-    }
-  };
-
-  useEffect(() => {
-    if (screen !== 'author-profile' || !routeAuthorId || authorProfile?.id === routeAuthorId) return;
-    void loadAuthorProfile(decodeURIComponent(routeAuthorId));
-  }, [authorProfile?.id, routeAuthorId, screen]);
-
-  const loadMoreAuthorProfile = (authorId: string) => {
-    if (isAuthorProfileLoadingMore || !authorProfileHasMore) return;
-    void loadAuthorProfile(authorId, authToken, authorProfilePageRef.current + 1, true);
   };
 
   const openAuthorProfile = (pattern: PatternListCard, backTarget: 'discover' | 'detail' | 'following' | 'followers' = 'discover') => {
@@ -1215,14 +1113,11 @@ function H5App() {
       return;
     }
     if (!pattern.authorId) return;
-    authorProfileRequestSeqRef.current += 1;
     authorProfileBackTargetRef.current = nextAuthorBackTarget(backTarget === 'detail' ? 'pattern-detail' : backTarget);
     authorProfileReturnPatternRef.current = backTarget === 'detail' ? pattern : null;
     authorProfileReturnAuthorIdRef.current = pattern.authorId;
     setActivePattern(pattern);
-    setAuthorProfile(null);
-    setAuthorProfilePosts([]);
-    setAuthorProfileError('');
+    resetAuthorProfile();
     navigate(`/community/users/${encodeURIComponent(pattern.authorId)}`);
     void loadAuthorProfile(pattern.authorId);
   };
@@ -1246,214 +1141,6 @@ function H5App() {
       commentsCount: 0,
       likedByMe: false,
     }, from);
-  };
-
-  const loadCommunityPosts = async (sort: 'hot' | 'latest' = communitySort, token = authToken, { preserveOnError = false, append = false } = {}) => {
-    const requestSeq = communityPostsRequestSeqRef.current + 1;
-    communityPostsRequestSeqRef.current = requestSeq;
-    if (append) setIsCommunityLoadingMore(true);
-    else {
-      setIsCommunityLoading(true);
-      communityPageRef.current = 1;
-      setCommunityHasMore(false);
-    }
-    try {
-      const pageSize = 50;
-      const page = append ? communityPageRef.current + 1 : 1;
-      const params = new URLSearchParams({ sort, page: String(page), pageSize: String(pageSize) });
-      if (activeTab === 'discover' && debouncedCommunityQuery.trim()) params.set('q', debouncedCommunityQuery.trim());
-      if (activeTab === 'discover' && communitySelectedTags.length) params.set('tags', communitySelectedTags.join(','));
-      const payload = await requestApi<{ posts: CommunityPost[]; tagCounts?: Array<{ tag: string; count: number }> }>(`/community/posts?${params.toString()}`, {
-        headers: token ? { authorization: `Bearer ${token}` } : {},
-      });
-      if (communityPostsRequestSeqRef.current === requestSeq) {
-        setCommunityAvailableTags((payload.tagCounts || []).filter(({ count }) => count > 0).map(({ tag }) => tag));
-      }
-      if (communityPostsRequestSeqRef.current !== requestSeq) return;
-      const posts = Array.isArray(payload.posts) ? payload.posts : [];
-      setCommunityPosts((current) => {
-        const next = append ? [...current, ...posts] : posts;
-        return sort === 'hot' ? sortCommunityPosts(next) : next;
-      });
-      communityPageRef.current = page;
-      setCommunityHasMore(posts.length === pageSize);
-    } catch (error) {
-      if (communityPostsRequestSeqRef.current !== requestSeq) return;
-      if (!append && !preserveOnError) setCommunityPosts([]);
-      setStatus(error instanceof Error ? error.message : append ? '更多社区稿件读取失败' : '社区稿件读取失败');
-    } finally {
-      if (communityPostsRequestSeqRef.current === requestSeq) {
-        if (append) setIsCommunityLoadingMore(false);
-        else setIsCommunityLoading(false);
-      }
-    }
-  };
-
-  const loadMoreCommunityPosts = () => {
-    if (isCommunityLoadingMore || !communityHasMore) return;
-    void loadCommunityPosts(communitySort, authToken, { append: true });
-  };
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedCommunityQuery(communityQuery), 300);
-    return () => window.clearTimeout(timer);
-  }, [communityQuery]);
-
-  useEffect(() => {
-    if (activeTab === 'discover') void loadCommunityPosts(communitySort, authToken);
-  }, [activeTab, authToken, communitySort, debouncedCommunityQuery, communitySelectedTags]);
-
-  useEffect(() => {
-    if (screen === 'following' && authToken) void loadFollowingUsers(authToken);
-    if (screen === 'followers' && authToken) void loadFollowersUsers(authToken);
-  }, [screen, authToken]);
-
-  const communityCards = useMemo(() => communityPosts.map(toPatternListCard), [communityPosts]);
-  const homeTemplateCards = useMemo(() => communityCards.slice(0, 3), [communityCards]);
-
-  const loadCommunityComments = async (projectId: string) => {
-    const requestSeq = communityCommentsRequestSeqRef.current + 1;
-    communityCommentsRequestSeqRef.current = requestSeq;
-    setCommunityComments([]);
-    setIsCommunityCommentsLoading(true);
-    try {
-      const payload = await requestApi<CommunityCommentsResponse>(`/community/posts/${projectId}/comments`);
-      if (communityCommentsRequestSeqRef.current !== requestSeq) return;
-      setCommunityComments(payload.comments);
-    } catch (error) {
-      if (communityCommentsRequestSeqRef.current !== requestSeq) return;
-      setCommunityComments([]);
-      setStatus(error instanceof Error ? error.message : '评论读取失败');
-    } finally {
-      if (communityCommentsRequestSeqRef.current === requestSeq) setIsCommunityCommentsLoading(false);
-    }
-  };
-
-  const loadNotifications = async (token = authToken, { preserveOnError = false } = {}) => {
-    if (!token) {
-      if (!preserveOnError) setNotifications([]);
-      return;
-    }
-    const requestSeq = notificationsRequestSeqRef.current + 1;
-    notificationsRequestSeqRef.current = requestSeq;
-    try {
-      const payload = await requestApi<{ notifications: CommunityNotification[] }>('/notifications', {
-        headers: { authorization: `Bearer ${token}` },
-      });
-      if (notificationsRequestSeqRef.current === requestSeq) setNotifications(payload.notifications || []);
-    } catch (error) {
-      if (notificationsRequestSeqRef.current === requestSeq) setStatus(error instanceof Error ? error.message : '消息读取失败');
-    }
-  };
-
-  const openNotification = async (notification: CommunityNotification) => {
-    let opened = !notification.projectId;
-    if (notification.projectId) {
-      try {
-        const payload = await requestApi<{ post: CommunityPost }>(`/community/posts/${notification.projectId}`);
-        setActivePattern(toPatternListCard(payload.post));
-        navigate(`/community/posts/${encodeURIComponent(notification.projectId)}`);
-        opened = true;
-      } catch (error) {
-        setStatus(error instanceof Error ? error.message : '作品读取失败');
-      }
-    }
-    if (opened && !notification.isRead) {
-      try {
-        await requestApi(`/notifications/${notification.id}/read`, { method: 'PATCH' });
-        setNotifications((items) => items.map((item) => item.id === notification.id ? { ...item, isRead: true, readAt: new Date().toISOString() } : item));
-      } catch (error) {
-        setStatus(error instanceof Error ? error.message : '消息状态更新失败');
-      }
-    }
-  };
-
-  const likeCommunityPost = async (projectId: string, token = authToken) => {
-    if (!token) {
-      requireLogin((nextToken) => void likeCommunityPost(projectId, nextToken));
-      return;
-    }
-    try {
-      const payload = await requestApi<{ likesCount: number }>(`/community/posts/${projectId}/like`, {
-        method: 'POST',
-        headers: { authorization: `Bearer ${token}` },
-      });
-      setCommunityPosts((posts) => posts.map((post) => post.id === projectId ? { ...post, likesCount: payload.likesCount, likedByMe: true } : post));
-      setActivePattern((pattern) => pattern?.id === projectId ? { ...pattern, likes: String(payload.likesCount), likesCount: payload.likesCount, likedByMe: true } : pattern);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : '点赞失败');
-    }
-  };
-
-  const toggleCommunityFollow = async (authorId: string, currentlyFollowing: boolean, token = authToken) => {
-    if (!token) {
-      requireLogin((nextToken) => void toggleCommunityFollow(authorId, currentlyFollowing, nextToken));
-      return;
-    }
-    try {
-      const payload = await requestApi<{ following: boolean; followingCount?: number; followersCount?: number }>(`/community/users/${authorId}/follow`, {
-        method: currentlyFollowing ? 'DELETE' : 'POST',
-        headers: { authorization: `Bearer ${token}` },
-      });
-      setCommunityPosts((posts) => posts.map((post) => post.authorId === authorId ? { ...post, isFollowing: payload.following } : post));
-      setAuthorProfilePosts((posts) => posts.map((post) => post.authorId === authorId ? { ...post, isFollowing: payload.following } : post));
-      setActivePattern((pattern) => pattern?.authorId === authorId ? { ...pattern, isFollowing: payload.following } : pattern);
-      setAuthorProfile((profile) => profile?.id === authorId ? {
-        ...profile,
-        isFollowing: payload.following,
-        followersCount: typeof payload.followersCount === 'number' ? payload.followersCount : profile.followersCount + (payload.following ? 1 : -1),
-      } : profile);
-      void loadFollowingCount(token);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : '关注操作失败');
-    }
-  };
-
-  const addCommunityComment = async (projectId: string, content: string, parentId?: string, token = authToken) => {
-    if (!token) {
-      requireLogin((nextToken) => void addCommunityComment(projectId, content, parentId, nextToken));
-      return;
-    }
-    if (parentId) setCommentReplyPendingId(parentId);
-    else setCommentSubmitting(true);
-    try {
-      const payload = await requestApi<{ comment: CommunityComment }>(`/community/posts/${projectId}/comments`, {
-        method: 'POST',
-        headers: { authorization: `Bearer ${token}` },
-        body: JSON.stringify({ content, ...(parentId ? { parentId } : {}) }),
-      });
-      setCommunityComments((comments) => parentId
-        ? insertCommentReply(comments, payload.comment)
-        : [{ ...payload.comment, replies: payload.comment.replies || [] }, ...comments]);
-      setCommunityPosts((posts) => posts.map((post) => post.id === projectId ? { ...post, commentsCount: post.commentsCount + 1 } : post));
-      setActivePattern((pattern) => pattern?.id === projectId ? { ...pattern, comments: String(pattern.commentsCount + 1), commentsCount: pattern.commentsCount + 1 } : pattern);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : '评论发布失败');
-    } finally {
-      if (parentId) setCommentReplyPendingId('');
-      else setCommentSubmitting(false);
-    }
-  };
-
-  const deleteCommunityComment = async (projectId: string, commentId: string, token = authToken) => {
-    if (!token) {
-      requireLogin((nextToken) => void deleteCommunityComment(projectId, commentId, nextToken));
-      return;
-    }
-    setCommentDeletePendingId(commentId);
-    try {
-      const payload = await requestApi<{ deletedCount: number }>(`/community/posts/${projectId}/comments/${commentId}`, {
-        method: 'DELETE',
-        headers: { authorization: `Bearer ${token}` },
-      });
-      setCommunityComments((comments) => removeCommentTree(comments, commentId));
-      setCommunityPosts((posts) => posts.map((post) => post.id === projectId ? { ...post, commentsCount: Math.max(0, post.commentsCount - payload.deletedCount) } : post));
-      setActivePattern((pattern) => pattern?.id === projectId ? { ...pattern, comments: String(Math.max(0, pattern.commentsCount - payload.deletedCount)), commentsCount: Math.max(0, pattern.commentsCount - payload.deletedCount) } : pattern);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : '评论删除失败');
-    } finally {
-      setCommentDeletePendingId('');
-    }
   };
 
   const saveRecentProject = async (name: string, projectRows: number, projectCols: number, tone = 'recent-flower', images: { sourceImagePath?: string; thumbnailImagePath?: string } = {}, token = authToken) => {
@@ -1509,8 +1196,7 @@ function H5App() {
       return;
     }
     try {
-      const payload = await requestApi<{ project: { id: string; folderId: string | null; updatedAt: string } }>(`/projects/${projectId}/folder`, { method: 'PATCH', body: JSON.stringify({ folderId }) });
-      setRecentProjects((projects) => applyMovedProjectFolder(projects, payload.project));
+      await dispatch(moveProjectToFolderThunk({ projectId, folderId, token: authToken })).unwrap();
     } catch (error) {
       const message = error instanceof Error ? error.message : '移动作品失败';
       setStatus(message);
@@ -1539,8 +1225,8 @@ function H5App() {
     setIsCreatingProjectFolder(true);
     setProjectFolderCreateError('');
     try {
-      const payload = await requestApi<{ folder: ProjectFolder }>('/project-folders', { method: 'POST', body: JSON.stringify({ name }) });
-      const next = applyCreatedProjectFolder({ folders: projectFolders, activeFolderId: activeProjectFolderId, saveFolderId, move: projectFolderMoveTarget ? { projectId: projectFolderMoveTarget.id, selectedFolderId: projectFolderMoveSelectedId } : null }, payload.folder, projectFolderCreateOrigin);
+      const folder = await dispatch(createProjectFolderThunk({ name, token: authToken })).unwrap();
+      const next = applyCreatedProjectFolder({ folders: projectFolders.filter((item) => item.id !== folder.id), activeFolderId: activeProjectFolderId, saveFolderId, move: projectFolderMoveTarget ? { projectId: projectFolderMoveTarget.id, selectedFolderId: projectFolderMoveSelectedId } : null }, folder, projectFolderCreateOrigin);
       setProjectFolders(next.folders);
       setActiveProjectFolderId(next.activeFolderId);
       setSaveFolderId(next.saveFolderId);
@@ -1601,9 +1287,7 @@ function H5App() {
       danger: true,
       onConfirm: async () => {
         try {
-          await requestApi(`/project-folders/${folder.id}`, { method: 'DELETE' });
-          setProjectFolders((folders) => folders.filter((item) => item.id !== folder.id));
-          setRecentProjects((projects) => projects.map((project) => project.folderId === folder.id ? { ...project, folderId: null } : project));
+          await dispatch(deleteProjectFolderThunk({ folderId: folder.id, token: authToken })).unwrap();
           setActiveProjectFolderId((current) => current === folder.id ? 'all' : current);
           setSaveFolderId((current) => current === folder.id ? null : current);
         } catch (error) {
@@ -1921,14 +1605,33 @@ function H5App() {
     }
   };
 
-  const refreshCurrentHome = () => refreshHomeData({
-    token: authToken,
-    loadCommunity: () => loadCommunityPosts('hot', authToken, { preserveOnError: true }),
-    loadRecentProjects: () => authToken ? loadRecentProjects(authToken, { preserveOnError: true }) : Promise.resolve(),
-    loadNotifications: () => authToken ? loadNotifications(authToken, { preserveOnError: true }) : Promise.resolve(),
-    loadWarehouses: () => authToken ? loadWarehouses(authToken, { preserveOnError: true }) : Promise.resolve(),
-    loadProfile: () => authToken ? loadFollowingCount(authToken) : Promise.resolve(),
-  });
+  const refreshCurrentHome = () => {
+    const cache = homeDataRefreshRef.current;
+    if (cache.pending && cache.token === authToken) return cache.pending;
+    if (!shouldRefreshHomeData({
+      lastRefreshedAt: cache.lastRefreshedAt,
+      cachedToken: cache.token,
+      token: authToken,
+      now: Date.now(),
+    })) return Promise.resolve();
+
+    const token = authToken;
+    const pending = refreshHomeData({
+      token,
+      loadCommunity: () => loadCommunityPosts('hot', token, { preserveOnError: true }),
+      loadRecentProjects: () => token ? loadRecentProjects(token, { preserveOnError: true }) : Promise.resolve(),
+      loadNotifications: () => token ? loadNotifications(token, { preserveOnError: true }) : Promise.resolve(),
+      loadWarehouses: () => token ? loadWarehouses(token, { preserveOnError: true }) : Promise.resolve(),
+      loadProfile: () => token ? loadFollowingCount(token) : Promise.resolve(),
+    });
+    homeDataRefreshRef.current = { ...cache, token, pending };
+    void pending.then(() => {
+      if (homeDataRefreshRef.current.pending === pending) {
+        homeDataRefreshRef.current = { lastRefreshedAt: Date.now(), token, pending: null };
+      }
+    });
+    return pending;
+  };
 
   useEffect(() => {
     if (screen !== 'home' || activeTab !== 'home') return;
@@ -1949,20 +1652,18 @@ function H5App() {
     inventoryRequestSeqRef.current = requestSeq;
     setBeadStock({});
     try {
-      const payload = await fetch(`${API_BASE}/warehouses/${warehouseId}/inventory`, {
-        headers: { authorization: `Bearer ${token}` },
-      }).then(async (response) => {
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.message || '库存读取失败');
-        return data as { inventory: Record<string, number> };
-      });
+      const inventory = await dispatch(fetchWarehouseInventory({ warehouseId, token })).unwrap();
       if (inventoryRequestSeqRef.current !== requestSeq) return;
       if (activeWarehouseIdRef.current !== warehouseId) return;
-      setBeadStock(payload.inventory);
+      setBeadStock(inventory);
     } catch (error) {
       if (inventoryRequestSeqRef.current !== requestSeq) return;
       setStatus(error instanceof Error ? error.message : '库存读取失败');
     }
+  };
+
+  const openLogin = (returnTo = `${location.pathname}${location.search}`) => {
+    void authGate.require({ scopeId: currentRouteScope, returnTo });
   };
 
   const requireLogin = (next: (token: string) => void) => {
@@ -1970,49 +1671,63 @@ function H5App() {
       next(authToken);
       return;
     }
-    pendingAuthActionRef.current = next;
-    setShowLoginModal(true);
+    void authGate.require({ scopeId: currentRouteScope, returnTo: `${location.pathname}${location.search}` }).then((authenticated) => {
+      if (authenticated) {
+        const token = store.getState().auth.token;
+        if (token) next(token);
+      }
+    });
     setStatus('请先登录后使用我的功能。');
   };
 
+  const {
+    communityPosts, setCommunityPosts, communityCards, homeTemplateCards, communityAvailableTags, communityHasMore,
+    isCommunityLoading, isCommunityLoadingMore, communitySort, communityQuery, debouncedCommunityQuery, communitySelectedTags,
+    setCommunitySort, setCommunityQuery, setCommunitySelectedTags, loadCommunityPosts, loadMoreCommunityPosts,
+    authorProfile, setAuthorProfile, authorProfilePosts, setAuthorProfilePosts, authorProfileError, setAuthorProfileError,
+    isAuthorProfileLoading, isAuthorProfileLoadingMore, authorProfileHasMore, setAuthorProfileHasMore,
+    followingUsers, setFollowingUsers, followersUsers, setFollowersUsers, isFollowingLoading, isFollowersLoading,
+    followingError, followersError, communityComments, setCommunityComments, notifications, setNotifications, isCommunityCommentsLoading, commentSubmitting,
+    commentReplyPendingId, commentDeletePendingId, loadAuthorProfile, loadMoreAuthorProfile, loadFollowingUsers,
+    loadFollowersUsers, resetAuthorProfile, loadCommunityComments, loadNotifications, openNotification, likeCommunityPost,
+    toggleCommunityFollow, addCommunityComment, deleteCommunityComment,
+  } = useCommunityDomain({
+    activeTab, screen, routeAuthorId, authToken, requestApi, setStatus, requireLogin, navigate, setActivePattern, loadFollowingCount,
+  });
+
+  useEffect(() => {
+    if (activeTab === 'discover') void loadCommunityPosts(communitySort, authToken);
+  }, [activeTab, authToken, communitySort, debouncedCommunityQuery, communitySelectedTags]);
+
   const submitLogin = async () => {
-    const username = loginName.trim();
+    const username = loginUsernameInput.trim();
     const password = loginPassword;
     if (!username || !password) {
       setStatus('请输入用户名和密码。');
       return;
     }
-    const requestSeq = authRequestSeqRef.current + 1;
-    authRequestSeqRef.current = requestSeq;
+    const attempt = authAttemptGuardRef.current.start('username');
+    const gateRequestId = store.getState().ui.loginRequest?.id;
     setIsAuthenticating(true);
     try {
       const payload = await requestApi<{ token: string; user: { id: string; username: string; nickname?: string; avatarUrl?: string | null } }>('/auth/login', {
         method: 'POST',
         body: JSON.stringify({ username, password }),
       });
-      if (authRequestSeqRef.current !== requestSeq || !showLoginModal) return;
-      setAuthToken(payload.token);
-      setAuthUserId(payload.user.id);
-      setLegacyDraftOwnerId(payload.user.username.trim());
-      setLoginName(payload.user.nickname || payload.user.username);
-      setProfileAvatarUrl(payload.user.avatarUrl || '');
-      await loadFollowingCount(payload.token);
-      setIsLoggedIn(true);
-      window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token: payload.token, username: payload.user.username, userId: payload.user.id }));
-      setShowLoginModal(false);
+      if (!attempt.commitSuccess()) return;
+      authSessionCoordinator.establishFromUsername(payload, { gateRequestId, legacyDraftOwnerId: payload.user.username });
       setLoginPassword('');
-      await loadRecentProjects(payload.token);
-      await loadCommunityPosts('hot', payload.token);
-      await loadNotifications(payload.token);
-      await loadWarehouses(payload.token);
-      const pendingAuthAction = pendingAuthActionRef.current;
-      pendingAuthActionRef.current = null;
-      pendingAuthAction?.(payload.token);
+      await Promise.allSettled([
+        loadRecentProjects(payload.token),
+        loadCommunityPosts('hot', payload.token),
+        loadNotifications(payload.token),
+        loadWarehouses(payload.token),
+      ]);
     } catch (error) {
-      if (authRequestSeqRef.current !== requestSeq) return;
+      if (!attempt.commitError(error instanceof Error ? error.message : '登录失败')) return;
       setStatus(error instanceof Error ? error.message : '登录失败');
     } finally {
-      if (authRequestSeqRef.current === requestSeq) setIsAuthenticating(false);
+      if (attempt.commitFinally()) setIsAuthenticating(false);
     }
   };
 
@@ -2086,6 +1801,8 @@ function H5App() {
       setPhoneAuthError('请输入6位验证码');
       return;
     }
+    const attempt = authAttemptGuardRef.current.start('phone');
+    const gateRequestId = store.getState().ui.loginRequest?.id;
     setPhoneVerifying(true);
     setPhoneAuthError('');
     try {
@@ -2100,31 +1817,35 @@ function H5App() {
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.message || '登录失败，请稍后重试');
       const data = payload.data as { accessToken: string; user: { nickname?: string; id: string; avatarUrl?: string | null } };
-      setAuthToken(data.accessToken);
-      setAuthUserId(data.user.id);
-      setLegacyDraftOwnerId((data.user.nickname || '我的创作').trim());
-      setLoginName(data.user.nickname || '我的创作');
-      setProfileAvatarUrl(data.user.avatarUrl || '');
-      await loadFollowingCount(data.accessToken);
-      setIsLoggedIn(true);
-      window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token: data.accessToken, username: data.user.nickname || '我的创作', userId: data.user.id }));
-      setShowLoginModal(false);
+      if (!attempt.commitSuccess()) return;
+      authSessionCoordinator.establishFromPhone(data, {
+        gateRequestId,
+        legacyDraftOwnerId: data.user.nickname || data.user.id,
+      });
+      if (mode === 'login') {
+        if (rememberPassword) {
+          writeRememberedPhoneLogin(window.localStorage, { phone, password: phonePassword });
+        } else {
+          clearRememberedPhoneLogin(window.localStorage);
+        }
+      }
       setPhoneCode('');
       setPhonePassword('');
       setPhoneConfirmPassword('');
       setPhoneSmsRequestId('');
       setPhoneChallenge(null);
-      await loadRecentProjects(data.accessToken);
-      await loadCommunityPosts('hot', data.accessToken);
-      await loadNotifications(data.accessToken);
-      await loadWarehouses(data.accessToken);
-      const pendingAuthAction = pendingAuthActionRef.current;
-      pendingAuthActionRef.current = null;
-      pendingAuthAction?.(data.accessToken);
+      await Promise.allSettled([
+        loadRecentProjects(data.accessToken),
+        loadCommunityPosts('hot', data.accessToken),
+        loadNotifications(data.accessToken),
+        loadWarehouses(data.accessToken),
+      ]);
     } catch (error) {
-      setPhoneAuthError(error instanceof Error ? error.message : '登录失败，请稍后重试');
+      if (attempt.commitError(error instanceof Error ? error.message : '登录失败，请稍后重试')) {
+        setPhoneAuthError(error instanceof Error ? error.message : '登录失败，请稍后重试');
+      }
     } finally {
-      setPhoneVerifying(false);
+      if (attempt.commitFinally()) setPhoneVerifying(false);
     }
   };
 
@@ -2132,20 +1853,10 @@ function H5App() {
   const submitPhoneRegister = async () => submitPhoneAuth('register');
 
   const logoutPhone = async () => {
-    try {
-      await fetch(`${API_BASE}/v1/auth/logout`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
-    } catch {
-      // Clear the local session even when the server is unavailable.
-    }
-    setAuthToken('');
-    setAuthUserId('');
-    setLegacyDraftOwnerId('');
-    setIsLoggedIn(false);
-    setLoginName('');
-    setProfileAvatarUrl('');
-    setReceivedLikesCount(0);
-    setFollowingCount(0);
-    setFollowersCount(0);
+    authAttemptGuardRef.current.cancel();
+    const loginRequestId = store.getState().ui.loginRequest?.id;
+    if (loginRequestId) authGate.cancelLogin(loginRequestId);
+    void dispatch(logoutSession());
     setFollowingUsers([]);
     setFollowersUsers([]);
     setRecentProjects([]);
@@ -2154,8 +1865,6 @@ function H5App() {
     setNotifications([]);
     setWarehouses([]);
     setBeadStock({});
-    pendingAuthActionRef.current = null;
-    window.localStorage.removeItem(AUTH_STORAGE_KEY);
     setShowLogoutConfirm(false);
   };
 
@@ -3378,18 +3087,19 @@ function H5App() {
   };
 
   const closeLoginModal = () => {
-    authRequestSeqRef.current += 1;
+    authAttemptGuardRef.current.cancel();
+    const requestId = store.getState().ui.loginRequest?.id;
+    if (requestId) authGate.cancelLogin(requestId);
     setIsAuthenticating(false);
-    pendingAuthActionRef.current = null;
-    setShowLoginModal(false);
   };
   const dismissSaveLoginPrompt = () => {
     setShowSaveLoginPrompt(false);
   };
-  const loginModalFallback = showLoginModal && !(screen === 'home' && (activeTab === 'home' || activeTab === 'profile')) ? (
+  const loginModalFallback = isLoginModalOpen && !(screen === 'home' && (activeTab === 'home' || activeTab === 'profile')) ? (
     <PhoneLoginModal
       phoneNumber={phoneNumber} setPhoneNumber={setPhoneNumber} phoneCode={phoneCode} setPhoneCode={setPhoneCode}
       phonePassword={phonePassword} setPhonePassword={setPhonePassword}
+      rememberPassword={rememberPassword} setRememberPassword={setRememberPassword}
       phoneConfirmPassword={phoneConfirmPassword} setPhoneConfirmPassword={setPhoneConfirmPassword}
       phoneAuthMode={phoneAuthMode} setPhoneAuthMode={switchPhoneAuthMode}
       phoneAgreement={phoneAgreement} setPhoneAgreement={setPhoneAgreement} phoneAuthError={phoneAuthError}
@@ -3788,7 +3498,7 @@ function H5App() {
         commentSubmitting={commentSubmitting}
         commentReplyPendingId={commentReplyPendingId}
         commentDeletePendingId={commentDeletePendingId}
-        onLogin={() => setShowLoginModal(true)}
+        onLogin={openLogin}
         onBack={() => {
           if (patternDetailBackTargetRef.current === 'author-profile') {
             const authorId = authorProfileReturnAuthorIdRef.current || authorProfileReturnPatternRef.current?.authorId || '';
@@ -3853,6 +3563,9 @@ function H5App() {
         onFolderChange={setActiveProjectFolderId}
         onCreateFolder={() => openProjectFolderCreate('my-works')}
         onDeleteFolder={deleteProjectFolder}
+        hasMore={projectsHasMore}
+        loadingMore={projectsLoadingMore}
+        onLoadMore={() => void loadMoreRecentProjects()}
         actionSheet={null}
       />,
       true,
@@ -3895,8 +3608,8 @@ function H5App() {
     fileInputRef={fileInputRef} handleUpload={handleUpload} status={status} activeTab={activeTab}
     recentProjects={sortedRecentProjects} homeTemplateCards={homeTemplateCards} onOpenRecentProject={openProjectActions} actionSheet={null}
     openUpload={openUpload} isLoggedIn={isLoggedIn}
-    loginName={loginName} setLoginName={setLoginName} loginPassword={loginPassword} setLoginPassword={setLoginPassword} submitLogin={submitLogin}
-    isAuthenticating={isAuthenticating} showLoginModal={showLoginModal} setShowLoginModal={setShowLoginModal}
+    loginName={loginName} loginPassword={loginPassword} setLoginPassword={setLoginPassword} submitLogin={submitLogin}
+    isAuthenticating={isAuthenticating} isLoginModalOpen={isLoginModalOpen} openLogin={openLogin} closeLogin={closeLoginModal}
     showUploadModal={showUploadModal} closeUploadModal={closeUploadModal} showXhsInput={showXhsInput}
     setShowXhsInput={setShowXhsInput} xhsLink={xhsLink} setXhsLink={setXhsLink}
     xhsExtractedImages={xhsExtractedImages} isExtractingXhs={isExtractingXhs} chooseLocalDrawing={chooseLocalDrawing}
@@ -3915,10 +3628,9 @@ function H5App() {
     setActiveTab={setActiveTab} communitySort={communitySort} setCommunitySort={setCommunitySort}
     communityQuery={communityQuery} setCommunityQuery={setCommunityQuery}
     communitySelectedTags={communitySelectedTags} setCommunitySelectedTags={setCommunitySelectedTags} communityAvailableTags={communityAvailableTags}
-    authRequestSeqRef={authRequestSeqRef} pendingAuthActionRef={pendingAuthActionRef}
-    setIsAuthenticating={setIsAuthenticating} setIsLoggedIn={setIsLoggedIn} setAuthToken={setAuthToken}
     phoneNumber={phoneNumber} setPhoneNumber={setPhoneNumber} phoneCode={phoneCode} setPhoneCode={setPhoneCode}
     phonePassword={phonePassword} setPhonePassword={setPhonePassword}
+    rememberPassword={rememberPassword} setRememberPassword={setRememberPassword}
     phoneConfirmPassword={phoneConfirmPassword} setPhoneConfirmPassword={setPhoneConfirmPassword}
     phoneAuthMode={phoneAuthMode} setPhoneAuthMode={switchPhoneAuthMode}
     phoneAgreement={phoneAgreement} setPhoneAgreement={setPhoneAgreement} phoneAuthError={phoneAuthError}
@@ -3935,7 +3647,7 @@ function H5App() {
       saveProfile={saveProfile} closeProfileEdit={closeProfileEdit}
     />}
     showLogoutConfirm={showLogoutConfirm} setShowLogoutConfirm={setShowLogoutConfirm}
-    recentProjectsRequestSeqRef={recentProjectsRequestSeqRef} inventoryRequestSeqRef={inventoryRequestSeqRef}
+    inventoryRequestSeqRef={inventoryRequestSeqRef}
     setWarehouses={setWarehouses} activeWarehouseIdRef={activeWarehouseIdRef} setActiveWarehouseId={setActiveWarehouseId}
     setBeadStock={setBeadStock} setSelectedWarehouseCodes={setSelectedWarehouseCodes}
   />);

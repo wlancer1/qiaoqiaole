@@ -535,7 +535,7 @@ async function route(request, response) {
     return listWarehouses(response, user.id);
   }
   if (request.method === 'GET' && url.pathname === '/api/projects') {
-    return listProjects(response, user.id);
+    return listProjects(response, user.id, url);
   }
   if (request.method === 'GET' && url.pathname === '/api/project-folders') {
     return listProjectFolders(response, user.id);
@@ -1297,21 +1297,26 @@ async function uploadProjectImage(input) {
   }
 }
 
-function listProjects(response, userId) {
+function listProjects(response, userId, url) {
+  const pagination = parsePagination(url.searchParams);
   const projects = getAll(
     `SELECT id, folder_id AS folderId, name, rows, cols, tone, thumbnail_image AS thumbnailImage,
             shared_to_community AS sharedToCommunity, shared_at AS sharedAt, likes_count AS likesCount,
             created_at AS createdAt, updated_at AS updatedAt
      FROM projects
      WHERE user_id = ?
-     ORDER BY updated_at DESC`,
-    [userId],
+     ORDER BY updated_at DESC
+     LIMIT ? OFFSET ?`,
+    [userId, pagination.pageSize, pagination.offset],
   );
   sendJson(response, 200, {
     projects: projects.map((project) => ({
       ...project,
       thumbnailImage: resolveProjectImage(project.thumbnailImage, userId),
     })),
+    page: pagination.page,
+    pageSize: pagination.pageSize,
+    hasMore: projects.length === pagination.pageSize,
   });
 }
 

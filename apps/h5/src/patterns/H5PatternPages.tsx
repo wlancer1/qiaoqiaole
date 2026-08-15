@@ -5,10 +5,28 @@ import { BeadListDrawer, type BeadColorItem } from '../flow/H5FlowComponents';
 import { colorCodeOf } from '../utils/h5AppUtils';
 import type { CommunityComment, CommunityNotification } from '../community/communityData';
 import type { FollowingUser, PatternListCard, RecentProject } from '../shared/h5Types';
+import { ImageWithSkeleton } from '../shared/ImageWithSkeleton';
 import { UserAvatar } from '../shared/UserAvatar';
 import { CommentAvatar } from './CommentAvatar';
 import { CommunityPatternCard } from '../community/CommunityPatternCard';
 import type { ProjectFolder } from '../projects/projectFolders';
+
+function LoadMoreSentinel({ hasMore, loadingMore, onLoadMore }: { hasMore: boolean; loadingMore: boolean; onLoadMore?: () => void }) {
+  const sentinelRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel || !hasMore || loadingMore || !onLoadMore || typeof IntersectionObserver === 'undefined') return undefined;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) onLoadMore();
+    }, { rootMargin: '0px 0px 240px' });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, loadingMore, onLoadMore]);
+
+  if (!hasMore) return null;
+  return <button ref={sentinelRef} className="community-load-more" type="button" onClick={onLoadMore} disabled={loadingMore}>{loadingMore ? '加载中…' : '加载更多作品'}</button>;
+}
 
 export function AuthorProfilePage({ patterns, authorPattern, authorProfile, loading = false, error = '', currentUserId = '', onBack, onOpen, onFollow, onRetry, hasMore = false, loadingMore = false, onLoadMore }: { patterns: PatternListCard[]; authorPattern?: PatternListCard; authorProfile?: { id: string; name: string; avatarUrl?: string | null; postsCount: number; likesCount: number; followersCount: number; isFollowing: boolean }; loading?: boolean; error?: string; currentUserId?: string; onBack: () => void; onOpen: (pattern: PatternListCard) => void; onFollow?: () => void; onRetry?: () => void; hasMore?: boolean; loadingMore?: boolean; onLoadMore?: () => void }) {
   const authorName = authorProfile?.name || authorPattern?.author || '作者';
@@ -44,13 +62,13 @@ export function AuthorProfilePage({ patterns, authorPattern, authorProfile, load
         {patterns.map((card) => (
           <button className="author-work-card" key={card.id} type="button" onClick={() => onOpen(card)}>
             <div className={`author-work-art ${card.tone}`} aria-hidden="true">
-              {card.image ? <img src={card.image} alt="" /> : <div className="pattern-art-grid">{card.beads.map((color, beadIndex) => <i key={`${card.id}-${beadIndex}`} style={{ backgroundColor: color }} />)}</div>}
+              <ImageWithSkeleton src={card.image} alt="" fallback={<div className="pattern-art-grid">{card.beads.map((color, beadIndex) => <i key={`${card.id}-${beadIndex}`} style={{ backgroundColor: color }} />)}</div>} />
             </div>
             <strong>{card.title}</strong>
           </button>
         ))}
       </section> : <section className="author-work-empty" aria-label="暂无已分享作品"><strong>还没有分享作品</strong><span>作者分享作品后会显示在这里</span></section>}
-      {!loading && !error && hasMore ? <button className="community-load-more" type="button" onClick={onLoadMore} disabled={loadingMore}>{loadingMore ? '加载中…' : '加载更多作品'}</button> : null}
+      {!loading && !error ? <LoadMoreSentinel hasMore={hasMore} loadingMore={loadingMore} onLoadMore={onLoadMore} /> : null}
     </main>
   );
 }
@@ -65,6 +83,9 @@ export function MyWorksPage({
   onFolderChange,
   onCreateFolder,
   onDeleteFolder,
+  hasMore = false,
+  loadingMore = false,
+  onLoadMore,
 }: {
   projects: RecentProject[];
   onBack: () => void;
@@ -75,14 +96,10 @@ export function MyWorksPage({
   onFolderChange?: (folderId: string | null | 'all') => void;
   onCreateFolder?: () => void;
   onDeleteFolder?: (folder: ProjectFolder) => void;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
 }) {
-  const thumbColors = [
-    ['#dcecff', '#f6bf38', '#67bd65', '#f18d9d'],
-    ['#dcecff', '#9edb72', '#e6a546', '#f7d9b5'],
-    ['#fde4ec', '#e85b94', '#f7d9b5', '#d87855'],
-    ['#cfe7ff', '#146cff', '#8bc34a', '#f9c640'],
-  ];
-
   const visibleProjects = activeFolderId === 'all'
     ? projects
     : projects.filter((project) => (activeFolderId === null ? !project.folderId : project.folderId === activeFolderId));
@@ -141,7 +158,7 @@ export function MyWorksPage({
       </section> : null}
       {activeContentTab === 'works' && visibleProjects.length > 0 ? (
         <section className="author-work-grid" aria-label="我的作品列表">
-          {visibleProjects.map((project, index) => (
+          {visibleProjects.map((project) => (
             <article
               className="author-work-card my-work-card"
               key={project.id}
@@ -157,15 +174,9 @@ export function MyWorksPage({
               }}
             >
               {(project.thumbnailImage || project.sourceImage) ? (
-                <img className="author-work-art my-work-thumb-image" src={project.thumbnailImage || project.sourceImage} alt="" />
+                <ImageWithSkeleton className="author-work-art" imageClassName="my-work-thumb-image" src={project.thumbnailImage || project.sourceImage} alt="" fallback={<div className="my-work-thumb-placeholder" aria-hidden="true" />} />
               ) : (
-                <div className={`author-work-art ${project.tone || 'recent-flower'}`} aria-hidden="true">
-                  <div className="my-work-thumb-grid">
-                    {Array.from({ length: 24 }, (_, colorIndex) => (
-                      <i key={colorIndex} style={{ backgroundColor: thumbColors[index % thumbColors.length][colorIndex % 4] }} />
-                    ))}
-                  </div>
-                </div>
+                <div className="author-work-art my-work-thumb-placeholder" aria-hidden="true" />
               )}
               <strong>{project.name.startsWith('wx') ? '未命名作品' : project.name}</strong>
               <small>{project.cols}×{project.rows}</small>
@@ -178,6 +189,7 @@ export function MyWorksPage({
           <span>{activeContentTab === 'likes' ? '去发现页看看喜欢的作品吧' : projects.length ? '把作品移动到这里后会显示在这里' : '完成创作并保存后，作品会显示在这里'}</span>
         </section>
       )}
+      {activeContentTab === 'works' && visibleProjects.length > 0 ? <LoadMoreSentinel hasMore={hasMore} loadingMore={loadingMore} onLoadMore={onLoadMore} /> : null}
       {actionSheet}
     </main>
   );
@@ -275,7 +287,7 @@ export function PatternDiscoverPage({ patterns, activeSort = 'hot', query = '', 
             </div>
           ))}
         </section>
-        {hasMore ? <button className="community-load-more" type="button" onClick={onLoadMore} disabled={loadingMore}>{loadingMore ? '加载中…' : '加载更多作品'}</button> : null}
+        <LoadMoreSentinel hasMore={hasMore} loadingMore={loadingMore} onLoadMore={onLoadMore} />
       </div>
     </section>
   );
@@ -417,7 +429,7 @@ export function PatternDetailPage({ pattern, currentUserId = '', onBack, onOpenA
 
         <section className="detail-main-card" aria-label="图纸主信息">
           <div className="detail-hero-art" aria-label={`${pattern.title}预览`}>
-            {(pattern.detailImage || pattern.image) ? <img src={pattern.detailImage || pattern.image} alt="" /> : <div className="detail-art-empty">暂无预览图</div>}
+            <ImageWithSkeleton src={pattern.detailImage || pattern.image} alt="" fallback={<div className="detail-art-empty">暂无预览图</div>} />
           </div>
         </section>
 
