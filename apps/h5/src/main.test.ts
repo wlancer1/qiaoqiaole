@@ -29,16 +29,15 @@ afterEach(() => {
 describe('H5 application entrypoint', () => {
   it('mounts one Redux Provider, BrowserRouter, and AppBootstrap around app content', () => {
     expect(mainSource).toContain("import { Provider } from 'react-redux';");
-    expect(mainSource).toContain("import { store } from './store/store';");
+    expect(mainSource).toContain("import { store, type H5Store } from './store/store';");
     expect(mainSource).toContain("import { AppBootstrap } from './app/AppBootstrap';");
     expect(mainSource.match(/<Provider\b/g)).toHaveLength(1);
     expect(mainSource.match(/<BrowserRouter\b/g)).toHaveLength(1);
     expect(mainSource.match(/<AppBootstrap\b/g)).toHaveLength(1);
-    expect(mainSource).toContain('<Provider store={store}>');
+    expect(mainSource).toContain('appStore = store');
+    expect(mainSource).toContain('<Provider store={appStore}>');
     expect(mainSource).toContain('<BrowserRouter basename={import.meta.env.BASE_URL}>');
-    expect(mainSource).toMatch(
-      /<Provider store=\{store\}>[\s\S]*<BrowserRouter basename=\{import\.meta\.env\.BASE_URL\}>[\s\S]*<AppBootstrap>[\s\S]*\{content\}[\s\S]*<\/AppBootstrap>[\s\S]*<\/BrowserRouter>[\s\S]*<\/Provider>/,
-    );
+    expect(mainSource).toContain('<AppBootstrap>{content ?? <H5AppShell />}</AppBootstrap>');
   });
 
   it('does not create another Provider or Router inside H5App', () => {
@@ -48,7 +47,8 @@ describe('H5 application entrypoint', () => {
 
   it('keeps the beading fixture inside the same application bootstrap', () => {
     expect(mainSource).toContain("import('./pages/beading/BeadingSessionFixture')");
-    expect(mainSource).toMatch(/const content = showBeadingFixture[\s\S]*<AppBootstrap>[\s\S]*\{content\}[\s\S]*<\/AppBootstrap>/);
+    expect(mainSource).toMatch(/const content = showBeadingFixture[\s\S]*: undefined;/);
+    expect(mainSource).toContain('<H5Application content={content} />');
   });
 
   it('runs Redux, Router, AppBootstrap, and RouteScopeBridge together under StrictMode', async () => {

@@ -1,16 +1,12 @@
+import { StrictMode, useEffect, type ReactNode } from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { Provider } from 'react-redux';
-import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { MemoryRouter, useLocation, useNavigate, type NavigateFunction } from 'react-router-dom';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import H5App from '../H5App';
+import { H5Application } from '../main';
 import { createH5Store } from '../store/store';
-import { statusRequested } from '../store/ui/uiSlice';
-import { AppBootstrap } from './AppBootstrap';
 import { H5AppShell } from './H5AppShell';
 import { H5RoutedContent } from './H5RoutedContent';
-
-const mainSource = readFileSync(resolve(__dirname, '../main.tsx'), 'utf8');
 
 beforeAll(() => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -21,44 +17,86 @@ const renderers: ReactTestRenderer[] = [];
 afterEach(() => {
   for (const renderer of renderers) act(() => renderer.unmount());
   renderers.length = 0;
+  vi.unstubAllGlobals();
 });
 
-function LegacyRoutedContent() {
+function installRuntimeDom() {
+  vi.stubGlobal('document', {
+    activeElement: null,
+    visibilityState: 'visible',
+    body: {
+      classList: {
+        remove: vi.fn(),
+        toggle: vi.fn(),
+      },
+    },
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    querySelector: vi.fn(() => null),
+    querySelectorAll: vi.fn(() => []),
+  });
+  vi.stubGlobal('window', {
+    addEventListener: vi.fn(),
+    cancelAnimationFrame: vi.fn(),
+    clearInterval,
+    clearTimeout,
+    getComputedStyle: vi.fn(() => ({ overflow: 'visible', overflowY: 'visible' })),
+    history: { back: vi.fn(), pushState: vi.fn(), state: null },
+    localStorage: { getItem: vi.fn(() => null), removeItem: vi.fn(), setItem: vi.fn() },
+    location: {
+      href: 'http://localhost/discover?sort=hot',
+      origin: 'http://localhost',
+      pathname: '/discover',
+    },
+    removeEventListener: vi.fn(),
+    requestAnimationFrame: vi.fn(() => 1),
+    scrollTo: vi.fn(),
+    setInterval,
+    setTimeout,
+  });
+}
+
+function RuntimeRouter({ children, onNavigateReady }: {
+  children: ReactNode;
+  onNavigateReady: (navigate: NavigateFunction) => void;
+}) {
   const location = useLocation();
   const navigate = useNavigate();
 
+  useEffect(() => {
+    onNavigateReady(navigate);
+  }, [navigate, onNavigateReady]);
+
   return (
-    <H5RoutedContent
-      renderPage={(screen) => (
-        <main aria-label={`page:${screen}`}>
-          <output data-testid="route-scope">{`${location.key}${location.pathname}${location.search}`}</output>
-          <button type="button" onClick={() => navigate('/projects?page=2')}>前往作品</button>
-        </main>
-      )}
-    />
+    <>
+      <output data-testid="runtime-location">{`${location.pathname}${location.search}`}</output>
+      {children}
+    </>
   );
 }
 
 describe('H5AppShell', () => {
-  it('is the compatibility shell mounted by the production application entry', () => {
-    expect(mainSource).toContain("import { H5AppShell } from './app/H5AppShell';");
-    expect(mainSource).toMatch(/const content = showBeadingFixture[\s\S]*: <H5AppShell \/>;/);
-    expect(mainSource).toMatch(/<AppBootstrap>\{content\}<\/AppBootstrap>/);
-  });
-
-  it('keeps the durable overlay slot mounted while real routed content navigates', async () => {
+  it('runs the production app tree with the shell defaulting to H5App routed content across navigation', async () => {
     const store = createH5Store({ storage: undefined });
+    installRuntimeDom();
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {})));
+    let navigate!: NavigateFunction;
     let renderer!: ReactTestRenderer;
 
     await act(async () => {
       renderer = create(
-        <Provider store={store}>
-          <MemoryRouter initialEntries={['/discover?sort=hot']}>
-            <AppBootstrap>
-              <H5AppShell legacyContent={<LegacyRoutedContent />} />
-            </AppBootstrap>
-          </MemoryRouter>
-        </Provider>,
+        <StrictMode>
+          <H5Application
+            appStore={store}
+            renderRouter={(children) => (
+              <MemoryRouter initialEntries={['/discover?sort=hot']}>
+                <RuntimeRouter onNavigateReady={(nextNavigate) => { navigate = nextNavigate; }}>
+                  {children}
+                </RuntimeRouter>
+              </MemoryRouter>
+            )}
+          />
+        </StrictMode>,
       );
       await Promise.resolve();
     });
@@ -66,27 +104,21 @@ describe('H5AppShell', () => {
 
     const shellBeforeNavigation = renderer.root.findByProps({ 'data-testid': 'h5-app-shell' });
     const overlaySlotBeforeNavigation = renderer.root.findByProps({ 'data-testid': 'h5-app-overlay-slot' });
-    const initialScope = renderer.root.findByProps({ 'data-testid': 'route-scope' }).children.join('');
-
-    expect(initialScope).toBe('default/discover?sort=hot');
-    expect(store.getState().ui.currentRouteScope).toBe(initialScope);
-    store.dispatch(statusRequested({ scopeId: initialScope, message: '旧页面提示' }));
-    expect(store.getState().ui.status).toEqual({ scopeId: initialScope, message: '旧页面提示' });
+    expect(renderer.root.findByType(H5AppShell).props.legacyContent).toBeUndefined();
+    expect(renderer.root.findAllByType(H5App)).toHaveLength(1);
+    expect(renderer.root.findAllByType(H5RoutedContent)).toHaveLength(1);
+    expect(renderer.root.findByProps({ 'data-testid': 'runtime-location' }).children.join(''))
+      .toBe('/discover?sort=hot');
 
     await act(async () => {
-      renderer.root.findByType('button').props.onClick();
+      navigate('/projects?page=2');
       await Promise.resolve();
     });
 
-    const nextScope = renderer.root.findByProps({ 'data-testid': 'route-scope' }).children.join('');
-    expect(nextScope).toContain('/projects?page=2');
-    expect(nextScope).not.toBe(initialScope);
-    expect(store.getState().ui.currentRouteScope).toBe(nextScope);
-    expect(store.getState().ui.status).toBeNull();
+    expect(renderer.root.findByProps({ 'data-testid': 'runtime-location' }).children.join(''))
+      .toBe('/projects?page=2');
+    expect(store.getState().ui.currentRouteScope).toContain('/projects?page=2');
     expect(renderer.root.findByProps({ 'data-testid': 'h5-app-shell' })).toBe(shellBeforeNavigation);
     expect(renderer.root.findByProps({ 'data-testid': 'h5-app-overlay-slot' })).toBe(overlaySlotBeforeNavigation);
-
-    store.dispatch(statusRequested({ scopeId: initialScope, message: '过期请求提示' }));
-    expect(store.getState().ui.status).toBeNull();
   });
 });

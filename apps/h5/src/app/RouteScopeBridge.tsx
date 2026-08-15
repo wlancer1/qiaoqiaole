@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useLayoutEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAppDispatch } from '../store/hooks';
 import { routeScopeChanged } from '../store/ui/uiSlice';
@@ -14,7 +14,7 @@ export function RouteScopeBridge(): null {
   const location = useLocation();
   const scopeId = routeScopeId(location);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     dispatch(routeScopeChanged({ scopeId }));
     gate.routeChanged(scopeId);
   }, [dispatch, gate, scopeId]);

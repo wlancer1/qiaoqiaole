@@ -1,13 +1,15 @@
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
-import { useEffect } from 'react';
-import { Provider } from 'react-redux';
+import { useEffect, useLayoutEffect, useRef } from 'react';
+import { Provider, useStore } from 'react-redux';
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { createH5Store } from '../store/store';
-import { statusRequested } from '../store/ui/uiSlice';
+import type { H5Store } from '../store/store';
+import { selectUiStatus, statusRequested } from '../store/ui/uiSlice';
 import { routeScopeId, RouteScopeBridge } from './RouteScopeBridge';
 import { AuthGateProvider } from '../store/ui/AuthGateContext';
 import { useAuthGate } from '../store/ui/AuthGateContext';
+import { useAppSelector } from '../store/hooks';
 
 beforeAll(() => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -41,6 +43,29 @@ function LoginProbe({ onReady }: { onReady: (pending: Promise<boolean>, gate: Re
     return () => gate.release('route-test');
   }, [gate, onReady, scopeId]);
   return null;
+}
+
+function RouteStatusProbe({
+  onTargetRouteLayout,
+}: {
+  onTargetRouteLayout: (status: string | null, oldScope: string) => void;
+}) {
+  const location = useLocation();
+  const store = useStore() as H5Store;
+  const status = useAppSelector(selectUiStatus);
+  const initialScopeRef = useRef(routeScopeId(location));
+  const scopeId = routeScopeId(location);
+
+  useLayoutEffect(() => {
+    if (scopeId === initialScopeRef.current) return;
+    onTargetRouteLayout(store.getState().ui.status?.message ?? null, initialScopeRef.current);
+    store.dispatch(statusRequested({
+      scopeId: initialScopeRef.current,
+      message: '过期请求提示',
+    }));
+  }, [onTargetRouteLayout, scopeId, store]);
+
+  return <output data-status={status?.message ?? ''}>{`${location.pathname}${location.search}`}</output>;
 }
 
 describe('RouteScopeBridge', () => {
@@ -78,6 +103,47 @@ describe('RouteScopeBridge', () => {
     const nextLocation = store.getState().ui.currentRouteScope;
     expect(nextLocation).toContain('/profile?tab=likes');
     expect(nextLocation).not.toBe(initialLocation);
+    expect(store.getState().ui.status).toBeNull();
+  });
+
+  it('changes scope before target-route layout can read old status or an old callback can publish', async () => {
+    const store = createH5Store({ storage: undefined });
+    const targetRouteStatuses: Array<string | null> = [];
+    const acceptedLateStatuses: string[] = [];
+    const unsubscribe = store.subscribe(() => {
+      const message = store.getState().ui.status?.message;
+      if (message === '过期请求提示') acceptedLateStatuses.push(message);
+    });
+    let renderer!: ReactTestRenderer;
+
+    await act(async () => {
+      renderer = create(
+        <Provider store={store}>
+          <MemoryRouter initialEntries={['/discover?sort=hot']}>
+            <AuthGateProvider>
+              <RouteScopeBridge />
+              <RouteStatusProbe onTargetRouteLayout={(status) => targetRouteStatuses.push(status)} />
+              <Probe />
+            </AuthGateProvider>
+          </MemoryRouter>
+        </Provider>,
+      );
+      await Promise.resolve();
+    });
+    renderers.push(renderer);
+
+    const oldScope = store.getState().ui.currentRouteScope;
+    act(() => {
+      store.dispatch(statusRequested({ scopeId: oldScope, message: '旧页面提示' }));
+    });
+
+    await act(async () => {
+      renderer.root.findByType('button').props.onClick();
+    });
+    unsubscribe();
+
+    expect(targetRouteStatuses).toEqual([null]);
+    expect(acceptedLateStatuses).toEqual([]);
     expect(store.getState().ui.status).toBeNull();
   });
 
