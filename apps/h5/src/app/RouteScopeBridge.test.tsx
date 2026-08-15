@@ -44,6 +44,11 @@ function LoginProbe({ onReady }: { onReady: (pending: Promise<boolean>, gate: Re
 }
 
 describe('RouteScopeBridge', () => {
+  it('creates a scope by concatenating the location key, pathname, and search exactly', () => {
+    expect(routeScopeId({ key: 'route-key', pathname: '/discover', search: '?sort=hot' }))
+      .toBe('route-key/discover?sort=hot');
+  });
+
   it('stores location key, pathname, and search and clears old status on navigation', async () => {
     const store = createH5Store({ storage: undefined });
     let renderer!: ReactTestRenderer;
@@ -63,7 +68,7 @@ describe('RouteScopeBridge', () => {
     renderers.push(renderer);
 
     const initialLocation = store.getState().ui.currentRouteScope;
-    expect(initialLocation).toContain(':/discover?sort=hot');
+    expect(initialLocation).toBe('default/discover?sort=hot');
     store.dispatch(statusRequested({ scopeId: initialLocation, message: '旧提示' }));
 
     await act(async () => {
@@ -71,7 +76,7 @@ describe('RouteScopeBridge', () => {
     });
 
     const nextLocation = store.getState().ui.currentRouteScope;
-    expect(nextLocation).toContain(':/profile?tab=likes');
+    expect(nextLocation).toContain('/profile?tab=likes');
     expect(nextLocation).not.toBe(initialLocation);
     expect(store.getState().ui.status).toBeNull();
   });
@@ -109,7 +114,7 @@ describe('RouteScopeBridge', () => {
 
     await expect(pendingRequests[0]).resolves.toBe(false);
     expect(store.getState().ui.loginRequest).toMatchObject({
-      scopeId: expect.stringContaining(':/profile?tab=likes'),
+      scopeId: expect.stringContaining('/profile?tab=likes'),
       returnTo: '/discover',
     });
     gate.completeLogin(store.getState().ui.loginRequest!.id);

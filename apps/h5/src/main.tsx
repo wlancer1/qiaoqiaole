@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { Provider } from 'react-redux';
 import { BrowserRouter } from 'react-router-dom';
 import { AppBootstrap } from './app/AppBootstrap';
-import H5App from './H5App';
+import { H5AppShell } from './app/H5AppShell';
 import { store } from './store/store';
 import './styles.css';
 
@@ -13,7 +13,7 @@ const showBeadingFixture = import.meta.env.DEV
 async function renderApp() {
   const content = showBeadingFixture
     ? React.createElement((await import('./pages/beading/BeadingSessionFixture')).BeadingSessionFixture)
-    : <H5App />;
+    : <H5AppShell />;
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
       <Provider store={store}>
