@@ -28,4 +28,22 @@ describe('auth session coordinator', () => {
     coordinator.establishFromUsername({ token: 'token2', user: { id: '2', username: 'b' } }, { gateRequestId: 'new' });
     expect(completeLogin).toHaveBeenCalledTimes(1);
   });
+
+  it('accepts the production phone login user shape without username', () => {
+    const dispatch = vi.fn();
+    const coordinator = createAuthSessionCoordinator({ dispatch, completeLogin: vi.fn() });
+
+    const result = coordinator.establishFromPhone({
+      accessToken: 'production-token',
+      user: { id: 'usr-1', nickname: '用户5767', avatarUrl: null },
+    });
+
+    expect(result.user).toMatchObject({
+      id: 'usr-1',
+      username: '用户5767',
+      displayName: '用户5767',
+      legacyDraftOwnerId: '用户5767',
+    });
+    expect(dispatch).toHaveBeenCalledTimes(1);
+  });
 });

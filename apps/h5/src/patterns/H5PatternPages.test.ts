@@ -74,6 +74,20 @@ describe('PatternDetailPage layout contract', () => {
 });
 
 describe('MyWorksPage', () => {
+  it('uses the server total for the profile counts instead of the current page size', () => {
+    const markup = renderToStaticMarkup(createElement(MyWorksPage, {
+      projects: [{ id: 'page-one-project', name: '当前页作品', rows: 1, cols: 1, tone: 'recent', createdAt: '', updatedAt: '' }],
+      total: 40,
+      onBack: vi.fn(),
+      onOpen: vi.fn(),
+    }));
+
+    expect(markup).toContain('<span class="my-works-count">40 件</span>');
+    expect(markup).toContain('<section class="author-profile-stats my-works-stats" aria-label="作品统计"><div><strong>40</strong><span>作品</span>');
+    expect(markup).toContain('<button type="button" class="active">全部 <span>40</span></button>');
+    expect(markup).not.toContain('my-works-count">1 件');
+  });
+
   it('separates the folder heading from its independently scrolling chip rail', () => {
     const folders = Array.from({ length: 6 }, (_, index) => ({
       id: `folder-${index + 1}`,

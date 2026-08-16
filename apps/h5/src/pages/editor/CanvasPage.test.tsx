@@ -31,11 +31,11 @@ describe('CanvasBackgroundTool', () => {
 });
 
 describe('saved image editing integration', () => {
-  it('uses the grid background operation without restoring the saved source image', () => {
-    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
-    expect(source).toContain('removeGridEdgeBackground(current, rows, cols)');
-    expect(source).toContain('commitCells((current) => removeGridEdgeBackground(current, rows, cols))');
-    expect(source).not.toContain('setHistory([]);\n      setFuture([]);');
-    expect(source).toContain('canRemoveGridBackground={Boolean(uploadedSplitImage || activeSavedProject)}');
+  it('delegates saved-image background removal through the editor command seam', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/app/H5Application.tsx'), 'utf8');
+    expect(source).toContain('editorCommandsRef.current?.replaceCanvas');
+    expect(source).toContain('removeGridEdgeBackground(snapshot.cells, snapshot.rows, snapshot.cols)');
+    expect(source).toContain('sourceImagePresent={Boolean(splitCommandsRef.current?.getSourceImage())}');
+    expect(source).not.toContain('commitCells((current) => removeGridEdgeBackground');
   });
 });

@@ -10,6 +10,14 @@ describe('projectApi', () => {
     expect(request).toHaveBeenNthCalledWith(2, '/project-folders', {}, 'token');
   });
 
+  it('passes the validated folder filter with the current page instead of relying on client-side filtering', async () => {
+    const request = vi.fn().mockResolvedValue({}) as unknown as ProjectApiRequest;
+
+    await getRecentProjects(request, 'token', { page: 3, pageSize: 20, folderId: 'folder/2026' });
+
+    expect(request).toHaveBeenCalledWith('/projects?folder=folder%2F2026&page=3&pageSize=20', {}, 'token');
+  });
+
   it('keeps folder mutation payloads explicit and URL-encodes identifiers', async () => {
     const request = vi.fn().mockResolvedValue({}) as unknown as ProjectApiRequest;
     await createProjectFolder(request, '我的收藏', 'token');

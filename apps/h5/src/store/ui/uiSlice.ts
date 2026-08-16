@@ -29,9 +29,13 @@ const initialState: UiState = {
   loginRequest: null,
 };
 
-function normalizeReturnTo(returnTo?: string): string | undefined {
-  const normalized = returnTo?.trim();
-  return normalized || undefined;
+export function normalizeLoginReturnTo(returnTo?: unknown): string | undefined {
+  if (typeof returnTo !== 'string') return undefined;
+  const normalized = returnTo.trim();
+  if (!normalized || !normalized.startsWith('/') || normalized.startsWith('//')) return undefined;
+  if (/^[a-z][a-z\d+.-]*:/i.test(normalized)) return undefined;
+  if (/[\u0000-\u001f\u007f#]/.test(normalized)) return undefined;
+  return normalized;
 }
 
 const uiSlice = createSlice({
@@ -63,7 +67,7 @@ const uiSlice = createSlice({
     loginRequestStarted: (state, action: PayloadAction<LoginRequest>) => {
       if (action.payload.scopeId !== state.currentRouteScope) return;
       if (!state.loginRequest) {
-        const returnTo = normalizeReturnTo(action.payload.returnTo);
+        const returnTo = normalizeLoginReturnTo(action.payload.returnTo);
         state.loginRequest = {
           id: action.payload.id,
           scopeId: action.payload.scopeId,
@@ -73,9 +77,9 @@ const uiSlice = createSlice({
       }
       if (
         state.loginRequest.scopeId !== action.payload.scopeId
-        || normalizeReturnTo(state.loginRequest.returnTo)
+        || normalizeLoginReturnTo(state.loginRequest.returnTo)
       ) return;
-      const returnTo = normalizeReturnTo(action.payload.returnTo);
+      const returnTo = normalizeLoginReturnTo(action.payload.returnTo);
       if (returnTo) state.loginRequest.returnTo = returnTo;
     },
     loginRequestReconciled: (state, action: PayloadAction<LoginRequest>) => {
@@ -83,8 +87,8 @@ const uiSlice = createSlice({
         state.loginRequest?.id !== action.payload.id
         || action.payload.scopeId !== state.currentRouteScope
       ) return;
-      const returnTo = normalizeReturnTo(state.loginRequest.returnTo)
-        ?? normalizeReturnTo(action.payload.returnTo);
+      const returnTo = normalizeLoginReturnTo(state.loginRequest.returnTo)
+        ?? normalizeLoginReturnTo(action.payload.returnTo);
       state.loginRequest = {
         id: action.payload.id,
         scopeId: action.payload.scopeId,
@@ -118,4 +122,9 @@ export const uiReducer = uiSlice.reducer;
 
 export const selectCurrentRouteScope = (state: UiRootState): string => state.ui.currentRouteScope;
 export const selectUiStatus = (state: UiRootState): UiStatus | null => state.ui.status;
+export const selectUiStatusForScope = (state: UiRootState, scopeId: string): UiStatus | null => {
+  const status = selectUiStatus(state);
+  if (!status) return null;
+  return status.scopeId === GLOBAL_STATUS_SCOPE || status.scopeId === scopeId ? status : null;
+};
 export const selectLoginRequest = (state: UiRootState): LoginRequest | null => state.ui.loginRequest;

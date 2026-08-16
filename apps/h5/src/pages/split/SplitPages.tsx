@@ -260,8 +260,8 @@ export function SplitCropPage(props: SplitPageProps) {
 
 export function SplitPreviewPage(props: SplitPageProps) {
   const {
-    setScreen, splitPreviewLoading, splitMergeThreshold, setSplitMergeThreshold, deferredSplitMergeThreshold, splitPreviewCells,
-    importSplitToCanvas, activeSplitCols, activeSplitRows, splitLoadingStage, splitLoadingProgress,
+    splitPreviewLoading, splitMergeThreshold, setSplitMergeThreshold, deferredSplitMergeThreshold, splitPreviewCells,
+    importSplitToCanvas, splitLoadingStage, splitLoadingProgress,
     splitColorList, setSplitPreviewTab, splitPreviewTab, backgroundRemoved, isBackgroundProcessing, onToggleBackground,
     backgroundSensitivity, onBackgroundSensitivityChange,
     previewCols, previewRows,

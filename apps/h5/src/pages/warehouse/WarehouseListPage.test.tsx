@@ -7,33 +7,25 @@ beforeAll(() => {
 });
 
 describe('WarehouseListPage', () => {
-  it('does not forward the click event as the warehouse auth token', () => {
-    const createWarehouse = vi.fn();
+  it('delegates opening the create overlay to the feature controller', () => {
+    const openCreate = vi.fn();
     let renderer!: ReturnType<typeof create>;
     act(() => {
       renderer = create(<WarehouseListPage
         status=""
-        setActiveTab={vi.fn()}
-        setScreen={vi.fn()}
         warehouses={[]}
         activeWarehouseId=""
         openWarehouseDetail={vi.fn()}
-        showWarehouseCreateModal
-        setShowWarehouseCreateModal={vi.fn()}
-        warehouseName="常用色仓库"
-        setWarehouseName={vi.fn()}
-        warehouseRemark=""
-        setWarehouseRemark={vi.fn()}
-        createWarehouse={createWarehouse}
+        openCreate={openCreate}
         deleteWarehouse={vi.fn()}
         requestConfirm={vi.fn()}
-        confirmDialog={null}
+        onBack={vi.fn()}
       />);
     });
 
-    const submit = renderer.root.findAllByType('button').find((button) => button.children.includes('创建仓库'))!;
-    act(() => submit.props.onClick({ type: 'click' }));
+    const createButton = renderer.root.findAllByType('button').find((button) => button.children.includes('新建豆子仓库'))!;
+    act(() => createButton.props.onClick({ type: 'click' }));
 
-    expect(createWarehouse).toHaveBeenCalledWith();
+    expect(openCreate).toHaveBeenCalledWith();
   });
 });

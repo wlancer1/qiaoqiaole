@@ -1,4 +1,4 @@
-import { ArrowLeft, Copy, FolderPlus, Grid2X2, Heart, MessageCircle, Ruler, Search, Share2, X } from 'lucide-react';
+import { ArrowLeft, Copy, FolderPlus, Grid2X2, Heart, Ruler, Search, Share2 } from 'lucide-react';
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { Icon } from '../shared/h5Icons';
 import { BeadListDrawer, type BeadColorItem } from '../flow/H5FlowComponents';
@@ -86,6 +86,9 @@ export function MyWorksPage({
   hasMore = false,
   loadingMore = false,
   onLoadMore,
+  page = 1,
+  total = projects.length,
+  onLoadPrevious,
 }: {
   projects: RecentProject[];
   onBack: () => void;
@@ -99,6 +102,9 @@ export function MyWorksPage({
   hasMore?: boolean;
   loadingMore?: boolean;
   onLoadMore?: () => void;
+  page?: number;
+  total?: number;
+  onLoadPrevious?: () => void;
 }) {
   const visibleProjects = activeFolderId === 'all'
     ? projects
@@ -134,10 +140,10 @@ export function MyWorksPage({
           <div className="author-profile-name"><h2>我的创作</h2><em>作品</em></div>
           <p>保存的拼豆图纸都会显示在这里</p>
         </div>
-        <span className="my-works-count">{projects.length} 件</span>
+        <span className="my-works-count">{total} 件</span>
       </section>
       <section className="author-profile-stats my-works-stats" aria-label="作品统计">
-        <div><strong>{projects.length}</strong><span>作品</span></div>
+        <div><strong>{total}</strong><span>作品</span></div>
         <div><strong>0</strong><span>获赞</span></div>
         <div><strong>0</strong><span>浏览</span></div>
       </section>
@@ -151,8 +157,8 @@ export function MyWorksPage({
           {onCreateFolder ? <button type="button" className="my-works-create-folder" onClick={() => { setFolderMenuTarget(null); onCreateFolder(); }}><FolderPlus aria-hidden="true" />新建</button> : null}
         </div>
         <div className="my-works-folder-scroll">
-          <button type="button" className={activeFolderId === 'all' ? 'active' : ''} onClick={() => { setFolderMenuTarget(null); onFolderChange?.('all'); }}>全部 <span>{projects.length}</span></button>
-          {folders.map((folder) => <button key={folder.id} type="button" className={activeFolderId === folder.id ? 'active' : ''} aria-label={onDeleteFolder ? `打开文件夹 ${folder.name} 操作` : undefined} aria-haspopup={onDeleteFolder ? 'menu' : undefined} aria-expanded={onDeleteFolder ? folderMenuTarget?.id === folder.id : undefined} onClick={() => { if (suppressFolderClickRef.current) { suppressFolderClickRef.current = false; return; } onFolderChange?.(folder.id); setFolderMenuTarget(null); }} onKeyDown={onDeleteFolder ? (event) => handleFolderKeyDown(event, folder) : undefined} onContextMenu={onDeleteFolder ? (event) => { event.preventDefault(); openFolderMenu(folder); } : undefined} onPointerDown={onDeleteFolder ? (event) => { if (event.pointerType === 'touch') { suppressFolderClickRef.current = false; folderLongPressTimerRef.current = setTimeout(() => { suppressFolderClickRef.current = true; openFolderMenu(folder); folderLongPressTimerRef.current = null; }, 500); } } : undefined} onPointerUp={clearFolderLongPress} onPointerCancel={clearFolderLongPress} onPointerLeave={clearFolderLongPress}>{folder.name} <span>{projects.filter((project) => project.folderId === folder.id).length}</span></button>)}
+          <button type="button" className={activeFolderId === 'all' ? 'active' : ''} onClick={() => { setFolderMenuTarget(null); onFolderChange?.('all'); }}>全部 <span>{total}</span></button>
+          {folders.map((folder) => <button key={folder.id} type="button" className={activeFolderId === folder.id ? 'active' : ''} aria-label={onDeleteFolder ? `打开文件夹 ${folder.name} 操作` : undefined} aria-haspopup={onDeleteFolder ? 'menu' : undefined} aria-expanded={onDeleteFolder ? folderMenuTarget?.id === folder.id : undefined} onClick={() => { if (suppressFolderClickRef.current) { suppressFolderClickRef.current = false; return; } onFolderChange?.(folder.id); setFolderMenuTarget(null); }} onKeyDown={onDeleteFolder ? (event) => handleFolderKeyDown(event, folder) : undefined} onContextMenu={onDeleteFolder ? (event) => { event.preventDefault(); openFolderMenu(folder); } : undefined} onPointerDown={onDeleteFolder ? (event) => { if (event.pointerType === 'touch') { suppressFolderClickRef.current = false; folderLongPressTimerRef.current = setTimeout(() => { suppressFolderClickRef.current = true; openFolderMenu(folder); folderLongPressTimerRef.current = null; }, 500); } } : undefined} onPointerUp={clearFolderLongPress} onPointerCancel={clearFolderLongPress} onPointerLeave={clearFolderLongPress}>{folder.name} <span>{folder.projectCount ?? 0}</span></button>)}
         </div>
         {folderMenuTarget && onDeleteFolder ? <div className="my-works-folder-menu" role="menu" aria-label={`${folderMenuTarget.name} 文件夹操作`}><button type="button" role="menuitem" aria-label={`删除文件夹 ${folderMenuTarget.name}`} onClick={() => { onDeleteFolder(folderMenuTarget); setFolderMenuTarget(null); }}>删除文件夹</button><button type="button" role="menuitem" onClick={() => setFolderMenuTarget(null)}>取消</button></div> : null}
       </section> : null}
@@ -189,7 +195,10 @@ export function MyWorksPage({
           <span>{activeContentTab === 'likes' ? '去发现页看看喜欢的作品吧' : projects.length ? '把作品移动到这里后会显示在这里' : '完成创作并保存后，作品会显示在这里'}</span>
         </section>
       )}
-      {activeContentTab === 'works' && visibleProjects.length > 0 ? <LoadMoreSentinel hasMore={hasMore} loadingMore={loadingMore} onLoadMore={onLoadMore} /> : null}
+      {activeContentTab === 'works' && (hasMore || loadingMore || page > 1) ? <div className="project-page-controls" aria-label="作品分页">
+        <button type="button" onClick={onLoadPrevious} disabled={page <= 1 || loadingMore}>上一页作品</button>
+        <button type="button" onClick={onLoadMore} disabled={loadingMore || !hasMore}>{loadingMore ? '加载中…' : '下一页作品'}</button>
+      </div> : null}
       {actionSheet}
     </main>
   );
@@ -533,10 +542,6 @@ export function PatternDetailPage({ pattern, currentUserId = '', onBack, onOpenA
       {showFullBeadList ? <BeadListDrawer colors={drawerColors} totalBeads={totalBeads} description="按作品实时统计颜色和数量" onClose={() => setShowFullBeadList(false)} /> : null}
     </main>
   );
-}
-
-function CupcakeArt() {
-  return <div className="cupcake-art"><span className="cupcake-cherry" /><span className="cupcake-top" /><span className="cupcake-cream" /><span className="cupcake-band" /><span className="cupcake-cup" /></div>;
 }
 
 function formatPatternCount(value: string) {

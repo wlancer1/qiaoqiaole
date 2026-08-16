@@ -29,6 +29,15 @@ function createHarness(overrides: Partial<AuthGateState> = {}) {
 }
 
 describe('createAuthGate', () => {
+  it('ignores a non-string return target instead of throwing', async () => {
+    const harness = createHarness();
+    const gate = createAuthGate(harness);
+    gate.attach('owner');
+    const pending = gate.require({ scopeId: 'route-a', returnTo: { type: 'click' } as unknown as string });
+    expect(harness.getState().ui.loginRequest?.returnTo).toBeUndefined();
+    gate.cancelLogin(harness.getState().ui.loginRequest!.id);
+    await expect(pending).resolves.toBe(false);
+  });
   it('resolves authenticated and stale requests without opening login', async () => {
     const authenticated = createHarness({ auth: { status: 'authenticated' } });
     const gate = createAuthGate(authenticated);

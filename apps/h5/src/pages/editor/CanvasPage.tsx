@@ -41,7 +41,7 @@ export function CanvasPage(props: CanvasPageProps) {
     parseGridSizeInput, normalizeGridSize,
     setCanvasScale, canvasArtboardRef, cells, canvasScale, getCode, getTextColor, handleCanvasKeyDown,
     handleCanvasPointerDown, handleCanvasPointerMove, handleCanvasPaintPointerEnd, handleCanvasClick, referenceImage,
-    uploadedSplitImage, canRemoveGridBackground, isBackgroundProcessing, onToggleBackground,
+    canRemoveGridBackground, isBackgroundProcessing, onToggleBackground,
     isReferenceMinimized, setIsReferenceMinimized, closeReferenceImage, status, prioritizedPaletteColors,
     selectPaletteColor, showPaletteSearch, setShowPaletteSearch, paletteQuery, setPaletteQuery, filteredPaletteColors,
     showBeadList, setShowBeadList, beadListColors, totalBeads, onInventoryCheck, onStartBeading,

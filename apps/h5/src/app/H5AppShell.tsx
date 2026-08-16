@@ -1,21 +1,24 @@
 import type { ReactNode } from 'react';
-import H5App from '../H5App';
+import H5Application from './H5Application';
+import { AppOverlayHost } from './overlays/AppOverlayHost';
+import { AppOverlayProvider } from './overlays/AppOverlayContext';
 
 export type H5AppShellProps = {
   /**
-   * Temporary seam for migrating feature boundaries out of the legacy coordinator.
-   * Production uses H5App until each routed feature owns its own implementation.
+   * Test seam for mounting alternate routed content under the durable overlays.
    */
   legacyContent?: ReactNode;
 };
 
 export function H5AppShell({ legacyContent }: H5AppShellProps) {
   return (
-    <div data-testid="h5-app-shell">
-      <div data-testid="h5-app-routed-content">
-        {legacyContent ?? <H5App />}
+    <AppOverlayProvider>
+      <div data-testid="h5-app-shell">
+        <div data-testid="h5-app-routed-content">
+          {legacyContent ?? <H5Application />}
+        </div>
+        <AppOverlayHost />
       </div>
-      <div data-testid="h5-app-overlay-slot" />
-    </div>
+    </AppOverlayProvider>
   );
 }

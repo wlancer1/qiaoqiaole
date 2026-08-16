@@ -1,9 +1,9 @@
-import { AlertTriangle, ArrowLeft, Check, Layers3, Minus, Package, PackageOpen, Plus, Search } from 'lucide-react';
+import { ArrowLeft, Check, Minus, Package, PackageOpen, Plus, Search } from 'lucide-react';
 type WarehousePageProps = Record<string, any>;
 
 export function WarehousePage(props: WarehousePageProps) {
   const {
-    status, setActiveTab, setScreen, activeWarehouse, stockedColorCount, totalWarehouseStock, missingColorCount,
+    status, onBack, activeWarehouse, stockedColorCount, totalWarehouseStock, missingColorCount,
     warehouseLetters, warehouseSearch, setWarehouseSearch, warehouseLetter, setWarehouseLetter, setSelectedWarehouseCodes,
     selectedWarehouseCodes,
     selectedWarehouseCount, selectVisibleWarehouseColors, invertVisibleWarehouseColors, warehouseColors, beadStock,
@@ -17,7 +17,7 @@ return (
     ) : null}
     {/* Topbar */}
     <header className="split-topbar wh-topbar">
-      <button className="split-icon-btn" aria-label="返回仓库列表" onClick={() => setScreen('warehouse')}>
+      <button className="split-icon-btn" aria-label="返回仓库列表" onClick={onBack}>
         <ArrowLeft aria-hidden="true" />
       </button>
       <h1 className="split-topbar-title">{activeWarehouse?.name ?? '豆子仓库'}</h1>

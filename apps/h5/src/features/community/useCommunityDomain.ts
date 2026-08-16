@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import { insertCommentReply, removeCommentTree, sortCommunityPosts, toPatternListCard, type CommunityComment, type CommunityCommentsResponse, type CommunityNotification, type CommunityPost } from './communityData';
-import type { AuthorProfile, FollowingUser, PatternListCard } from '../shared/h5Types';
+import { insertCommentReply, removeCommentTree, sortCommunityPosts, toPatternListCard, type CommunityComment, type CommunityCommentsResponse, type CommunityNotification, type CommunityPost } from '../../community/communityData';
+import type { AuthorProfile, FollowingUser, PatternListCard } from '../../shared/h5Types';
 
 export type CommunityRequestApi = <T>(path: string, options?: RequestInit, token?: string | null) => Promise<T>;
 
@@ -8,12 +8,13 @@ export type CommunityDomainOptions = {
   activeTab: string;
   screen: string;
   routeAuthorId: string;
+  /** A Router-owned identity for discarding async work after navigation. */
+  routeScope?: string;
   authToken: string;
   requestApi: CommunityRequestApi;
   setStatus: (message: string) => void;
   requireLogin: (resume: (token: string) => void) => void;
   navigate: (to: string) => void;
-  setActivePattern: Dispatch<SetStateAction<PatternListCard | null>>;
   loadFollowingCount: (token: string) => Promise<void>;
 };
 
@@ -62,7 +63,7 @@ export type CommunityDomainResult = {
   loadCommunityPosts: (
     sort?: 'hot' | 'latest',
     token?: string,
-    options?: { preserveOnError?: boolean; append?: boolean },
+    options?: { preserveOnError?: boolean; append?: boolean; page?: number },
   ) => Promise<void>;
   loadMoreCommunityPosts: () => Promise<void>;
   loadAuthorProfile: (authorId: string, token?: string, page?: number, append?: boolean) => Promise<void>;
@@ -77,11 +78,12 @@ export type CommunityDomainResult = {
   toggleCommunityFollow: (authorId: string, currentlyFollowing: boolean, token?: string) => Promise<void>;
   addCommunityComment: (projectId: string, content: string, parentId?: string, token?: string) => Promise<void>;
   deleteCommunityComment: (projectId: string, commentId: string, token?: string) => Promise<void>;
+  clearForLogout: () => void;
 };
 
 const COMMUNITY_PAGE_SIZE = 50;
 
-export function useCommunityDomain({ activeTab, screen, routeAuthorId, authToken, requestApi, setStatus, requireLogin, navigate, setActivePattern, loadFollowingCount }: CommunityDomainOptions): CommunityDomainResult {
+export function useCommunityDomain({ activeTab, screen, routeAuthorId, routeScope = `${activeTab}:${screen}:${routeAuthorId}`, authToken, requestApi, setStatus, requireLogin, navigate, loadFollowingCount }: CommunityDomainOptions): CommunityDomainResult {
   const [communityPosts, setCommunityPosts] = useState<CommunityPost[]>([]);
   const [communityAvailableTags, setCommunityAvailableTags] = useState<string[]>([]);
   const [isCommunityLoading, setIsCommunityLoading] = useState(false);
@@ -115,6 +117,22 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, authToken
   const authorProfileRequestSeqRef = useRef(0);
   const communityCommentsRequestSeqRef = useRef(0);
   const notificationsRequestSeqRef = useRef(0);
+  const followingRequestSeqRef = useRef(0);
+  const followersRequestSeqRef = useRef(0);
+  const socialMutationSeqRef = useRef(0);
+  const commentMutationSeqRef = useRef(0);
+  const notificationOperationSeqRef = useRef(0);
+  const operationScopeRef = useRef({ authToken, routeScope, generation: 0 });
+  if (operationScopeRef.current.authToken !== authToken || operationScopeRef.current.routeScope !== routeScope) {
+    operationScopeRef.current = { authToken, routeScope, generation: operationScopeRef.current.generation + 1 };
+  }
+
+  const captureOperationScope = () => ({ ...operationScopeRef.current });
+  const isOperationCurrent = (operation: { authToken: string; routeScope: string; generation: number }) => (
+    operationScopeRef.current.generation === operation.generation
+    && operationScopeRef.current.authToken === operation.authToken
+    && operationScopeRef.current.routeScope === operation.routeScope
+  );
 
   useEffect(() => {
     const timer = globalThis.setTimeout(() => setDebouncedCommunityQuery(communityQuery), 300);
@@ -124,19 +142,20 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, authToken
   const loadCommunityPosts = async (
     sort = communitySort,
     token = authToken,
-    { preserveOnError = false, append = false } = {},
+    { preserveOnError = false, append = false, page: requestedPage = 1 } = {},
   ) => {
     const requestSeq = communityPostsRequestSeqRef.current + 1;
     communityPostsRequestSeqRef.current = requestSeq;
+    const operation = captureOperationScope();
     if (append) setIsCommunityLoadingMore(true);
     else {
       setIsCommunityLoading(true);
-      communityPageRef.current = 1;
+      communityPageRef.current = Math.max(1, Math.floor(requestedPage) || 1);
       setCommunityHasMore(false);
     }
 
     try {
-      const page = append ? communityPageRef.current + 1 : 1;
+      const page = append ? communityPageRef.current + 1 : communityPageRef.current;
       const params = new URLSearchParams({ sort, page: String(page), pageSize: String(COMMUNITY_PAGE_SIZE) });
       if (activeTab === 'discover' && debouncedCommunityQuery.trim()) params.set('q', debouncedCommunityQuery.trim());
       if (activeTab === 'discover' && communitySelectedTags.length) params.set('tags', communitySelectedTags.join(','));
@@ -145,7 +164,7 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, authToken
         { headers: token ? { authorization: `Bearer ${token}` } : {} },
         token,
       );
-      if (communityPostsRequestSeqRef.current !== requestSeq) return;
+      if (communityPostsRequestSeqRef.current !== requestSeq || !isOperationCurrent(operation) || operation.authToken !== token) return;
       setCommunityAvailableTags((payload.tagCounts || []).filter(({ count }) => count > 0).map(({ tag }) => tag));
       const posts = Array.isArray(payload.posts) ? payload.posts : [];
       setCommunityPosts((current) => {
@@ -155,11 +174,11 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, authToken
       communityPageRef.current = page;
       setCommunityHasMore(posts.length === COMMUNITY_PAGE_SIZE);
     } catch (error) {
-      if (communityPostsRequestSeqRef.current !== requestSeq) return;
+      if (communityPostsRequestSeqRef.current !== requestSeq || !isOperationCurrent(operation) || operation.authToken !== token) return;
       if (!append && !preserveOnError) setCommunityPosts([]);
       setStatus(error instanceof Error ? error.message : append ? '更多社区稿件读取失败' : '社区稿件读取失败');
     } finally {
-      if (communityPostsRequestSeqRef.current === requestSeq) {
+      if (communityPostsRequestSeqRef.current === requestSeq && isOperationCurrent(operation) && operation.authToken === token) {
         if (append) setIsCommunityLoadingMore(false);
         else setIsCommunityLoading(false);
       }
@@ -173,37 +192,46 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, authToken
 
   const loadFollowingUsers = async (token = authToken) => {
     if (!token) return;
+    const requestSeq = followingRequestSeqRef.current + 1;
+    followingRequestSeqRef.current = requestSeq;
+    const operation = captureOperationScope();
     setIsFollowingLoading(true);
     setFollowingError('');
     try {
       const payload = await requestApi<{ users: FollowingUser[] }>('/community/following', { headers: { authorization: `Bearer ${token}` } }, token);
-      setFollowingUsers(Array.isArray(payload.users) ? payload.users : []);
+      if (followingRequestSeqRef.current === requestSeq && isOperationCurrent(operation) && operation.authToken === token) setFollowingUsers(Array.isArray(payload.users) ? payload.users : []);
     } catch (error) {
+      if (followingRequestSeqRef.current !== requestSeq || !isOperationCurrent(operation) || operation.authToken !== token) return;
       setFollowingUsers([]);
       setFollowingError(error instanceof Error ? error.message : '关注列表读取失败');
     } finally {
-      setIsFollowingLoading(false);
+      if (followingRequestSeqRef.current === requestSeq && isOperationCurrent(operation) && operation.authToken === token) setIsFollowingLoading(false);
     }
   };
 
   const loadFollowersUsers = async (token = authToken) => {
     if (!token) return;
+    const requestSeq = followersRequestSeqRef.current + 1;
+    followersRequestSeqRef.current = requestSeq;
+    const operation = captureOperationScope();
     setIsFollowersLoading(true);
     setFollowersError('');
     try {
       const payload = await requestApi<{ users: FollowingUser[] }>('/community/followers', { headers: { authorization: `Bearer ${token}` } }, token);
-      setFollowersUsers(Array.isArray(payload.users) ? payload.users : []);
+      if (followersRequestSeqRef.current === requestSeq && isOperationCurrent(operation) && operation.authToken === token) setFollowersUsers(Array.isArray(payload.users) ? payload.users : []);
     } catch (error) {
+      if (followersRequestSeqRef.current !== requestSeq || !isOperationCurrent(operation) || operation.authToken !== token) return;
       setFollowersUsers([]);
       setFollowersError(error instanceof Error ? error.message : '粉丝列表读取失败');
     } finally {
-      setIsFollowersLoading(false);
+      if (followersRequestSeqRef.current === requestSeq && isOperationCurrent(operation) && operation.authToken === token) setIsFollowersLoading(false);
     }
   };
 
   const loadAuthorProfile = async (authorId: string, token = authToken, page = 1, append = false) => {
     const requestSeq = authorProfileRequestSeqRef.current + 1;
     authorProfileRequestSeqRef.current = requestSeq;
+    const operation = captureOperationScope();
     if (append) setIsAuthorProfileLoadingMore(true);
     else {
       setIsAuthorProfileLoading(true);
@@ -217,14 +245,14 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, authToken
         { headers: token ? { authorization: `Bearer ${token}` } : {} },
         token || null,
       );
-      if (authorProfileRequestSeqRef.current !== requestSeq) return;
+      if (authorProfileRequestSeqRef.current !== requestSeq || !isOperationCurrent(operation) || operation.authToken !== token) return;
       setAuthorProfile(payload.profile);
       const posts = (Array.isArray(payload.posts) ? payload.posts : []).map(toPatternListCard);
       setAuthorProfilePosts((current) => append ? [...current, ...posts] : posts);
       authorProfilePageRef.current = page;
       setAuthorProfileHasMore(posts.length === 50);
     } catch (error) {
-      if (authorProfileRequestSeqRef.current !== requestSeq) return;
+      if (authorProfileRequestSeqRef.current !== requestSeq || !isOperationCurrent(operation) || operation.authToken !== token) return;
       if (!append) {
         setAuthorProfile(null);
         setAuthorProfilePosts([]);
@@ -233,7 +261,7 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, authToken
         setStatus(error instanceof Error ? error.message : '更多作品读取失败');
       }
     } finally {
-      if (authorProfileRequestSeqRef.current === requestSeq) {
+      if (authorProfileRequestSeqRef.current === requestSeq && isOperationCurrent(operation) && operation.authToken === token) {
         if (append) setIsAuthorProfileLoadingMore(false);
         else setIsAuthorProfileLoading(false);
       }
@@ -253,20 +281,52 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, authToken
     setAuthorProfileHasMore(false);
   };
 
+  const clearForLogout = () => {
+    operationScopeRef.current = { ...operationScopeRef.current, generation: operationScopeRef.current.generation + 1 };
+    communityPostsRequestSeqRef.current += 1;
+    authorProfileRequestSeqRef.current += 1;
+    communityCommentsRequestSeqRef.current += 1;
+    notificationsRequestSeqRef.current += 1;
+    followingRequestSeqRef.current += 1;
+    followersRequestSeqRef.current += 1;
+    socialMutationSeqRef.current += 1;
+    commentMutationSeqRef.current += 1;
+    notificationOperationSeqRef.current += 1;
+    setCommunityPosts([]);
+    setCommunityAvailableTags([]);
+    setCommunityHasMore(false);
+    setCommunityComments([]);
+    setNotifications([]);
+    setFollowingUsers([]);
+    setFollowersUsers([]);
+    setFollowingError('');
+    setFollowersError('');
+    setIsFollowingLoading(false);
+    setIsFollowersLoading(false);
+    setIsCommunityLoading(false);
+    setIsCommunityLoadingMore(false);
+    setIsCommunityCommentsLoading(false);
+    setCommentSubmitting(false);
+    setCommentReplyPendingId('');
+    setCommentDeletePendingId('');
+    resetAuthorProfile();
+  };
+
   const loadCommunityComments = async (projectId: string) => {
     const requestSeq = communityCommentsRequestSeqRef.current + 1;
     communityCommentsRequestSeqRef.current = requestSeq;
+    const operation = captureOperationScope();
     setCommunityComments([]);
     setIsCommunityCommentsLoading(true);
     try {
       const payload = await requestApi<CommunityCommentsResponse>(`/community/posts/${projectId}/comments`);
-      if (communityCommentsRequestSeqRef.current === requestSeq) setCommunityComments(payload.comments);
+      if (communityCommentsRequestSeqRef.current === requestSeq && isOperationCurrent(operation)) setCommunityComments(payload.comments);
     } catch (error) {
-      if (communityCommentsRequestSeqRef.current !== requestSeq) return;
+      if (communityCommentsRequestSeqRef.current !== requestSeq || !isOperationCurrent(operation)) return;
       setCommunityComments([]);
       setStatus(error instanceof Error ? error.message : '评论读取失败');
     } finally {
-      if (communityCommentsRequestSeqRef.current === requestSeq) setIsCommunityCommentsLoading(false);
+      if (communityCommentsRequestSeqRef.current === requestSeq && isOperationCurrent(operation)) setIsCommunityCommentsLoading(false);
     }
   };
 
@@ -277,32 +337,36 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, authToken
     }
     const requestSeq = notificationsRequestSeqRef.current + 1;
     notificationsRequestSeqRef.current = requestSeq;
+    const operation = captureOperationScope();
     try {
       const payload = await requestApi<{ notifications: CommunityNotification[] }>('/notifications', { headers: { authorization: `Bearer ${token}` } }, token);
-      if (notificationsRequestSeqRef.current === requestSeq) setNotifications(payload.notifications || []);
+      if (notificationsRequestSeqRef.current === requestSeq && isOperationCurrent(operation) && operation.authToken === token) setNotifications(payload.notifications || []);
     } catch (error) {
-      if (notificationsRequestSeqRef.current === requestSeq) setStatus(error instanceof Error ? error.message : '消息读取失败');
+      if (notificationsRequestSeqRef.current === requestSeq && isOperationCurrent(operation) && operation.authToken === token) setStatus(error instanceof Error ? error.message : '消息读取失败');
     }
   };
 
   const openNotification = async (notification: CommunityNotification) => {
+    const operationSeq = notificationOperationSeqRef.current + 1;
+    notificationOperationSeqRef.current = operationSeq;
+    const operation = captureOperationScope();
     let opened = !notification.projectId;
     if (notification.projectId) {
       try {
-        const payload = await requestApi<{ post: CommunityPost }>(`/community/posts/${notification.projectId}`);
-        setActivePattern(toPatternListCard(payload.post));
+        await requestApi<{ post: CommunityPost }>(`/community/posts/${notification.projectId}`);
+        if (notificationOperationSeqRef.current !== operationSeq || !isOperationCurrent(operation)) return;
         navigate(`/community/posts/${encodeURIComponent(notification.projectId)}`);
         opened = true;
       } catch (error) {
-        setStatus(error instanceof Error ? error.message : '作品读取失败');
+        if (notificationOperationSeqRef.current === operationSeq && isOperationCurrent(operation)) setStatus(error instanceof Error ? error.message : '作品读取失败');
       }
     }
-    if (opened && !notification.isRead) {
+    if (opened && !notification.isRead && notificationOperationSeqRef.current === operationSeq && isOperationCurrent(operation)) {
       try {
         await requestApi(`/notifications/${notification.id}/read`, { method: 'PATCH' });
-        setNotifications((items) => items.map((item) => item.id === notification.id ? { ...item, isRead: true, readAt: new Date().toISOString() } : item));
+        if (notificationOperationSeqRef.current === operationSeq && isOperationCurrent(operation)) setNotifications((items) => items.map((item) => item.id === notification.id ? { ...item, isRead: true, readAt: new Date().toISOString() } : item));
       } catch (error) {
-        setStatus(error instanceof Error ? error.message : '消息状态更新失败');
+        if (notificationOperationSeqRef.current === operationSeq && isOperationCurrent(operation)) setStatus(error instanceof Error ? error.message : '消息状态更新失败');
       }
     }
   };
@@ -312,12 +376,13 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, authToken
       requireLogin((nextToken) => void likeCommunityPost(projectId, nextToken));
       return;
     }
+    const operationSeq = socialMutationSeqRef.current + 1; socialMutationSeqRef.current = operationSeq;
+    const operation = captureOperationScope();
     try {
       const payload = await requestApi<{ likesCount: number }>(`/community/posts/${projectId}/like`, { method: 'POST', headers: { authorization: `Bearer ${token}` } }, token);
-      setCommunityPosts((posts) => posts.map((post) => post.id === projectId ? { ...post, likesCount: payload.likesCount, likedByMe: true } : post));
-      setActivePattern((pattern) => pattern?.id === projectId ? { ...pattern, likes: String(payload.likesCount), likesCount: payload.likesCount, likedByMe: true } : pattern);
+      if (socialMutationSeqRef.current === operationSeq && isOperationCurrent(operation) && operation.authToken === token) setCommunityPosts((posts) => posts.map((post) => post.id === projectId ? { ...post, likesCount: payload.likesCount, likedByMe: true } : post));
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : '点赞失败');
+      if (socialMutationSeqRef.current === operationSeq && isOperationCurrent(operation) && operation.authToken === token) setStatus(error instanceof Error ? error.message : '点赞失败');
     }
   };
 
@@ -326,15 +391,17 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, authToken
       requireLogin((nextToken) => void toggleCommunityFollow(authorId, currentlyFollowing, nextToken));
       return;
     }
+    const operationSeq = socialMutationSeqRef.current + 1; socialMutationSeqRef.current = operationSeq;
+    const operation = captureOperationScope();
     try {
       const payload = await requestApi<{ following: boolean; followingCount?: number; followersCount?: number }>(`/community/users/${authorId}/follow`, { method: currentlyFollowing ? 'DELETE' : 'POST', headers: { authorization: `Bearer ${token}` } }, token);
+      if (socialMutationSeqRef.current !== operationSeq || !isOperationCurrent(operation) || operation.authToken !== token) return;
       setCommunityPosts((posts) => posts.map((post) => post.authorId === authorId ? { ...post, isFollowing: payload.following } : post));
       setAuthorProfilePosts((posts) => posts.map((post) => post.authorId === authorId ? { ...post, isFollowing: payload.following } : post));
-      setActivePattern((pattern) => pattern?.authorId === authorId ? { ...pattern, isFollowing: payload.following } : pattern);
       setAuthorProfile((profile) => profile?.id === authorId ? { ...profile, isFollowing: payload.following, followersCount: typeof payload.followersCount === 'number' ? payload.followersCount : profile.followersCount + (payload.following ? 1 : -1) } : profile);
       void loadFollowingCount(token);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : '关注操作失败');
+      if (socialMutationSeqRef.current === operationSeq && isOperationCurrent(operation) && operation.authToken === token) setStatus(error instanceof Error ? error.message : '关注操作失败');
     }
   };
 
@@ -343,16 +410,21 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, authToken
       requireLogin((nextToken) => void addCommunityComment(projectId, content, parentId, nextToken));
       return;
     }
+    const operationSeq = commentMutationSeqRef.current + 1;
+    commentMutationSeqRef.current = operationSeq;
+    const operation = captureOperationScope();
     if (parentId) setCommentReplyPendingId(parentId); else setCommentSubmitting(true);
     try {
       const payload = await requestApi<{ comment: CommunityComment }>(`/community/posts/${projectId}/comments`, { method: 'POST', headers: { authorization: `Bearer ${token}` }, body: JSON.stringify({ content, ...(parentId ? { parentId } : {}) }) }, token);
+      if (commentMutationSeqRef.current !== operationSeq || !isOperationCurrent(operation) || operation.authToken !== token) return;
       setCommunityComments((comments) => parentId ? insertCommentReply(comments, payload.comment) : [{ ...payload.comment, replies: payload.comment.replies || [] }, ...comments]);
       setCommunityPosts((posts) => posts.map((post) => post.id === projectId ? { ...post, commentsCount: post.commentsCount + 1 } : post));
-      setActivePattern((pattern) => pattern?.id === projectId ? { ...pattern, comments: String(pattern.commentsCount + 1), commentsCount: pattern.commentsCount + 1 } : pattern);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : '评论发布失败');
+      if (commentMutationSeqRef.current === operationSeq && isOperationCurrent(operation) && operation.authToken === token) setStatus(error instanceof Error ? error.message : '评论发布失败');
     } finally {
-      if (parentId) setCommentReplyPendingId(''); else setCommentSubmitting(false);
+      if (commentMutationSeqRef.current === operationSeq && isOperationCurrent(operation) && operation.authToken === token) {
+        if (parentId) setCommentReplyPendingId(''); else setCommentSubmitting(false);
+      }
     }
   };
 
@@ -361,16 +433,19 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, authToken
       requireLogin((nextToken) => void deleteCommunityComment(projectId, commentId, nextToken));
       return;
     }
+    const operationSeq = commentMutationSeqRef.current + 1;
+    commentMutationSeqRef.current = operationSeq;
+    const operation = captureOperationScope();
     setCommentDeletePendingId(commentId);
     try {
       const payload = await requestApi<{ deletedCount: number }>(`/community/posts/${projectId}/comments/${commentId}`, { method: 'DELETE', headers: { authorization: `Bearer ${token}` } }, token);
+      if (commentMutationSeqRef.current !== operationSeq || !isOperationCurrent(operation) || operation.authToken !== token) return;
       setCommunityComments((comments) => removeCommentTree(comments, commentId));
       setCommunityPosts((posts) => posts.map((post) => post.id === projectId ? { ...post, commentsCount: Math.max(0, post.commentsCount - payload.deletedCount) } : post));
-      setActivePattern((pattern) => pattern?.id === projectId ? { ...pattern, comments: String(Math.max(0, pattern.commentsCount - payload.deletedCount)), commentsCount: Math.max(0, pattern.commentsCount - payload.deletedCount) } : pattern);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : '评论删除失败');
+      if (commentMutationSeqRef.current === operationSeq && isOperationCurrent(operation) && operation.authToken === token) setStatus(error instanceof Error ? error.message : '评论删除失败');
     } finally {
-      setCommentDeletePendingId('');
+      if (commentMutationSeqRef.current === operationSeq && isOperationCurrent(operation) && operation.authToken === token) setCommentDeletePendingId('');
     }
   };
 
@@ -444,5 +519,6 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, authToken
     toggleCommunityFollow,
     addCommunityComment,
     deleteCommunityComment,
+    clearForLogout,
   };
 }

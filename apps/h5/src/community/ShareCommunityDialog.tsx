@@ -15,8 +15,8 @@ export function ShareCommunityDialog({ project, tags, onTagsChange, onConfirm, o
   const canConfirm = selectedTags.length >= 1 && selectedTags.length <= 3 && !isSaving;
   const confirmLabel = isShared ? '保存社区标签' : '确认发布';
   return (
-    <div className="share-community-modal" role="dialog" aria-modal="true" aria-labelledby="share-community-title" onClick={() => { if (!isSaving) onClose(); }}>
-      <section className="share-community-panel" onClick={(event) => event.stopPropagation()}>
+    <div className="share-community-modal" role="presentation" onClick={() => { if (!isSaving) onClose(); }} onTouchStart={(event) => event.stopPropagation()}>
+      <section className="share-community-panel" role="dialog" aria-modal="true" aria-labelledby="share-community-title" onClick={(event) => event.stopPropagation()} onTouchStart={(event) => event.stopPropagation()}>
         <h2 id="share-community-title">{isShared ? '编辑社区标签' : '发布到社区'}</h2>
         <div className="share-community-project"><strong>{project.name}</strong><span>{project.cols} × {project.rows} 格</span></div>
         <p>发布后，所有用户都可以浏览、点赞和评论。</p>

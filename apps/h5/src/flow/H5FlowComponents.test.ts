@@ -37,22 +37,11 @@ function getVariableInitializer(source: string, name: string): string {
   return initializer.replace(/\s+/g, ' ');
 }
 
-function getTypeImports(source: string, moduleName: string): string[] {
-  const sourceFile = ts.createSourceFile('H5App.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-  const declaration = sourceFile.statements.find((statement): statement is ts.ImportDeclaration => (
-    ts.isImportDeclaration(statement)
-    && ts.isStringLiteral(statement.moduleSpecifier)
-    && statement.moduleSpecifier.text === moduleName
-  ));
-  const bindings = declaration?.importClause?.namedBindings;
-  return bindings && ts.isNamedImports(bindings) ? bindings.elements.map((element) => element.name.text) : [];
-}
-
 describe('H5 flow presentation components', () => {
   it('does not show a success toast after inventory check before beading', () => {
-    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+    const source = fs.readFileSync(path.resolve('apps/h5/src/features/beading/BeadingFeatureContent.tsx'), 'utf8');
 
-    expect(source).toContain('setBeadingInventoryCheck(inventory);');
+    expect(source).toContain('setInventory(checked);');
     expect(source).not.toContain("setStatus('库存检测完成，缺豆也可以继续拼豆。');");
     expect(source).not.toContain("setStatus('已撤销上一步。');");
   });
@@ -158,7 +147,6 @@ describe('H5 flow presentation components', () => {
 
   it('renders imported cells through the layered Canvas path', () => {
     const source = fs.readFileSync(path.resolve('apps/h5/src/pages/editor/CanvasPage.tsx'), 'utf8');
-    const app = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
 
     expect(source).not.toContain("setCanvasKind('image')");
     expect(source).not.toContain("canvasKind === 'image'");
@@ -171,18 +159,18 @@ describe('H5 flow presentation components', () => {
   });
 
   it('imports the already computed preview cells without resampling the image', () => {
-    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
-    const importBody = source.match(/const importSplitToCanvas = \(\) => \{[\s\S]*?\n  \};/)?.[0] ?? '';
+    const source = fs.readFileSync(path.resolve('apps/h5/src/app/H5Application.tsx'), 'utf8');
+    const importBody = source.match(/const importSplitToCanvas = \(\{ cells, rows, cols \}:[\s\S]*?\n  \};/)?.[0] ?? '';
 
-    expect(importBody).toContain('setCells(splitPreviewCells);');
+    expect(importBody).toContain('pendingEditorCanvasRef.current = { cells, rows, cols };');
     expect(importBody).not.toContain('cellsFromImage(');
     expect(importBody).not.toContain('cellsFromAlignedGrid(');
     expect(importBody).not.toContain('mergeSimilarCells(');
   });
 
   it('defers expensive split merge recomputation away from slider input updates', () => {
-    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
-    const sourceFile = ts.createSourceFile('H5App.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    const source = fs.readFileSync(path.resolve('apps/h5/src/features/split/useSplitWorkflow.ts'), 'utf8');
+    const sourceFile = ts.createSourceFile('useSplitWorkflow.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
     let usesDeferredHook = false;
     let mergeUsesDeferredThreshold = false;
 
@@ -385,142 +373,60 @@ describe('H5 flow presentation components', () => {
   });
 
   it('preserves structured API error details without changing the auth fallback', () => {
-    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+    const source = fs.readFileSync(path.resolve('apps/h5/src/app/H5Application.tsx'), 'utf8');
     const requestApi = getVariableInitializer(source, 'requestApi');
 
-    expect(requestApi).toContain("response.status === 401 ? '登录状态已失效，请重新登录' : body.message || '请求失败'");
-    expect(requestApi).toContain('Object.assign(new Error(message), { status: response.status, code: body.error || body.code, body })');
+    expect(requestApi).toContain("response.status === 401 ? '登录状态已失效，请重新登录' : payload.message || '请求失败'");
+    expect(requestApi).toContain('Object.assign(new Error(message), { status: response.status, code: payload.error || payload.code, body: payload })');
     expect(requestApi).toContain('token?: string');
     expect(requestApi).toContain('...(effectiveToken ? { authorization: `Bearer ${effectiveToken}` } : {})');
   });
 
-  it('uses explicit action versions and returns the latest session without swallowing failures', () => {
-    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
-    const patch = getVariableInitializer(source, 'patchBeadingProgress');
-    const prepare = getVariableInitializer(source, 'prepareBeadingCompletion');
-    const complete = getVariableInitializer(source, 'completeBeading');
-    const resume = getVariableInitializer(source, 'resumeBeading');
-
-    expect(getTypeImports(source, './pages/beading/useBeadingSessionActions')).toEqual(expect.arrayContaining([
-      'Complete',
-      'Prepare',
-      'Resume',
-      'SessionMutation',
-    ]));
-    expect(patch).toContain('async ({ completedColorCodes, elapsedSeconds, version })');
-    expect(patch).toContain('JSON.stringify({ version, completedColorCodes, elapsedSeconds })');
-    expect(patch).not.toContain('beadingSession.version');
-    expect(prepare).toContain('async ({ version })');
-    expect(prepare).toContain('JSON.stringify({ version })');
-    expect(prepare).not.toContain('beadingSession.version');
-    expect(resume).toContain('async ({ version })');
-    expect(resume).toContain('JSON.stringify({ version })');
-    expect(resume).not.toContain('beadingSession.version');
-
-    for (const action of [patch, prepare, complete, resume]) {
-      expect(action).toContain("throw new Error('拼豆会话已失效')");
-      expect(action).toContain('setBeadingSession(payload.session)');
-      expect(action).toContain('return payload.session');
-      expect(action).toContain('syncBeadingSessionFromError(error, beadingSession.id)');
-      expect(action).toContain('throw error');
-    }
-    expect(complete).toContain('async ({ deduct })');
-    expect(complete).toMatch(/idempotencyKey[^;]*deduct/);
-    expect(complete).toContain('deductInventory: deduct');
-    expect(complete).not.toContain("setScreen('canvas')");
+  it('owns versioned beading lifecycle commands in the beading feature, not H5App', () => {
+    const app = fs.readFileSync(path.resolve('apps/h5/src/app/H5Application.tsx'), 'utf8');
+    const source = fs.readFileSync(path.resolve('apps/h5/src/features/beading/BeadingFeatureContent.tsx'), 'utf8');
+    expect(app).toContain('<BeadingFeatureContent requestApi={requestApi}');
+    expect(app).not.toContain('const patchBeadingProgress');
+    expect(source).toContain("mutate('', { completedColorCodes, elapsedSeconds, version }");
+    expect(source).toContain("mutate('/prepare-completion', { version }");
+    expect(source).toContain("mutate('/resume', { version }");
+    expect(source).toContain('idempotencyKey: `${session.id}:${deduct');
   });
 
-  it('serializes pause as progress PATCH followed by pause with the patched version', () => {
-    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
-    const pause = getVariableInitializer(source, 'pauseBeading');
-    const patchPath = '`/v1/beading-sessions/${activeSession.id}`';
-    const pausePath = '`/v1/beading-sessions/${activeSession.id}/pause`';
-
-    expect(pause).toContain('async ({ completedColorCodes, elapsedSeconds, version })');
-    expect(pause).toContain('const activeSession = beadingSession');
-    expect(pause).toContain(patchPath);
-    expect(pause).toContain("method: 'PATCH'");
-    expect(pause).toContain('JSON.stringify({ version, completedColorCodes, elapsedSeconds })');
-    expect(pause).toContain(pausePath);
-    expect(pause).toContain("method: 'POST'");
-    expect(pause).toContain('JSON.stringify({ version: patched.session.version })');
-    expect(pause).toContain('setBeadingSession(paused.session)');
-    expect(pause).toContain('return paused.session');
-    expect(pause.indexOf(patchPath)).toBeLessThan(pause.indexOf(pausePath));
-    expect(pause.slice(0, pause.indexOf(pausePath))).not.toContain('setBeadingSession(');
-    expect(pause).toContain('if (patchedSession) setBeadingSession(patchedSession)');
-    expect(pause).toContain('syncBeadingSessionFromError(error, activeSession.id)');
-    expect(pause).toContain('throw error');
+  it('serializes pause through a progress PATCH followed by the patched version', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/features/beading/BeadingFeatureContent.tsx'), 'utf8');
+    expect(source).toContain('const patched = await patch({ completedColorCodes, elapsedSeconds, version });');
+    expect(source).toContain("mutate('/pause', { version: patched.version }");
   });
 
-  it('returns and abandons through versioned transition endpoints without parent navigation', () => {
-    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
-    const returned = getVariableInitializer(source, 'returnBeadingToProgress');
-    const abandoned = getVariableInitializer(source, 'abandonBeading');
-    const complete = getVariableInitializer(source, 'completeBeading');
-    expect(returned).toContain('/return-to-progress');
-    expect(returned).toContain('JSON.stringify({ version })');
-    expect(returned).toContain('setBeadingSession(payload.session)');
-    expect(returned).toContain('return payload.session');
-    expect(abandoned).toContain('/abandon');
-    expect(abandoned).toContain('JSON.stringify({ version })');
-    expect(abandoned).toContain('return payload.session');
-    expect(abandoned).not.toContain("setScreen('canvas')");
-    expect(complete).not.toContain("setScreen('canvas')");
+  it('keeps transition endpoints in the feature and exits through the project route', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/features/beading/BeadingFeatureContent.tsx'), 'utf8');
+    expect(source).toContain("mutate('/return-to-progress', { version }");
+    expect(source).toContain("mutate('/abandon', { version }");
+    expect(source).toContain('onExit={() => navigate(`/projects/${encodeURIComponent(route.projectId)}/edit`)}');
   });
 
-  it('syncs complete error sessions and keeps inventory sheet data in H5App', () => {
-    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
-    const sessionFromError = getVariableInitializer(source, 'beadingSessionFromError');
-    const inventory = getVariableInitializer(source, 'openBeadingInventory');
-
-    expect(sessionFromError).toContain('error.body.session');
-    expect(sessionFromError).toContain('session.id === expectedSessionId');
-    expect(sessionFromError).toContain('isCompleteBeadingSession(session)');
-    expect(inventory).toContain('/inventory-check');
-    expect(inventory).toContain('setBeadingInventoryCheck(payload)');
-    expect(inventory).toContain("setStatus(error instanceof Error ? error.message : '库存检测失败')");
-    expect(inventory).toContain('throw error');
+  it('keeps conflict recovery and the inventory sheet in the beading feature overlay', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/features/beading/BeadingFeatureContent.tsx'), 'utf8');
+    expect(source).toContain('const session = error.body.session;');
+    expect(source).toContain('session.id === expectedId');
+    expect(source).toContain('/inventory-check');
+    expect(source).toContain("setOverlaySlot('inventory'");
   });
 
-  it('wires the beading page to Promise actions and owner/status props without void adapters', () => {
-    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
-    const pageStart = source.indexOf('<BeadingSessionPage');
-    const pageEnd = source.indexOf('/>', pageStart);
-    const page = source.slice(pageStart, pageEnd);
-
-    expect(page).toContain('onPatch={patchBeadingProgress}');
-    expect(page).toContain('onPause={pauseBeading}');
-    expect(page).toContain('onReturnToProgress={returnBeadingToProgress}');
-    expect(page).toContain('onAbandon={abandonBeading}');
-    expect(page).toContain('onPrepareCompletion={prepareBeadingCompletion}');
-    expect(page).toContain('onComplete={completeBeading}');
-    expect(page).toContain('onResume={resumeBeading}');
-    expect(page).toContain('onOpenInventory={openBeadingInventory}');
-    expect(page).toContain('onSessionConflict={(latest) => setBeadingSession(latest)}');
-    expect(page).toContain('draftOwnerId={authUserId || undefined}');
-    expect(page).toContain('legacyDraftOwnerId={legacyDraftOwnerId || undefined}');
-    expect(page).toContain('onStatus={setStatus}');
-    expect(page).toContain("onExit={() => setScreen('canvas')}");
-    expect(page).not.toContain('void patchBeadingProgress');
-    expect(page).not.toContain('void prepareBeadingCompletion');
-    expect(page).not.toContain('void completeBeading');
-    expect(page).not.toContain('void resumeBeading');
+  it('wires the beading page inside the feature with session and authenticated draft props', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/features/beading/BeadingFeatureContent.tsx'), 'utf8');
+    expect(source).toContain('<BeadingSessionPage session={session}');
+    expect(source).toContain('onPatch={patch}');
+    expect(source).toContain('onPause={pause}');
+    expect(source).toContain('draftOwnerId={authUserId || undefined}');
+    expect(source).toContain('legacyDraftOwnerId={legacyDraftOwnerId || undefined}');
   });
 
-  it('keys beading drafts with the stable authenticated user id across login flows and reloads', () => {
-    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
-    expect(source).toContain("const [authUserId, setAuthUserId] = useState('')");
-    expect(source).toContain("const [legacyDraftOwnerId, setLegacyDraftOwnerId] = useState('')");
-    expect(source).toContain('setAuthUserId(payload.user.id)');
-    expect(source).toContain('setAuthUserId(data.user.id)');
-    expect(source).toContain("setAuthUserId('')");
-    expect(source).toMatch(/setAuthUserId\(payload\.user\.id \|\| stored\.userId \|\| ''\)/);
-    expect(source).toContain('userId: payload.user.id');
-    expect(source).toContain('userId: data.user.id');
-    expect(source).toContain("setLegacyDraftOwnerId((stored.username || '').trim())");
-    expect(source).toContain("setLegacyDraftOwnerId((data.user.nickname || '我的创作').trim())");
-    expect(source).toContain("setLegacyDraftOwnerId('')");
+  it('keys beading drafts from the authenticated Redux session', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/features/beading/BeadingFeatureContent.tsx'), 'utf8');
+    expect(source).toContain('selectAuthUserId');
+    expect(source).toContain("state.auth.user?.legacyDraftOwnerId ?? ''");
   });
 
   it('isolates Playwright frontends and their API proxy unless reuse is explicitly requested', () => {

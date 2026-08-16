@@ -11,8 +11,8 @@ export function ProjectActionSheet({ project, hasSession, onClose, onStart, onEd
   onDelete: () => void;
   onMove: () => void;
 }) {
-  return <div className="beading-sheet-backdrop project-action-modal" role="presentation" onClick={onClose}>
-    <section className="beading-sheet project-action-sheet" role="dialog" aria-modal="true" aria-label="作品操作" onClick={(event) => event.stopPropagation()}>
+  return <div className="beading-sheet-backdrop project-action-modal" role="presentation" onClick={onClose} onTouchStart={(event) => event.stopPropagation()}>
+    <section className="beading-sheet project-action-sheet" role="dialog" aria-modal="true" aria-label="作品操作" onClick={(event) => event.stopPropagation()} onTouchStart={(event) => event.stopPropagation()}>
       <span className="beading-sheet-handle" aria-hidden="true" />
       <header className="beading-sheet-header project-action-header">
         <div><p className="beading-eyebrow">我的作品</p><h2>{project.name}</h2></div>

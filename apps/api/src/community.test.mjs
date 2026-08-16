@@ -131,6 +131,9 @@ describe('community API', () => {
     expect(post.commentsCount).toBe(1);
     expect(post.likedByMe).toBe(true);
     expect(post.beadList).toBeUndefined();
+    expect(post.canvasData).toBeUndefined();
+    expect(post.sourceImage).toBeUndefined();
+    expect(post.thumbnailImage || '').not.toMatch(/^data:/);
     const detail = await request(`/api/community/posts/${projectId}`);
     expect(detail.body.post.beadList).toEqual(firstShare.body.beadList);
   });
@@ -390,22 +393,47 @@ describe('community API', () => {
     expect(listed.body.projects.some((project) => project.name === '作品 0')).toBe(true);
   });
 
+  it('returns a truthful total for a 40-project folder while paging only 20 summaries', async () => {
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+    const folder = await request('/api/project-folders', { method: 'POST', headers, body: JSON.stringify({ name: '四十条分页' }) });
+    for (let index = 0; index < 40; index += 1) {
+      await request('/api/projects', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ name: `分页摘要 ${index}`, rows: 1, cols: 1, folderId: folder.body.folder.id }),
+      });
+    }
+    const page = await request(`/api/projects?folder=${encodeURIComponent(folder.body.folder.id)}&page=1&pageSize=20`, { headers });
+
+    expect(page.status).toBe(200);
+    expect(page.body.projects).toHaveLength(20);
+    expect(page.body.total).toBe(40);
+    expect(page.body.hasMore).toBe(true);
+    expect(page.body.projects.every((project) => project.folderId === folder.body.folder.id)).toBe(true);
+  });
+
   it('keeps canvas data out of the project list and returns it from project details', async () => {
     const headers = { authorization: `Bearer ${token}` };
     const canvasData = JSON.stringify([{ x: 0, y: 0, color: '#ff0000', transparent: false }]);
     const created = await request('/api/projects', {
       method: 'POST',
       headers: { ...headers, 'content-type': 'application/json' },
-      body: JSON.stringify({ name: '延迟加载作品', rows: 1, cols: 1, canvasData }),
+      body: JSON.stringify({ name: '延迟加载作品', rows: 1, cols: 1, canvasData, thumbnailImagePath: 'data:image/png;base64,AA==' }),
     });
 
     const listed = await request('/api/projects', { headers });
     const detail = await request(`/api/projects/${created.body.project.id}`, { headers });
 
     expect(listed.status).toBe(200);
-    expect(listed.body.projects.find((project) => project.id === created.body.project.id)).not.toHaveProperty('canvasData');
+    const summary = listed.body.projects.find((project) => project.id === created.body.project.id);
+    expect(summary).not.toHaveProperty('canvasData');
+    expect(summary).not.toHaveProperty('beadList');
+    expect(summary).not.toHaveProperty('sourceImage');
+    expect(JSON.stringify(summary)).not.toContain('base64,');
+    expect(summary.thumbnailImage).toBe('');
     expect(detail.status).toBe(200);
     expect(detail.body.project.canvasData).toBe(canvasData);
+    expect(detail.body.project.thumbnailImage).toContain('base64,');
   });
 
   it('keeps heavy project fields out of author profile post summaries', async () => {
@@ -431,7 +459,7 @@ describe('community API', () => {
     expect(post).not.toHaveProperty('sourceImage');
     expect(post).not.toHaveProperty('canvasData');
     expect(post).not.toHaveProperty('beadList');
-    expect(post.thumbnailImage).toBe('data:image/png;base64,AA==');
+    expect(post.thumbnailImage || '').not.toMatch(/^data:/);
   });
 
   it('counts comment length by Unicode characters instead of UTF-16 code units', async () => {

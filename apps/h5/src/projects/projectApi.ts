@@ -7,14 +7,22 @@ export type ProjectPage = {
   page: number;
   pageSize: number;
   hasMore: boolean;
+  total: number;
 };
 
 export function getProjectFolders(request: ProjectApiRequest, token: string): Promise<{ folders: ProjectFolder[] }> {
   return request('/project-folders', {}, token);
 }
 
-export function getRecentProjects(request: ProjectApiRequest, token: string, pagination?: { page: number; pageSize: number }): Promise<{ projects: RecentProject[] } & ProjectPage> {
-  const query = pagination ? `?page=${pagination.page}&pageSize=${pagination.pageSize}` : '';
+export function getRecentProjects(request: ProjectApiRequest, token: string, pagination?: { page: number; pageSize: number; folderId?: string | 'all' }): Promise<{ projects: RecentProject[] } & ProjectPage> {
+  const params = new URLSearchParams();
+  if (pagination?.folderId && pagination.folderId !== 'all') params.set('folder', pagination.folderId);
+  if (pagination) {
+    params.set('page', String(pagination.page));
+    params.set('pageSize', String(pagination.pageSize));
+  }
+  const search = params.toString();
+  const query = search ? `?${search}` : '';
   return request(`/projects${query}`, {}, token);
 }
 

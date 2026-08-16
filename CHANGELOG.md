@@ -2,6 +2,10 @@
 
 ### Added / Changed / Fixed
 
+- Decomposed the H5 application coordinator into application overlays and feature boundaries for auth, projects, community, warehouse, beading, editor, and split workflows; removed the obsolete `H5App.tsx` compatibility entry and made `app/H5Application.tsx` the sole H5 composition root.
+- Added route-scoped async guards, deep-link loaders, modal/overlay regressions, and feature-level behavior coverage across the migrated workflows.
+- Affected modules: `apps/h5/src/app`, `apps/h5/src/features`, H5 route/page tests, and related community API projection tests.
+
 - Replaced the API's in-memory `sql.js` snapshot persistence with file-backed native SQLite through `better-sqlite3` in WAL mode, added native-store regression coverage, updated the API image base, and migrated the legacy project-image script to direct SQLite writes.
 - Optimized community author profiles and comments to avoid loading heavy project fields, added bounded community/author pagination with load-more UI, and added 15-second Xiaohongshu upstream timeouts.
 - Affected modules: `apps/api/src/sqliteStore.mjs`, `apps/api/src/server.mjs`, `apps/api/scripts/migrate-project-images.mjs`, `apps/api/Dockerfile`, H5 community/pattern pages, and related tests.

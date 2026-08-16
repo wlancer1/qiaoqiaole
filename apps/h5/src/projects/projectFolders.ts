@@ -3,6 +3,7 @@ export type ProjectFolder = {
   name: string;
   createdAt: string;
   updatedAt: string;
+  projectCount?: number;
 };
 
 export const UNCATEGORIZED_FOLDER_ID = null;

@@ -180,14 +180,14 @@ describe('home recent project actions', () => {
 });
 
 describe('recent project stale action handling', () => {
-  it('preserves API status and closes only for invalid or stale project deletion', () => {
-    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+  it('preserves structured API errors while deletion is delegated to the project action domain', () => {
+    const application = fs.readFileSync(path.resolve('apps/h5/src/app/H5Application.tsx'), 'utf8');
+    const actions = fs.readFileSync(path.resolve('apps/h5/src/features/projects/useProjectActions.ts'), 'utf8');
 
-    expect(source).toContain('error.status = response.status;');
-    expect(source).toContain('error.code = payload.error || payload.code;');
-    expect(source).toContain("const invalidProjectError = requestError.status === 401 || requestError.status === 404 || requestError.code === 'NOT_FOUND';");
-    expect(source).toContain('if (invalidProjectError) setProjectActionTarget((current) => current?.id === target.id ? null : current);');
-    expect(source.match(/setProjectActionTarget\(\(current\) => current\?\.id === target\.id \? null : current\)/g) ?? []).toHaveLength(2);
+    expect(application).toContain('Object.assign(new Error(message), { status: response.status, code: payload.error || payload.code, body: payload })');
+    expect(actions).toContain('requestConfirm({');
+    expect(actions).toContain('onProjectDeleted?.(project.id);');
+    expect(actions).toContain("setStatus(error instanceof Error ? error.message : '删除作品失败');");
   });
 });
 

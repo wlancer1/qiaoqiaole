@@ -1,4 +1,4 @@
-import { Children, createElement, isValidElement, type ReactElement, type ReactNode } from 'react';
+import { Children, isValidElement, type ReactElement, type ReactNode } from 'react';
 import fs from 'node:fs';
 import path from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';

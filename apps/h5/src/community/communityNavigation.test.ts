@@ -18,7 +18,7 @@ describe('community navigation state', () => {
   });
 
   it('keeps the author profile origin when returning from an author work detail', () => {
-    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+    const source = fs.readFileSync(path.resolve('apps/h5/src/features/community/CommunityFeatureProvider.tsx'), 'utf8');
     const detailBackBranch = source.match(/if \(patternDetailBackTargetRef\.current === 'author-profile'\) \{([\s\S]*?)setScreen\('author-profile'\);/)?.[1] ?? '';
 
     expect(detailBackBranch).not.toContain("authorProfileBackTargetRef.current = 'discover'");

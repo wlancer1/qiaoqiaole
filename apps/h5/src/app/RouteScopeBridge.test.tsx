@@ -5,11 +5,11 @@ import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { createH5Store } from '../store/store';
 import type { H5Store } from '../store/store';
-import { selectUiStatus, statusRequested } from '../store/ui/uiSlice';
+import { statusRequested } from '../store/ui/uiSlice';
 import { routeScopeId, RouteScopeBridge } from './RouteScopeBridge';
 import { AuthGateProvider } from '../store/ui/AuthGateContext';
 import { useAuthGate } from '../store/ui/AuthGateContext';
-import { useAppSelector } from '../store/hooks';
+import { useRouteScopedStatus } from './useRouteScopedStatus';
 
 beforeAll(() => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -52,13 +52,13 @@ function RouteStatusProbe({
 }) {
   const location = useLocation();
   const store = useStore() as H5Store;
-  const status = useAppSelector(selectUiStatus);
+  const status = useRouteScopedStatus();
   const initialScopeRef = useRef(routeScopeId(location));
   const scopeId = routeScopeId(location);
 
   useLayoutEffect(() => {
     if (scopeId === initialScopeRef.current) return;
-    onTargetRouteLayout(store.getState().ui.status?.message ?? null, initialScopeRef.current);
+    onTargetRouteLayout(status?.message ?? null, initialScopeRef.current);
     store.dispatch(statusRequested({
       scopeId: initialScopeRef.current,
       message: '过期请求提示',

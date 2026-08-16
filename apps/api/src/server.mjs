@@ -1299,23 +1299,30 @@ async function uploadProjectImage(input) {
 
 function listProjects(response, userId, url) {
   const pagination = parsePagination(url.searchParams);
+  const folderId = String(url.searchParams.get('folder') || '').trim();
+  const folderClause = folderId && folderId !== 'all' ? ' AND folder_id = ?' : '';
+  const queryParams = folderClause
+    ? [userId, folderId, pagination.pageSize, pagination.offset]
+    : [userId, pagination.pageSize, pagination.offset];
   const projects = getAll(
     `SELECT id, folder_id AS folderId, name, rows, cols, tone, thumbnail_image AS thumbnailImage,
             shared_to_community AS sharedToCommunity, shared_at AS sharedAt, likes_count AS likesCount,
             created_at AS createdAt, updated_at AS updatedAt
      FROM projects
-     WHERE user_id = ?
+     WHERE user_id = ?${folderClause}
      ORDER BY updated_at DESC
      LIMIT ? OFFSET ?`,
-    [userId, pagination.pageSize, pagination.offset],
+    queryParams,
   );
+  const total = getOne(`SELECT COUNT(*) AS total FROM projects WHERE user_id = ?${folderClause}`, folderClause ? [userId, folderId] : [userId]).total;
   sendJson(response, 200, {
     projects: projects.map((project) => ({
       ...project,
-      thumbnailImage: resolveProjectImage(project.thumbnailImage, userId),
+      thumbnailImage: String(project.thumbnailImage || '').startsWith('data:') ? '' : resolveProjectImage(project.thumbnailImage, userId),
     })),
     page: pagination.page,
     pageSize: pagination.pageSize,
+    total: Number(total),
     hasMore: projects.length === pagination.pageSize,
   });
 }
@@ -1354,7 +1361,9 @@ function getOwnedProjectFolder(userId, folderId) {
 
 function listProjectFolders(response, userId) {
   const folders = getAll(
-    'SELECT id, name, created_at AS createdAt, updated_at AS updatedAt FROM project_folders WHERE user_id = ? ORDER BY created_at ASC, id ASC',
+    `SELECT f.id, f.name, f.created_at AS createdAt, f.updated_at AS updatedAt,
+      (SELECT COUNT(*) FROM projects p WHERE p.user_id = f.user_id AND p.folder_id = f.id) AS projectCount
+     FROM project_folders f WHERE f.user_id = ? ORDER BY f.created_at ASC, f.id ASC`,
     [userId],
   );
   sendJson(response, 200, { folders });
@@ -1668,7 +1677,9 @@ function formatCommunityPosts(posts) {
     rows: Number(post.rows),
     cols: Number(post.cols),
     tone: post.tone,
-    thumbnailImage: resolveProjectImage(post.thumbnailImage),
+    // List payloads must stay summary-sized. A data URL can be an entire original
+    // bitmap; callers fall back to the card placeholder until a stable asset URL exists.
+    thumbnailImage: String(post.thumbnailImage || '').startsWith('data:') ? '' : resolveProjectImage(post.thumbnailImage),
     sharedAt: post.sharedAt,
     likesCount: Number(post.likesCount || 0),
     commentsCount: Number(post.commentsCount || 0),

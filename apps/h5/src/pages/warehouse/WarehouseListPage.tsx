@@ -5,17 +5,15 @@ type WarehouseListPageProps = Record<string, any>;
 
 export function WarehouseListPage(props: WarehouseListPageProps) {
   const {
-    status, setActiveTab, setScreen, warehouses, activeWarehouseId, openWarehouseDetail,
-    showWarehouseCreateModal, setShowWarehouseCreateModal, warehouseName, setWarehouseName,
-    warehouseRemark, setWarehouseRemark, createWarehouse, deleteWarehouse,
-    requestConfirm, confirmDialog,
+    status, warehouses, activeWarehouseId, openWarehouseDetail, openCreate, deleteWarehouse,
+    requestConfirm, onBack,
   } = props;
 
   return (
     <main className="warehouse-page warehouse-list-page" aria-label="豆子仓库列表">
       {status ? <p className="app-status" role="status" aria-live="polite">{status}</p> : null}
       <header className="split-topbar wh-topbar">
-        <button className="split-icon-btn" aria-label="返回我的" onClick={() => { setActiveTab('profile'); setScreen('home'); }}>
+          <button className="split-icon-btn" aria-label="返回我的" onClick={onBack}>
           <ArrowLeft aria-hidden="true" />
         </button>
         <h1 className="split-topbar-title">豆子仓库</h1>
@@ -27,7 +25,7 @@ export function WarehouseListPage(props: WarehouseListPageProps) {
           <span>选择一个仓库管理拼豆库存</span>
         </div>
         {warehouses.length > 0 ? (
-          <button className="wh-list-create-btn" type="button" onClick={() => setShowWarehouseCreateModal(true)}>
+          <button className="wh-list-create-btn" type="button" onClick={() => openCreate()}>
             <Plus aria-hidden="true" />
             新建
           </button>
@@ -73,35 +71,13 @@ export function WarehouseListPage(props: WarehouseListPageProps) {
           <div className="wh-empty-warehouse-copy">
             <strong>还没有豆子仓库</strong>
             <span>先创建一个仓库，之后就可以按色号<br />管理库存和出入库记录。</span>
-            <button type="button" onClick={() => setShowWarehouseCreateModal(true)}>
+            <button type="button" onClick={() => openCreate()}>
               <Plus aria-hidden="true" />新建豆子仓库
             </button>
           </div>
         </section>
       )}
 
-      {confirmDialog}
-      {showWarehouseCreateModal ? (
-        <div className="home-create-modal" role="dialog" aria-label="新建豆子仓库">
-          <div className="home-create-panel">
-            <div className="home-create-head">
-              <strong>新建豆子仓库</strong>
-              <button aria-label="关闭新建仓库" onClick={() => setShowWarehouseCreateModal(false)}>关闭</button>
-            </div>
-            <div className="login-form">
-              <label>
-                <span>仓库名称</span>
-                <input type="text" aria-label="仓库名称" placeholder="例如 MARD 常用色仓库" value={warehouseName} onChange={(event) => setWarehouseName(event.target.value)} />
-              </label>
-              <label>
-                <span>备注</span>
-                <input type="text" aria-label="仓库备注" placeholder="可选" value={warehouseRemark} onChange={(event) => setWarehouseRemark(event.target.value)} />
-              </label>
-            </div>
-            <button className="home-create-submit" onClick={() => void createWarehouse()}>创建仓库</button>
-          </div>
-        </div>
-      ) : null}
     </main>
   );
 }

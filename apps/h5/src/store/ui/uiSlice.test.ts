@@ -10,6 +10,7 @@ import {
   selectCurrentRouteScope,
   selectLoginRequest,
   selectUiStatus,
+  selectUiStatusForScope,
   statusCleared,
   statusRequested,
   uiReducer,
@@ -69,6 +70,14 @@ describe('ui reducer route-scoped status', () => {
 });
 
 describe('ui reducer login request metadata', () => {
+  it('rejects unsafe return targets at the reducer boundary', () => {
+    for (const returnTo of ['https://evil.example', '//evil.example', '/ok#fragment', '/ok\u0000bad']) {
+      expect(uiReducer(initialState, loginRequestStarted({ id: 'login-1', scopeId: 'route-a', returnTo })).loginRequest)
+        .toEqual({ id: 'login-1', scopeId: 'route-a' });
+    }
+    expect(uiReducer(initialState, loginRequestStarted({ id: 'login-1', scopeId: 'route-a', returnTo: ' /projects/1?tab=a ' })).loginRequest)
+      .toEqual({ id: 'login-1', scopeId: 'route-a', returnTo: '/projects/1?tab=a' });
+  });
   it('keeps the active request id and scope while ignoring a later request', () => {
     const started = withLoginRequest();
 
@@ -223,6 +232,23 @@ describe('ui selectors', () => {
       id: 'login-1',
       scopeId: 'route-a',
       returnTo: '/projects/1',
+    });
+  });
+
+  it('filters route status by the rendered Router scope while keeping global status visible', () => {
+    const routeStatus = { ui: withStatus() };
+    const globalStatus = {
+      ui: uiReducer(initialState, globalStatusRequested({ message: '登录状态已失效' })),
+    };
+
+    expect(selectUiStatusForScope(routeStatus, 'route-a')).toEqual({
+      scopeId: 'route-a',
+      message: '保存成功',
+    });
+    expect(selectUiStatusForScope(routeStatus, 'route-b')).toBeNull();
+    expect(selectUiStatusForScope(globalStatus, 'route-b')).toEqual({
+      scopeId: 'global',
+      message: '登录状态已失效',
     });
   });
 });

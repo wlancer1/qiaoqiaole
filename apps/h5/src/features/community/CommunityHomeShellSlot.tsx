@@ -1,0 +1,45 @@
+import { useLocation, useNavigate } from 'react-router-dom';
+import { HomeShellPage } from '../../pages/home/HomeShellPage';
+import { CommunityMessagesPage } from './CommunityMessagesPage';
+import { useCommunityFeature } from './CommunityFeatureProvider';
+import { useCommunityHomeAdapter } from './useCommunityHomeAdapter';
+import { useSplitFeature } from '../split/SplitFeatureProvider';
+
+/** Feature-owned adapter for the community portions of the shared home shell. */
+export function CommunityHomeShellSlot(homeProps: Record<string, any>) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { domain, discovery, actions } = useCommunityFeature();
+  const split = useSplitFeature();
+  const home = useCommunityHomeAdapter({ domain, navigate, pathname: location.pathname, search: location.search, route: discovery });
+  return <HomeShellPage
+    {...homeProps}
+    fileInputRef={split.fileInputRef}
+    handleUpload={split.openFromUpload}
+    openUpload={split.openUpload}
+    showUploadModal={split.showUploadModal}
+    closeUploadModal={split.closeUploadModal}
+    showXhsInput={split.showXhsInput}
+    setShowXhsInput={split.setShowXhsInput}
+    xhsLink={split.xhsLink}
+    setXhsLink={split.setXhsLink}
+    xhsExtractedImages={split.xhsExtractedImages}
+    isExtractingXhs={split.isExtractingXhs}
+    chooseLocalDrawing={split.chooseLocalDrawing}
+    extractXiaohongshuImage={split.extractXiaohongshuImage}
+    importXhsImage={split.importXhsImage}
+    showXhsImagePicker={split.showXhsImagePicker}
+    closeXhsImagePicker={split.closeXhsImagePicker}
+    isImportingXhsImage={split.isImportingXhsImage}
+    xhsExtractedTitle={split.xhsExtractedTitle}
+    {...home}
+    communityMessagesPage={<CommunityMessagesPage
+      isLoggedIn={homeProps.isLoggedIn}
+      notifications={domain.notifications}
+      openNotification={domain.openNotification}
+      setActiveTab={homeProps.setActiveTab}
+      openUpload={split.openUpload}
+      openLogin={actions.requestLogin}
+    />}
+  />;
+}

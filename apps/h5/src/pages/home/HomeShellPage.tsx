@@ -1,12 +1,13 @@
 import { HomeUploadHero } from '../../flow/H5FlowComponents';
-import { AuthorProfilePage, PatternDetailPage, PatternDiscoverPage, PatternMessagesPage } from '../../patterns/H5PatternPages';
+import { PatternDiscoverPage, PatternMessagesPage } from '../../patterns/H5PatternPages';
 import { CommunityPatternCard } from '../../community/CommunityPatternCard';
 import { Icon } from '../../shared/h5Icons';
 import { ImageWithSkeleton } from '../../shared/ImageWithSkeleton';
 import { UserAvatar } from '../../shared/UserAvatar';
-import { Heart, LogOut, MessageCircle } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { LogOut } from 'lucide-react';
+import { useEffect, type ReactNode } from 'react';
 import { passwordValidationMessage } from '../../utils/passwordValidation';
+import { useBodyScrollLock } from '../../app/overlays/useBodyScrollLock';
 
 type HomeShellPageProps = Record<string, any> & { actionSheet?: ReactNode };
 
@@ -17,13 +18,20 @@ function RecentProjectThumbnailPlaceholder() {
 export function PhoneLoginModal(props: Record<string, any>) {
   const {
     phoneNumber, setPhoneNumber, phonePassword, setPhonePassword, phoneConfirmPassword, setPhoneConfirmPassword, phoneCode, setPhoneCode, phoneAuthMode, setPhoneAuthMode, phoneAgreement, setPhoneAgreement,
-    phoneAuthError, phoneSending, phoneVerifying, phoneCountdown, sendPhoneCode, submitPhoneLogin, submitPhoneRegister, closeLoginModal, logoutPhone,
+    phoneAuthError, phoneSending, phoneVerifying, phoneCountdown, sendPhoneCode, submitPhoneLogin, submitPhoneRegister, closeLoginModal,
     rememberPassword, setRememberPassword,
   } = props;
   const passwordError = passwordValidationMessage(phonePassword);
+  useBodyScrollLock(true);
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') closeLoginModal(); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [closeLoginModal]);
   return (
-    <div className="home-create-modal" role="dialog" aria-modal="true" aria-label="手机号登录">
-      <div className="home-create-panel phone-login-panel">
+    <div className="home-create-modal" role="presentation" onClick={closeLoginModal} onTouchStart={(event) => event.stopPropagation()}>
+      <div className="home-create-panel phone-login-panel" role="dialog" aria-modal="true" aria-label="手机号登录" onClick={(event) => event.stopPropagation()} onTouchStart={(event) => event.stopPropagation()}>
         <div className="home-create-head">
           <strong>手机号{phoneAuthMode === 'register' ? '注册' : '登录'}</strong>
           <button aria-label="关闭登录" onClick={closeLoginModal}>关闭</button>
@@ -86,7 +94,7 @@ export function ProfileEditModal(props: Record<string, any>) {
   const { profileEditName, setProfileEditName, profileEditAvatar, profileEditError, profileEditSaving, profileAvatarInputRef, chooseProfileAvatar, saveProfile, closeProfileEdit } = props;
   return (
     <div className="home-create-modal" role="presentation" onClick={closeProfileEdit}>
-      <div className="home-create-panel profile-edit-panel" role="dialog" aria-modal="true" aria-labelledby="profile-edit-title" onClick={(event) => event.stopPropagation()}>
+      <div className="home-create-panel profile-edit-panel" role="dialog" aria-modal="true" aria-labelledby="profile-edit-title" onClick={(event) => event.stopPropagation()} onTouchStart={(event) => event.stopPropagation()}>
         <div className="home-create-head">
           <strong id="profile-edit-title">编辑资料</strong>
           <button type="button" aria-label="关闭编辑资料" onClick={closeProfileEdit}>关闭</button>
@@ -145,34 +153,18 @@ export function XhsImagePickerModal(props: Record<string, any>) {
   );
 }
 
-function LogoutConfirmModal({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
-  return (
-    <div className="home-create-modal logout-confirm-backdrop" role="presentation" onClick={onCancel}>
-      <div className="logout-confirm-panel" role="dialog" aria-modal="true" aria-labelledby="logout-confirm-title" onClick={(event) => event.stopPropagation()}>
-        <div className="logout-confirm-icon" aria-hidden="true"><LogOut /></div>
-        <h2 id="logout-confirm-title">确认退出登录？</h2>
-        <p>退出后需要重新登录才能同步作品和豆子仓库。</p>
-        <div className="logout-confirm-actions">
-          <button type="button" className="logout-cancel-btn" onClick={onCancel}>取消</button>
-          <button type="button" className="logout-confirm-btn" onClick={onConfirm}>确认退出</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function HomeShellPage(props: HomeShellPageProps) {
   const {
     fileInputRef, handleUpload, status, activeTab, recentProjects, onOpenRecentProject, actionSheet,
-    openUpload, isLoggedIn, loginName, loginPassword, setLoginPassword, submitLogin, isAuthenticating, isLoginModalOpen,
-    openLogin, closeLogin, showUploadModal, closeUploadModal, showXhsInput, setShowXhsInput, xhsLink, setXhsLink,
+    openUpload, isLoggedIn, loginName, isLoginModalOpen,
+    openLogin, showUploadModal, closeUploadModal, showXhsInput, setShowXhsInput, xhsLink, setXhsLink,
     xhsExtractedImages, isExtractingXhs, chooseLocalDrawing, extractXiaohongshuImage, importXhsImage, showXhsImagePicker, closeXhsImagePicker,
-    xhsPreviewSrc, usedColors, colorCodeOf, quickTools, showCreateCanvasModal, setShowCreateCanvasModal, openCreateCanvasModal,
+    xhsPreviewSrc, showCreateCanvasModal, setShowCreateCanvasModal,
     openBlankCanvasCreation,
     cfgCols, setCfgCols, cfgRows, setCfgRows, normalizeGridSize, parseGridSizeInput, createBlankCanvas, requireLogin,
-    setStatus, patternListCards, homeTemplateCards, setActivePattern, setScreen, openAuthorProfile, warehouses, stockedColorCount, totalWarehouseStock,
+    setStatus, patternListCards, homeTemplateCards, openCommunityPost, setScreen, openAuthorProfile, stockedColorCount, totalWarehouseStock,
     activeWarehouse, mardColors, openWarehouse, setActiveTab, communitySort, setCommunitySort,
-    logoutPhone, showLogoutConfirm, setShowLogoutConfirm, notifications, loadNotifications, openNotification,
+    logoutPhone, notifications, loadNotifications, openNotification,
     profileAvatarUrl, receivedLikesCount = 0, followingCount = 0, followersCount = 0, showProfileEditModal, openProfileEdit, profileEditModal, confirmDialog, requestConfirm, openMyWorks,
   } = props;
   const unreadNotificationCount = (notifications ?? []).filter((item: { isRead?: boolean }) => !item.isRead).length;
@@ -260,10 +252,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
                     pattern={template}
                     className="home-template-card"
                     loading="eager"
-                    onOpen={(pattern) => {
-                      setActivePattern(pattern);
-                      setScreen('pattern-detail', pattern.id);
-                    }}
+                    onOpen={openCommunityPost ?? ((pattern) => setScreen('pattern-detail', pattern.id))}
                   />
                 ))}
                 {homeTemplateCards.length === 0 ? <p className="community-empty">还没有分享的作品</p> : null}
@@ -410,15 +399,12 @@ export function HomeShellPage(props: HomeShellPageProps) {
           hasMore={props.communityHasMore}
           loadingMore={props.isCommunityLoadingMore}
           onLoadMore={props.loadMoreCommunityPosts}
-          onOpen={(pattern: any) => {
-            setActivePattern(pattern);
-            setScreen('pattern-detail', pattern.id);
-          }}
+          onOpen={openCommunityPost ?? ((pattern: any) => setScreen('pattern-detail', pattern.id))}
           onOpenAuthor={(pattern: any) => {
             openAuthorProfile?.(pattern, 'discover');
           }}
         />
-      ) : activeTab === 'messages' ? (
+      ) : activeTab === 'messages' ? (props.communityMessagesPage ??
         <PatternMessagesPage
           isLoggedIn={isLoggedIn}
           notifications={notifications}

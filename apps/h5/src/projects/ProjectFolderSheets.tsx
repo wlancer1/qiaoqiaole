@@ -90,6 +90,7 @@ export function ProjectFolderSheetShell({ title, description, pending, covered =
       aria-hidden={covered || undefined}
       inert={covered || undefined}
       onClick={covered ? undefined : closeIfAvailable}
+      onTouchStart={(event) => event.stopPropagation()}
     >
       <section
         ref={dialogRef}
@@ -103,6 +104,7 @@ export function ProjectFolderSheetShell({ title, description, pending, covered =
         tabIndex={-1}
         onKeyDown={trapFocus}
         onClick={(event: MouseEvent<HTMLElement>) => event.stopPropagation()}
+        onTouchStart={(event) => event.stopPropagation()}
       >
         <span className="project-folder-sheet-handle" aria-hidden="true" />
         <header className="project-folder-sheet-header">

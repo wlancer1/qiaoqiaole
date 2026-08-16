@@ -1,5 +1,4 @@
 import {
-  buildCellsFromSamples,
   MARD_221_COLORS,
   MARD_221_HEX,
   nearestPaletteColor,
@@ -175,7 +174,6 @@ export function sameCells(left: Cell[], right: Cell[]): boolean {
 
 export function createBeadPatternCanvas(cells: Cell[], rows: number, cols: number): HTMLCanvasElement {
   const cellSize = Math.max(24, cols > 80 || rows > 80 ? 28 : cols > 50 || rows > 50 ? 34 : 44);
-  const headerSize = cellSize;
   const margin = 28;
   const titleHeight = 68;
   const legendGap = 24;
@@ -366,7 +364,7 @@ export function parseGridSizeInput(value: string): number | '' {
   return Number.isFinite(parsed) ? parsed : '';
 }
 
-export function resizeCells(oldCells: Cell[], oldRows: number, oldCols: number, newRows: number, newCols: number): Cell[] {
+export function resizeCells(oldCells: Cell[], _oldRows: number, _oldCols: number, newRows: number, newCols: number): Cell[] {
   const result: Cell[] = [];
   for (let y = 0; y < newRows; y++) {
     for (let x = 0; x < newCols; x++) {

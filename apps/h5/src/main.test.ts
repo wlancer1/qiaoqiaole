@@ -13,7 +13,7 @@ import { useAppSelector } from './store/hooks';
 import { createH5Store, type H5Store } from './store/store';
 
 const mainSource = readFileSync(resolve(__dirname, 'main.tsx'), 'utf8');
-const h5AppSource = readFileSync(resolve(__dirname, 'H5App.tsx'), 'utf8');
+const applicationSource = readFileSync(resolve(__dirname, 'app/H5Application.tsx'), 'utf8');
 const renderers: ReactTestRenderer[] = [];
 
 beforeAll(() => {
@@ -40,9 +40,9 @@ describe('H5 application entrypoint', () => {
     expect(mainSource).toContain('<AppBootstrap>{content ?? <H5AppShell />}</AppBootstrap>');
   });
 
-  it('does not create another Provider or Router inside H5App', () => {
-    expect(h5AppSource).not.toMatch(/<Provider\b/);
-    expect(h5AppSource).not.toMatch(/<BrowserRouter\b/);
+  it('does not create another Provider or Router inside the routed application composition', () => {
+    expect(applicationSource).not.toMatch(/<Provider\b/);
+    expect(applicationSource).not.toMatch(/<BrowserRouter\b/);
   });
 
   it('keeps the beading fixture inside the same application bootstrap', () => {

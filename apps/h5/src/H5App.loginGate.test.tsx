@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-const appSource = readFileSync(new URL('./H5App.tsx', import.meta.url), 'utf8');
+const appSource = readFileSync(new URL('./app/H5Application.tsx', import.meta.url), 'utf8');
 const shellSource = readFileSync(new URL('./pages/home/HomeShellPage.tsx', import.meta.url), 'utf8');
 
 describe('H5 login gate entry points', () => {
@@ -12,19 +12,17 @@ describe('H5 login gate entry points', () => {
     expect(shellSource).not.toContain('setShowLoginModal');
   });
 
-  it('routes username and phone success through session coordination', () => {
-    expect(appSource).toContain('authSessionCoordinator.establishFromUsername');
-    expect(appSource).toContain('authSessionCoordinator.establishFromPhone');
-    expect(appSource).toContain("start('username')");
-    expect(appSource).toContain("start('phone')");
+  it('delegates username and phone success to the authentication feature', () => {
+    expect(appSource).toContain("from '../features/auth/useAuthFeature';");
+    expect(appSource).toContain('submitPhoneLogin={authDialog.submitPhoneLogin}');
+    expect(appSource).toContain('submitPhoneRegister={authDialog.submitPhoneRegister}');
     expect(appSource).not.toContain('pendingAuthActionRef');
     expect(appSource).not.toContain('qiaoqiaole.auth');
   });
 
-  it('cancels the gate before Redux logout and keeps feature cleanup local', () => {
-    expect(appSource).toContain('authGate.cancelLogin');
-    expect(appSource).toContain('dispatch(logoutSession())');
-    expect(appSource).toContain('setFollowingUsers([])');
+  it('delegates logout to the feature and keeps page cleanup local', () => {
+    expect(appSource).toContain('logoutAuthSession();');
+    expect(appSource).toContain('communityCommandsRef.current?.clearForLogout()');
     expect(appSource).toContain('setRecentProjects([])');
   });
 });

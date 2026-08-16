@@ -4,6 +4,7 @@ import {
   loginRequestCompleted,
   loginRequestReconciled,
   loginRequestStarted,
+  normalizeLoginReturnTo,
 } from './uiSlice';
 
 export type AuthGateState = Pick<H5RootState, 'auth' | 'ui'> | {
@@ -37,14 +38,6 @@ export type AuthGate = {
 type Waiter = AuthGateRequireOptions & {
   resolve: (authenticated: boolean) => void;
 };
-
-function normalizeReturnTo(returnTo?: string): string | undefined {
-  const normalized = returnTo?.trim();
-  if (!normalized || !normalized.startsWith('/') || normalized.startsWith('//')) return undefined;
-  if (/^[a-z][a-z\d+.-]*:/i.test(normalized)) return undefined;
-  if (/[\u0000-\u001f\u007f]/.test(normalized)) return undefined;
-  return normalized;
-}
 
 let nextGateNumber = 0;
 
@@ -83,7 +76,7 @@ export function createAuthGate({ getState, dispatch }: AuthGateDependencies): Au
       return;
     }
     const firstReturnTo = surviving
-      .map((waiter) => normalizeReturnTo(waiter.returnTo))
+      .map((waiter) => normalizeLoginReturnTo(waiter.returnTo))
       .find((returnTo): returnTo is string => Boolean(returnTo));
     dispatch(loginRequestReconciled({
       id: activeRequestId,
@@ -94,7 +87,7 @@ export function createAuthGate({ getState, dispatch }: AuthGateDependencies): Au
 
   return {
     require(options) {
-      const returnTo = normalizeReturnTo(options.returnTo);
+      const returnTo = normalizeLoginReturnTo(options.returnTo);
       const state = getState();
       if (state.auth.status === 'authenticated') return Promise.resolve(true);
       if (state.ui.currentRouteScope !== options.scopeId || owners.size === 0) {

@@ -2,54 +2,59 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
+const applicationSource = fs.readFileSync(path.resolve('apps/h5/src/app/H5Application.tsx'), 'utf8');
+
 describe('H5App canvas authentication fallback', () => {
-  it('renders project folder overlays at the H5App layer and locks background scrolling', () => {
-    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+  it('registers project folder overlays with the persistent application host', () => {
+    const source = applicationSource;
 
     expect(source).toContain("document.body.classList.toggle('h5-modal-open', hasBlockingModal)");
-    expect(source).toContain('const projectFolderSheets = <>');
-    expect(source).toContain('className="h5-app-shell"');
-    expect(source).toContain('className="h5-app-overlays"');
-    expect(source).toContain('{projectFolderSheets}');
+    expect(source).toContain('useProjectFolderController');
+    expect(source).toContain("useAppOverlay");
+    expect(source).not.toContain("setOverlaySlot('folder', projectFolderSheets)");
+    expect(source).not.toContain('className="h5-app-overlays"');
     expect(source).not.toContain('const projectFolderCreateDialog = showProjectFolderCreate ?');
-    expect(source).toContain('const openProjectActions = (project: RecentProject) =>');
-    expect(source).toContain('projectActionReturnFocusRef.current');
+    expect(source).toContain('useProjectActionOverlay');
+    expect(source).not.toContain('const openProjectActions = (project: RecentProject) =>');
   });
 
-  it('renders the shared login modal while the canvas screen is active', () => {
-    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
-    expect(source).toContain('<CanvasPage');
-    expect(source).toContain("createProjectFolder={() => openProjectFolderCreate('save')}");
-    expect(source).toContain('projectFolderSheetOpen={showProjectFolderCreate}');
+  it('registers the shared login modal while the canvas screen is active', () => {
+    const source = applicationSource;
+    const editor = fs.readFileSync(path.resolve('apps/h5/src/features/editor/EditorFeatureContent.tsx'), 'utf8');
+    expect(source).toContain('<EditorFeatureContent');
+    expect(source).toContain("setOverlaySlot('login', loginModalFallback)");
+    expect(source).toContain('onSave={() => projectSaveOverlay.open()}');
+    expect(editor).toContain('showSaveProjectModal={false}');
+    expect(editor).toContain('saveCurrentProject={saveCurrent}');
   });
 
-  it('restores and persists remembered phone login credentials without changing the session record', () => {
-    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+  it('delegates the composed authentication controller to the auth feature boundary', () => {
+    const source = applicationSource;
 
-    expect(source).toContain('readRememberedPhoneLogin(window.localStorage)');
-    expect(source).toContain('writeRememberedPhoneLogin(window.localStorage, { phone, password: phonePassword })');
-    expect(source).toContain('clearRememberedPhoneLogin(window.localStorage);');
-    expect(source).toContain('rememberPassword={rememberPassword} setRememberPassword={setRememberPassword}');
-    expect(source).toContain("phoneAuthMode !== 'login'");
+    expect(source).toContain("from '../features/auth/useAuthFeature';");
+    expect(source).toContain('const authFeature = useAuthFeature({');
+    expect(source).toContain('authDialog.restoreRememberedLogin()');
+    expect(source).toContain('rememberPassword={authDialog.rememberPassword} setRememberPassword={authDialog.setRememberPassword}');
+    expect(source).not.toContain("const [phoneNumber, setPhoneNumber] = useState('')");
   });
 
-  it('does not persist remembered credentials from the registration flow', () => {
-    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
-    const phoneAuthBody = source.match(/const submitPhoneAuth = async \(mode: 'login' \| 'register'\) => \{([\s\S]*?)\n  \};/)?.[1] ?? '';
+  it('does not keep phone authentication handlers in the app coordinator', () => {
+    const source = applicationSource;
 
-    expect(phoneAuthBody).toContain("if (mode === 'login')");
-    expect(phoneAuthBody).toContain('writeRememberedPhoneLogin');
+    expect(source).not.toContain("const submitPhoneAuth = async (mode: 'login' | 'register')");
+    expect(source).toContain('submitPhoneLogin={authDialog.submitPhoneLogin}');
+    expect(source).toContain('submitPhoneRegister={authDialog.submitPhoneRegister}');
+    expect(source).not.toContain('const profileEditor = useProfileEditor({');
+    expect(source).not.toContain('createAuthSessionCoordinator({');
+    expect(source).not.toContain('createPhoneAuthTransport');
+    expect(source).not.toContain("const [profileEditName, setProfileEditName] = useState('')");
   });
 
   it('keeps create and move state at the top layer while requests are pending', () => {
-    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+    const source = applicationSource;
 
-    expect(source).toContain("const [projectFolderCreateOrigin, setProjectFolderCreateOrigin] = useState<ProjectFolderCreateOrigin>('my-works')");
-    expect(source).toContain('const [projectFolderMoveTarget, setProjectFolderMoveTarget] = useState<RecentProject | null>(null)');
-    expect(source).toContain('covered={showProjectFolderCreate}');
-    expect(source).toContain('ensureProjectFolderHistorySentinel');
-    expect(source).toContain('consumeProjectFolderHistorySentinel');
-    expect(source).toContain('resolveProjectFolderHistoryPop');
+    expect(source).toContain('useProjectFolderController');
+    expect(source).not.toContain('const [projectFolderMoveTarget');
   });
 
   it('does not forward the save button click event as an authentication token', () => {
@@ -60,33 +65,43 @@ describe('H5App canvas authentication fallback', () => {
   });
 
   it('clears all follow-related profile state on logout', () => {
-    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
-    const logoutBody = source.match(/const logoutPhone = async \(\) => \{([\s\S]*?)\n  \};/)?.[1] ?? '';
+    const source = applicationSource;
+    const logoutBody = source.match(/const logoutPhone = (?:useCallback\()?async \(\) => \{([\s\S]*?)\n  \};/)?.[1] ?? '';
 
-    expect(logoutBody).toContain('dispatch(logoutSession())');
-    expect(logoutBody).toContain('setFollowingUsers([]);');
-    expect(logoutBody).toContain('setFollowersUsers([]);');
+    expect(logoutBody).toContain('logoutAuthSession();');
+    expect(logoutBody).toContain('communityCommandsRef.current?.clearForLogout();');
   });
 
-  it('uses Redux Router scope for status messages and auto dismissal', () => {
-    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+  it('delegates route-scoped status visibility and auto dismissal to the host', () => {
+    const source = applicationSource;
 
     expect(source).toContain('useScopedStatus');
-    expect(source).toContain('useStatusAutoDismiss');
+    expect(source).not.toContain('useStatusAutoDismiss');
+    expect(source).toContain("const status = '';");
     expect(source).not.toContain('setStatusState');
     expect(source).not.toContain('statusScopeRef');
     expect(source).not.toContain('`${screen}:${activeTab}`');
   });
 
+  it('does not retain the obsolete setScreen-based community post route escape hatch', () => {
+    const source = applicationSource;
+
+    expect(source).not.toContain("if (nextScreen === 'pattern-detail' && resourceId)");
+    expect(source).not.toContain('`/community/posts/${encodeURIComponent(resourceId)}`');
+  });
+
   it('uses layered route and page loading states instead of plain loading paragraphs', () => {
-    const source = fs.readFileSync(path.resolve('apps/h5/src/H5App.tsx'), 'utf8');
+    const source = applicationSource;
+    const communityContent = fs.readFileSync(path.resolve('apps/h5/src/features/community/CommunityFeatureContent.tsx'), 'utf8');
+    const communityRoutes = fs.readFileSync(path.resolve('apps/h5/src/features/community/CommunityRoutePages.tsx'), 'utf8');
 
     expect(source).toContain('<H5RoutedContent renderPage={renderPage} />');
-    expect(source).toContain("lazy(() => import('./pages/editor/CanvasPage')");
-    expect(source).toContain('<PageSkeleton kind="editor" label="正在加载作品" />');
-    expect(source).toContain('<PageSkeleton kind="warehouse" label="正在加载仓库" />');
-    expect(source).toContain('<PageSkeleton kind="pattern-detail" label="正在加载作品" />');
-    expect(source).toContain('<PageSkeleton kind="profile-list" label="正在加载关注列表" />');
+    expect(source).toContain('<EditorFeatureContent');
+    expect(fs.readFileSync(path.resolve('apps/h5/src/features/editor/EditorFeatureContent.tsx'), 'utf8')).toContain('<PageSkeleton kind="editor" label="正在加载作品" />');
+    expect(source).toContain('<WarehouseFeatureContent');
+    expect(communityRoutes).toContain('<PageSkeleton kind="pattern-detail" label={detailLoading ? \'正在加载作品\' : \'作品不存在\'} />');
+    expect(communityRoutes).toContain('<PageSkeleton kind="profile-list" label={following ? \'正在加载关注列表\' : \'正在加载粉丝列表\'} />');
+    expect(communityContent).toContain('<PageSkeleton kind="pattern-list" label="正在加载发现作品" />');
     expect(source).not.toContain('<p className="community-empty">正在加载作品…</p>');
   });
 });
