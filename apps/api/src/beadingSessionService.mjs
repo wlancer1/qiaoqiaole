@@ -22,7 +22,10 @@ function parseJson(value, fallback) {
 function nowIso() { return new Date().toISOString(); }
 
 function projectRequirements(project) {
-  const source = parseJson(project.beadList, null) || parseJson(project.canvasData, []);
+  const beadList = parseJson(project.beadList, null);
+  const source = Array.isArray(beadList) && beadList.length > 0
+    ? beadList
+    : parseJson(project.canvasData, []);
   return aggregateBeadRequirements(source);
 }
 
@@ -119,14 +122,16 @@ export function createBeadingSessionService({ db, getOne, getAll, persist, withT
     return withTransaction(async () => {
       const project = projectRow(getOne, userId, projectId, false);
       assertExpectedRevision(project, body.expectedProjectRevision);
+      const requirements = projectRequirements(project);
       const active = getOne("SELECT * FROM beading_sessions WHERE user_id = ? AND active_key = ? AND status IN ('in_progress', 'paused', 'pending_completion')", [userId, `${userId}:${projectId}`]);
-      if (active && body.restart !== true) return { session: sessionView(active), reused: true };
+      const activeRequirements = active ? parseJson(active.requirements_json, []) : [];
+      const activeStillMatches = JSON.stringify(activeRequirements) === JSON.stringify(requirements);
+      if (active && body.restart !== true && activeStillMatches) return { session: sessionView(active), reused: true };
       if (active) {
         db.run("UPDATE beading_sessions SET status = 'abandoned', active_key = NULL, abandoned_at = ?, version = version + 1, updated_at = ? WHERE id = ?", [nowIso(), nowIso(), active.id]);
       }
       const selectedWarehouseId = body.warehouseId || null;
       const { warehouse } = getAvailable(selectedWarehouseId, userId);
-      const requirements = projectRequirements(project);
       const now = nowIso();
       const id = randomUUID();
       db.run(`INSERT INTO beading_sessions

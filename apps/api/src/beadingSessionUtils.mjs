@@ -26,6 +26,7 @@ export function normalizeMardColorCode(value) {
 export function aggregateBeadRequirements(entries) {
   const totals = new Map();
   for (const entry of entries ?? []) {
+    if (entry?.transparent === true) continue;
     const colorCode = normalizeMardColorCode(entry?.colorCode ?? entry?.color);
     const rawCount = entry?.required ?? entry?.count;
     const count = rawCount === undefined ? 1 : Number(rawCount);

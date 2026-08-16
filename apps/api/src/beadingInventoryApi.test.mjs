@@ -88,4 +88,65 @@ describe('beading inventory API', () => {
     expect(created.response.status, JSON.stringify(created.body)).toBe(200);
     expect(created.body.session.requirements).toEqual([{ colorCode: 'C17', required: 1 }]);
   });
+
+  it('falls back to canvas data when the persisted bead list is empty', async () => {
+    const project = (await request('/api/projects', { method: 'POST', body: JSON.stringify({
+      name: '空清单作品',
+      rows: 1,
+      cols: 2,
+      canvasData: JSON.stringify([
+        { color: '#ffffff', transparent: true },
+        { color: 'A14', transparent: false },
+      ]),
+      beadList: [],
+    }) })).body.project.id;
+
+    const created = await request(`/api/v1/projects/${project}/beading-session`, { method: 'POST', body: JSON.stringify({}) });
+
+    expect(created.response.status, JSON.stringify(created.body)).toBe(200);
+    expect(created.body.session.requirements).toEqual([{ colorCode: 'A14', required: 1 }]);
+  });
+
+  it('replaces a reusable empty session after the project gains bead cells', async () => {
+    const createdProject = await request('/api/projects', { method: 'POST', body: JSON.stringify({
+      name: '待去背景作品', rows: 1, cols: 1, canvasData: '[]', beadList: [],
+    }) });
+    const project = createdProject.body.project.id;
+    const empty = await request(`/api/v1/projects/${project}/beading-session`, { method: 'POST', body: JSON.stringify({}) });
+    expect(empty.body.session.requirements).toEqual([]);
+
+    const updated = await request(`/api/projects/${project}`, { method: 'PUT', body: JSON.stringify({
+      name: '待去背景作品', rows: 1, cols: 1,
+      canvasData: JSON.stringify([{ color: 'A14', transparent: false }]),
+      beadList: [],
+    }) });
+    expect(updated.response.status, JSON.stringify(updated.body)).toBe(200);
+
+    const restarted = await request(`/api/v1/projects/${project}/beading-session`, { method: 'POST', body: JSON.stringify({}) });
+
+    expect(restarted.response.status, JSON.stringify(restarted.body)).toBe(200);
+    expect(restarted.body.reused).toBe(false);
+    expect(restarted.body.session.id).not.toBe(empty.body.session.id);
+    expect(restarted.body.session.requirements).toEqual([{ colorCode: 'A14', required: 1 }]);
+  });
+
+  it('replaces a reusable session when an edited project changes its bead requirements', async () => {
+    const createdProject = await request('/api/projects', { method: 'POST', body: JSON.stringify({
+      name: '编辑后作品', rows: 1, cols: 1,
+      canvasData: JSON.stringify([{ color: 'A14', transparent: false }]), beadList: [],
+    }) });
+    const project = createdProject.body.project.id;
+    const beforeEdit = await request(`/api/v1/projects/${project}/beading-session`, { method: 'POST', body: JSON.stringify({}) });
+    expect(beforeEdit.body.session.requirements).toEqual([{ colorCode: 'A14', required: 1 }]);
+
+    await request(`/api/projects/${project}`, { method: 'PUT', body: JSON.stringify({
+      name: '编辑后作品', rows: 1, cols: 1,
+      canvasData: JSON.stringify([{ color: 'C5', transparent: false }]), beadList: [],
+    }) });
+    const afterEdit = await request(`/api/v1/projects/${project}/beading-session`, { method: 'POST', body: JSON.stringify({}) });
+
+    expect(afterEdit.body.reused).toBe(false);
+    expect(afterEdit.body.session.id).not.toBe(beforeEdit.body.session.id);
+    expect(afterEdit.body.session.requirements).toEqual([{ colorCode: 'C5', required: 1 }]);
+  });
 });
