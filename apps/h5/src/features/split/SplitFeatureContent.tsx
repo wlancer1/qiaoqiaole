@@ -24,6 +24,7 @@ export function SplitFeatureContent() {
     resetSplitCropImage: () => workflow.setSplitImageScale(1),
     toggleSplitBackground: workflow.toggleBackground,
     updateSplitBackgroundSensitivity: workflow.updateBackgroundSensitivity,
+    importSplitToCanvas: workflow.importToCanvas,
     previewSplitSize: workflow.isSplitCropped ? { cols: workflow.splitCropBounds.right - workflow.splitCropBounds.left, rows: workflow.splitCropBounds.bottom - workflow.splitCropBounds.top } : { cols: workflow.activeSplitCols, rows: workflow.activeSplitRows },
     confirmSplitCrop: () => { workflow.confirmCrop(); navigate('/split/preview'); },
     returnToSplitCrop: () => { workflow.returnToCrop(); navigate('/split/crop'); },

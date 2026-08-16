@@ -26,4 +26,9 @@ describe('SplitFeatureContent', () => {
     expect(source).toContain("confirmSplitCrop: () => { workflow.confirmCrop(); navigate('/split/preview'); }");
     expect(source).toContain("returnToSplitCrop: () => { workflow.returnToCrop(); navigate('/split/crop'); }");
   });
+
+  it('adapts the workflow import command to the preview page command name', async () => {
+    const source = await import('node:fs').then(({ readFileSync }) => readFileSync(new URL('./SplitFeatureContent.tsx', import.meta.url), 'utf8'));
+    expect(source).toContain('importSplitToCanvas: workflow.importToCanvas');
+  });
 });
