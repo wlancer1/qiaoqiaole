@@ -15,6 +15,7 @@ import { colorCodeOf, imageDataToUrl, loadImageData, yieldToBrowser } from '../.
 import { cropSize, getAutoCropBounds, splitCropRegion, type CropBounds } from '../../utils/splitCrop';
 import { DEFAULT_SPLIT_LONG_SIDE, gridSizeFromSplitBounds, maxSplitLongSideFromBounds } from '../../utils/splitConfig';
 import { cloneImageData, DEFAULT_BACKGROUND_SENSITIVITY, deriveSplitImage } from '../../pages/split/splitImageProcessing';
+import { defaultSplitGeometryFromCrop } from '../../pages/split/splitImageState';
 import { prepareBackgroundRemoval } from '@qiaoqiaole/core';
 import { createSplitAsyncScope } from './splitAsyncScope';
 import type { AlignedGrid, GridHandle, GridHandlePosition, SplitMode, SplitPreviewTab, UploadedSplitImage } from '../../shared/h5Types';
@@ -104,22 +105,31 @@ export function useSplitWorkflow({ screen, setStatus, onImport, onSourceChange }
     let cancelled = false;
     setSplitPreviewCells([]); setSplitPreviewLoading(true); setSplitLoadingStage('正在分析图片...'); setSplitLoadingProgress(15);
     void (async () => {
-      await yieldToBrowser(180);
-      if (cancelled || !scopeRef.current.isCurrent(job, uploadedSplitImage.originalImageData, screen)) return;
-      const source = splitCropRegion(uploadedSplitImage.crop, splitCropBounds, activeSplitCols, activeSplitRows, splitMode === 'align' ? flowAlignedGrid : undefined);
-      const raw = splitMode === 'align'
-        ? await cellsFromAlignedGridAsync(uploadedSplitImage.imageData, {
-          ...flowAlignedGrid, cols: cropSize(splitCropBounds).cols, rows: cropSize(splitCropBounds).rows,
-          offsetX: flowAlignedGrid.offsetX + splitCropBounds.left * flowAlignedGrid.cellSize,
-          offsetY: flowAlignedGrid.offsetY + splitCropBounds.top * flowAlignedGrid.cellSize,
-        }, uploadedSplitImage.crop)
-        : await cellsFromImageAsync(uploadedSplitImage.imageData, cropSize(splitCropBounds).rows, cropSize(splitCropBounds).cols, source, (progress) => {
-        if (!cancelled && scopeRef.current.isCurrent(job, uploadedSplitImage.originalImageData, screen)) setSplitLoadingProgress(28 + Math.round(progress * .42));
-        });
-      if (cancelled || !scopeRef.current.isCurrent(job, uploadedSplitImage.originalImageData, screen)) return;
-      setSplitLoadingStage('正在匹配拼豆色号...'); setSplitLoadingProgress(72);
-      setSplitPreviewCells(deferredSplitMergeThreshold ? mergeSimilarCells(raw, deferredSplitMergeThreshold) : raw.map((cell) => ({ ...cell, color: cell.color.toLowerCase() })));
-      setSplitLoadingProgress(100); setSplitPreviewLoading(false);
+      try {
+        await yieldToBrowser(180);
+        if (cancelled || !scopeRef.current.isCurrent(job, uploadedSplitImage.originalImageData, screen)) return;
+        const source = splitCropRegion(uploadedSplitImage.crop, splitCropBounds, activeSplitCols, activeSplitRows, splitMode === 'align' ? flowAlignedGrid : undefined);
+        const raw = splitMode === 'align'
+          ? await cellsFromAlignedGridAsync(uploadedSplitImage.imageData, {
+            ...flowAlignedGrid, cols: cropSize(splitCropBounds).cols, rows: cropSize(splitCropBounds).rows,
+            offsetX: flowAlignedGrid.offsetX + splitCropBounds.left * flowAlignedGrid.cellSize,
+            offsetY: flowAlignedGrid.offsetY + splitCropBounds.top * flowAlignedGrid.cellSize,
+          }, uploadedSplitImage.crop)
+          : await cellsFromImageAsync(uploadedSplitImage.imageData, cropSize(splitCropBounds).rows, cropSize(splitCropBounds).cols, source, (progress) => {
+          if (!cancelled && scopeRef.current.isCurrent(job, uploadedSplitImage.originalImageData, screen)) setSplitLoadingProgress(28 + Math.round(progress * .42));
+          });
+        if (cancelled || !scopeRef.current.isCurrent(job, uploadedSplitImage.originalImageData, screen)) return;
+        setSplitLoadingStage('正在匹配拼豆色号...'); setSplitLoadingProgress(72);
+        setSplitPreviewCells(deferredSplitMergeThreshold ? mergeSimilarCells(raw, deferredSplitMergeThreshold) : raw.map((cell) => ({ ...cell, color: cell.color.toLowerCase() })));
+        setSplitLoadingProgress(100);
+      } catch {
+        if (!cancelled && scopeRef.current.isCurrent(job, uploadedSplitImage.originalImageData, screen)) {
+          setSplitPreviewCells([]);
+          setStatus('画布生成失败，请重新调整后重试。');
+        }
+      } finally {
+        if (!cancelled && scopeRef.current.isCurrent(job, uploadedSplitImage.originalImageData, screen)) setSplitPreviewLoading(false);
+      }
     })();
     return () => { cancelled = true; };
   }, [activeSplitCols, activeSplitRows, deferredSplitMergeThreshold, flowAlignedGrid, isSplitCropped, screen, splitCropBounds, splitMode, uploadedSplitImage]);
@@ -131,8 +141,11 @@ export function useSplitWorkflow({ screen, setStatus, onImport, onSourceChange }
     const derived = deriveSplitImage(originalImageData, false, { toUrl: imageDataToUrl, getCrop: getImageCrop }, { backgroundCache });
     const image: UploadedSplitImage = { name, originalImageData, imageData: derived.imageData, crop: derived.crop, url: derived.url, originalUrl: derived.url, backgroundRemoved: false, backgroundSensitivity: DEFAULT_BACKGROUND_SENSITIVITY, backgroundCache };
     imageRef.current = image; setUploadedSplitImage(image); onSourceChange(derived.url);
-    const size = gridSizeFromSplitBounds(image.crop.width, image.crop.height, DEFAULT_SPLIT_LONG_SIDE);
-    setSplitMode('quick'); setSplitLongSide(DEFAULT_SPLIT_LONG_SIDE); setSplitRows(size.rows); setSplitCols(size.cols); setSplitMergeThreshold(0); setSplitPreviewCells([]); setIsSplitCropped(false); setSplitPreviewTab('settings'); setSplitCropBounds({ top: 0, right: size.cols, bottom: size.rows, left: 0 });
+    const geometry = defaultSplitGeometryFromCrop(image.crop);
+    liveAlignCellSizeRef.current = geometry.alignCellSize;
+    liveAlignOffsetRef.current = geometry.alignOffset;
+    liveGridFrameOriginRef.current = geometry.gridFrameOrigin;
+    setSplitMode('quick'); setSplitLongSide(geometry.longSide); setSplitRows(geometry.rows); setSplitCols(geometry.cols); setSplitMergeThreshold(0); setSplitPreviewCells([]); setIsSplitCropped(false); setSplitPreviewTab('settings'); setLockedAlignedGrid(null); setAlignCellSize(geometry.alignCellSize); setAlignOffsetX(geometry.alignOffset.x); setAlignOffsetY(geometry.alignOffset.y); setGridFrameOrigin(geometry.gridFrameOrigin); setSplitCropBounds({ top: 0, right: geometry.cols, bottom: geometry.rows, left: 0 });
   };
   const upload = async (file: File | undefined) => {
     if (!file) return false;
