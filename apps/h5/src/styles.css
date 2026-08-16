@@ -2848,6 +2848,28 @@ input:focus-visible {
   transform: translateX(-50%);
 }
 
+.app-status-close {
+  display: inline-grid;
+  width: 0.8254rem;
+  height: 0.8254rem;
+  margin-left: 0.254rem;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  font-size: 0.5714rem;
+  line-height: 1;
+  vertical-align: middle;
+  pointer-events: auto;
+}
+
+.app-status-close:hover,
+.app-status-close:focus-visible {
+  background: rgba(255, 255, 255, 0.16);
+}
+
 .upload-drawing-panel {
   position: relative;
   gap: 0.3175rem;

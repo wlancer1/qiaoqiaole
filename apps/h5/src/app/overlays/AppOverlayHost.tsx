@@ -28,7 +28,7 @@ export function AppOverlayHost() {
 
   return (
     <div className="h5-app-overlays" data-testid="h5-app-overlay-host">
-      {status ? <p className="app-status" role="status" aria-live="polite">{status.message}<button type="button" aria-label="关闭提示" onClick={clearStatus}>关闭</button></p> : null}
+      {status ? <p className="app-status" role="status" aria-live="polite">{status.message}<button className="app-status-close" type="button" aria-label="关闭提示" onClick={clearStatus}>×</button></p> : null}
       {confirmRequest ? <ConfirmDialog
         {...confirmRequest.request}
         onCancel={() => closeConfirm(confirmRequest.id)}
