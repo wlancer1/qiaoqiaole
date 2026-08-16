@@ -1,4 +1,4 @@
-import { FileDown, Layers3, List, Redo2, Save, SlidersHorizontal, Undo2, X } from 'lucide-react';
+import { ArrowLeft, FileDown, Layers3, List, Redo2, Save, SlidersHorizontal, Undo2, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { TransformComponent, TransformWrapper } from 'react-zoom-pan-pinch';
 import { EditorCanvasLayers } from '../../canvas/EditorCanvasLayers';
@@ -53,8 +53,8 @@ return (
 
     <header className="canvas-topbar">
       <div className="topbar-left">
-        <button className="top-icon-btn close-btn" aria-label="关闭画布" onClick={() => { clearReferenceImage(); setScreen('home'); }}>
-          <X aria-hidden="true" />
+        <button className="top-icon-btn close-btn" aria-label="返回作品列表" onClick={() => { clearReferenceImage(); setScreen('home'); }}>
+          <ArrowLeft aria-hidden="true" />
         </button>
         <button className="top-icon-btn sliders-btn" aria-label="画布设置" onClick={() => setShowSettings(true)}>
           <SlidersHorizontal aria-hidden="true" />
