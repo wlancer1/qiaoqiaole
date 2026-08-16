@@ -549,7 +549,7 @@ function H5Application() {
   >
     <WarehouseFeatureContent requireLogin={requireLogin} onCommands={(commands) => { warehouseCommandsRef.current = commands; }} />
     <BeadingFeatureContent requestApi={requestApi} requireLogin={requireLogin} onCommands={(commands) => { beadingCommandsRef.current = commands; }} />
-    <H5RoutedContent renderPage={renderPage} />
+    <H5RoutedContent renderPage={renderPage} authStatus={authStatus} />
   </CommunityFeatureProvider>
   </SplitFeatureProvider>;
 }

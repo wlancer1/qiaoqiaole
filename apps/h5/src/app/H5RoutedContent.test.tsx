@@ -33,13 +33,13 @@ function pageFor(screen: AppScreen): ReactNode {
   return <main aria-label={`page:${screen}`}>{screen}</main>;
 }
 
-async function renderAt(pathname: string, renderPage: (screen: AppScreen) => ReactNode = pageFor) {
+async function renderAt(pathname: string, renderPage: (screen: AppScreen) => ReactNode = pageFor, authStatus?: 'restoring' | 'authenticated' | 'anonymous') {
   let renderer!: ReactTestRenderer;
   await act(async () => {
     renderer = create(
       <MemoryRouter initialEntries={[pathname]}>
         <LocationProbe />
-        <H5RoutedContent renderPage={renderPage} />
+        <H5RoutedContent renderPage={renderPage} authStatus={authStatus} />
       </MemoryRouter>,
     );
   });
@@ -63,6 +63,13 @@ describe('H5RoutedContent', () => {
 
   it('redirects an unknown route to the home page', async () => {
     const renderer = await renderAt('/missing');
+
+    expect(renderer.root.findByProps({ 'data-location': '/' }).children).toEqual(['/']);
+    expect(renderer.root.findByProps({ 'aria-label': 'page:home' }).children).toEqual(['home']);
+  });
+
+  it('redirects anonymous users away from protected deep links before rendering the page', async () => {
+    const renderer = await renderAt('/projects/project-1/edit', pageFor, 'anonymous');
 
     expect(renderer.root.findByProps({ 'data-location': '/' }).children).toEqual(['/']);
     expect(renderer.root.findByProps({ 'aria-label': 'page:home' }).children).toEqual(['home']);

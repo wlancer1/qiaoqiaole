@@ -1,6 +1,7 @@
 import { Suspense, type ReactNode } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { DelayedRouteLoadingFallback, RouteLoadErrorBoundary } from '../loading/H5LoadingStates';
+import { resolveAuthRoute } from '../features/auth/authRouteGuard';
 import type { AppScreen } from '../shared/h5Types';
 import { H5_ROUTE_PATHS } from './h5Routes';
 
@@ -34,12 +35,18 @@ export function H5RouteSwitch({ renderPage }: { renderPage: H5RoutePageRenderer 
   </Routes>;
 }
 
-export function H5RoutedContent({ renderPage, onReload }: {
+export function H5RoutedContent({ renderPage, onReload, authStatus }: {
   renderPage: H5RoutePageRenderer;
   onReload?: () => void;
+  authStatus?: 'restoring' | 'authenticated' | 'anonymous';
 }) {
   const location = useLocation();
   const resetKey = `${location.pathname}${location.search}${location.hash}`;
+  const isProtectedPath = /^\/(?:projects|warehouses|following|followers|messages)(?:\/|$)/.test(location.pathname);
+  const authDecision = isProtectedPath && authStatus ? resolveAuthRoute({ status: authStatus }) : 'allow';
+
+  if (authDecision === 'wait') return <DelayedRouteLoadingFallback />;
+  if (authDecision === 'login') return <Navigate to="/" replace />;
 
   return <RouteLoadErrorBoundary resetKey={resetKey} onReload={onReload}>
     <Suspense fallback={<DelayedRouteLoadingFallback />}>
