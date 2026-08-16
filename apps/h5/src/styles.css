@@ -5452,18 +5452,6 @@ input:focus-visible {
   background: #edf5ff;
 }
 
-.my-works-page .my-work-card:nth-child(2) .author-work-art {
-  background: #eaf7df;
-}
-
-.my-works-page .my-work-card:nth-child(3) .author-work-art {
-  background: #fff0f3;
-}
-
-.my-works-page .my-work-card:nth-child(4) .author-work-art {
-  background: #e9f3ff;
-}
-
 .my-works-page .my-work-card .author-work-art {
   background: #edf5ff;
 }
