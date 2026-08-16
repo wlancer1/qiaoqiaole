@@ -475,7 +475,7 @@ function H5Application() {
   if (['split', 'split-crop', 'split-preview'].includes(requestedScreen)) return withAppOverlays(<SplitFeatureContent />);
 
   if (requestedScreen === 'canvas') {
-    return withAppOverlays(<EditorFeatureContent requestApi={requestApi} token={authToken} authStatus={authStatus} requireLogin={requireLogin} setStatus={setStatus} onCommands={(commands) => { editorCommandsRef.current = commands; const pending = pendingEditorCanvasRef.current; if (pending) { pendingEditorCanvasRef.current = null; commands.replaceCanvas(pending); } }} sourceImagePresent={Boolean(splitCommandsRef.current?.getSourceImage())} backgroundProcessing={splitCommandsRef.current?.isBackgroundProcessing() ?? false} onToggleBackground={toggleCanvasBackground} onSave={() => projectSaveOverlay.open()} onStartBeading={(projectId, nextToken) => { void beadingCommandsRef.current?.start(projectId, nextToken); }} />);
+    return withAppOverlays(<EditorFeatureContent requestApi={requestApi} token={authToken} authStatus={authStatus} requireLogin={requireLogin} setStatus={setStatus} onCommands={(commands) => { editorCommandsRef.current = commands; const pending = pendingEditorCanvasRef.current; if (pending) { pendingEditorCanvasRef.current = null; commands.replaceCanvas(pending); } }} onImportFile={async (file) => { await splitCommandsRef.current?.upload(file); }} sourceImagePresent={Boolean(splitCommandsRef.current?.getSourceImage())} backgroundProcessing={splitCommandsRef.current?.isBackgroundProcessing() ?? false} onToggleBackground={toggleCanvasBackground} onSave={() => projectSaveOverlay.open()} onStartBeading={(projectId, nextToken) => { void beadingCommandsRef.current?.start(projectId, nextToken); }} />);
   }
 
   if (requestedScreen === 'beading') {
