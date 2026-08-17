@@ -1,4 +1,4 @@
-import type { ComponentProps } from 'react';
+import { useLayoutEffect, type ComponentProps } from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { ImageWithSkeleton } from './ImageWithSkeleton';
@@ -7,12 +7,13 @@ beforeAll(() => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 });
 
+function CommitProbe({ source, onCommit }: { source: string; onCommit: () => void }) {
+  useLayoutEffect(onCommit, [onCommit, source]);
+  return null;
+}
+
 describe('ImageWithSkeleton', () => {
   let renderer: ReactTestRenderer | undefined;
-
-  type FlushableTestRenderer = ReactTestRenderer & {
-    unstable_flushSync: (callback: () => void) => void;
-  };
 
   const installIntersectionObserver = () => {
     const observers: Array<{
@@ -54,6 +55,7 @@ describe('ImageWithSkeleton', () => {
     if (renderer) act(() => renderer?.unmount());
     renderer = undefined;
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     vi.useRealTimers();
   });
 
@@ -196,6 +198,30 @@ describe('ImageWithSkeleton', () => {
     expect(observers[0].disconnect).toHaveBeenCalledOnce();
   });
 
+  it('ignores a queued observer callback after the waiting image is cleaned up', () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { observers } = installIntersectionObserver();
+    act(() => {
+      renderer = createDeferredImage();
+    });
+    act(() => renderer!.unmount());
+    renderer = undefined;
+    consoleError.mockClear();
+    const readIntersection = vi.fn(() => true);
+    const queuedEntry = {
+      get isIntersecting() {
+        return readIntersection();
+      },
+    } as IntersectionObserverEntry;
+
+    act(() => {
+      observers[0].callback([queuedEntry], {} as IntersectionObserver);
+    });
+
+    expect(readIntersection).not.toHaveBeenCalled();
+    expect(consoleError).not.toHaveBeenCalled();
+  });
+
   it('uses native lazy loading without a component timeout when IntersectionObserver is unavailable', () => {
     vi.useFakeTimers();
     vi.stubGlobal('IntersectionObserver', undefined);
@@ -247,6 +273,39 @@ describe('ImageWithSkeleton', () => {
     act(() => staleOnLoad());
     expect(renderer!.root.findByProps({ 'data-fallback': 'true' })).toBeTruthy();
     expect(renderer!.root.findAllByType('img')).toHaveLength(0);
+  });
+
+  it('keeps a terminal failure when only deferUntilVisible changes', () => {
+    installIntersectionObserver();
+    act(() => {
+      renderer = create(
+        <ImageWithSkeleton
+          src="/terminal.webp"
+          alt="热门图纸"
+          maxRetries={0}
+          fallback={<span data-fallback="true">暂无预览图</span>}
+        />,
+        { createNodeMock: () => ({ nodeType: 1 }) },
+      );
+    });
+    act(() => renderer!.root.findByType('img').props.onError());
+    expect(renderer!.root.findByProps({ 'data-fallback': 'true' })).toBeTruthy();
+
+    act(() => {
+      renderer!.update(
+        <ImageWithSkeleton
+          src="/terminal.webp"
+          alt="热门图纸"
+          deferUntilVisible
+          maxRetries={0}
+          fallback={<span data-fallback="true">暂无预览图</span>}
+        />,
+      );
+    });
+
+    expect(renderer!.root.findByProps({ 'data-fallback': 'true' })).toBeTruthy();
+    expect(renderer!.root.findAllByType('img')).toHaveLength(0);
+    expect(renderer!.root.findAllByProps({ 'data-image-skeleton': 'true' })).toHaveLength(0);
   });
 
   it('resets activation and clears previous work when the source changes', () => {
@@ -321,22 +380,18 @@ describe('ImageWithSkeleton', () => {
     expect(renderer!.root.findByType('img').props.className).toContain('is-loaded');
   });
 
-  it('does not commit a changed deferred source with the previous activation or retry count', () => {
+  it('does not commit a changed deferred source before fresh visibility activation', () => {
     const { observers } = installIntersectionObserver();
+    const committedImageSources: string[][] = [];
+    const captureCommittedImages = () => {
+      if (!renderer) return;
+      committedImageSources.push(renderer.root.findAllByType('img').map((image) => image.props.src));
+    };
     act(() => {
-      renderer = createDeferredImage({ src: '/first.webp', maxRetries: 2 });
-    });
-    act(() => {
-      observers[0].callback([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver);
-    });
-    act(() => renderer!.root.findByType('img').props.onError());
-    expect(renderer!.root.findByType('img').props.src).toBe('/first.webp?imageRetry=1');
-
-    act(() => {
-      (renderer as FlushableTestRenderer).unstable_flushSync(() => {
-        renderer!.update(
+      renderer = create(
+        <>
           <ImageWithSkeleton
-            src="/second.webp"
+            src="/first.webp"
             alt="热门图纸"
             loading="lazy"
             fetchPriority="low"
@@ -344,15 +399,45 @@ describe('ImageWithSkeleton', () => {
             loadTimeoutMs={2_500}
             maxRetries={2}
             fallback={<span data-fallback="true">暂无预览图</span>}
-          />,
-        );
-      });
+          />
+          <CommitProbe source="/first.webp" onCommit={captureCommittedImages} />
+        </>,
+        { createNodeMock: () => ({ nodeType: 1 }) },
+      );
+    });
+    act(() => {
+      observers[0].callback([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver);
+    });
+    act(() => renderer!.root.findByType('img').props.onError());
+    expect(renderer!.root.findByType('img').props.src).toBe('/first.webp?imageRetry=1');
+    const staleOnLoad = renderer!.root.findByType('img').props.onLoad;
+    committedImageSources.length = 0;
 
-      expect(renderer!.root.findAllByType('img')).toHaveLength(0);
-      expect(renderer!.root.findByProps({ 'data-image-skeleton': 'true' })).toBeTruthy();
+    act(() => {
+      renderer!.update(
+        <>
+          <ImageWithSkeleton
+            src=" /second.webp "
+            alt="热门图纸"
+            loading="lazy"
+            fetchPriority="low"
+            deferUntilVisible
+            loadTimeoutMs={2_500}
+            maxRetries={2}
+            fallback={<span data-fallback="true">暂无预览图</span>}
+          />
+          <CommitProbe source="/second.webp" onCommit={captureCommittedImages} />
+        </>,
+      );
     });
 
+    expect(committedImageSources).toEqual([[]]);
+    expect(renderer!.root.findAllByType('img')).toHaveLength(0);
+    expect(renderer!.root.findByProps({ 'data-image-skeleton': 'true' })).toBeTruthy();
     expect(observers).toHaveLength(2);
+
+    act(() => staleOnLoad());
+    expect(renderer!.root.findAllByType('img')).toHaveLength(0);
   });
 
   it('uses a block wrapper by default so legacy span artwork selectors do not match the loader', () => {
