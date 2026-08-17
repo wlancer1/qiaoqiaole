@@ -6,7 +6,7 @@ COPY package.json package-lock.json tsconfig.json tsconfig.node.json vitest.conf
 COPY apps ./apps
 COPY packages ./packages
 
-RUN npm ci --omit=dev --ignore-scripts
+RUN npm ci --ignore-scripts
 RUN npm run build:web
 RUN VITE_BASE=/h5/ npm run build:h5
 
