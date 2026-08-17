@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type RefCallback } from 'react';
 
 const IMAGE_LOAD_TIMEOUT_MS = 10_000;
 const MAX_IMAGE_RETRIES = 2;
@@ -10,32 +10,88 @@ type ImageWithSkeletonProps = {
   className?: string;
   imageClassName?: string;
   loading?: 'eager' | 'lazy';
+  fetchPriority?: 'high' | 'low' | 'auto';
+  deferUntilVisible?: boolean;
   loadTimeoutMs?: number;
   maxRetries?: number;
   as?: 'div' | 'span';
 };
 
-export function ImageWithSkeleton({ src, alt, fallback, className = '', imageClassName = '', loading = 'lazy', loadTimeoutMs = 0, maxRetries = MAX_IMAGE_RETRIES, as = 'div' }: ImageWithSkeletonProps) {
+type ImageActivation = 'active' | 'waiting' | 'native-lazy';
+
+function getInitialActivation(deferUntilVisible: boolean): ImageActivation {
+  if (!deferUntilVisible) return 'active';
+  return typeof IntersectionObserver === 'undefined' ? 'native-lazy' : 'waiting';
+}
+
+export function ImageWithSkeleton({ src, alt, fallback, className = '', imageClassName = '', loading = 'lazy', fetchPriority, deferUntilVisible = false, loadTimeoutMs = 0, maxRetries = MAX_IMAGE_RETRIES, as = 'div' }: ImageWithSkeletonProps) {
   const normalizedSrc = src?.trim() ?? '';
   const [state, setState] = useState<'loading' | 'loaded' | 'failed'>(() => normalizedSrc ? 'loading' : 'failed');
   const [retryCount, setRetryCount] = useState(0);
+  const [activation, setActivation] = useState<ImageActivation>(() => getInitialActivation(deferUntilVisible));
   const imageRef = useRef<HTMLImageElement | null>(null);
+  const wrapperRef = useRef<HTMLDivElement | HTMLSpanElement | null>(null);
+  const currentSourceRef = useRef(normalizedSrc);
+  const terminalFailureRef = useRef(false);
+  const setWrapperRef: RefCallback<HTMLDivElement | HTMLSpanElement> = (node) => {
+    wrapperRef.current = node;
+  };
+
+  if (currentSourceRef.current !== normalizedSrc) {
+    currentSourceRef.current = normalizedSrc;
+    terminalFailureRef.current = false;
+  }
 
   useEffect(() => {
+    terminalFailureRef.current = false;
     setState(normalizedSrc ? 'loading' : 'failed');
     setRetryCount(0);
-  }, [normalizedSrc]);
+    setActivation(getInitialActivation(deferUntilVisible));
+  }, [deferUntilVisible, normalizedSrc]);
+
+  useEffect(() => {
+    if (!normalizedSrc || !deferUntilVisible || activation !== 'waiting') return undefined;
+    if (typeof IntersectionObserver === 'undefined') {
+      setActivation('native-lazy');
+      return undefined;
+    }
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return undefined;
+    const sourceAtStart = normalizedSrc;
+    let disconnected = false;
+    const observer = new IntersectionObserver((entries) => {
+      if (currentSourceRef.current !== sourceAtStart) return;
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      if (!disconnected) {
+        disconnected = true;
+        observer.disconnect();
+      }
+      setActivation('active');
+    }, { rootMargin: '0px 0px 240px 0px' });
+    observer.observe(wrapper);
+    return () => {
+      if (disconnected) return;
+      disconnected = true;
+      observer.disconnect();
+    };
+  }, [activation, deferUntilVisible, normalizedSrc]);
 
   useEffect(() => {
     const image = imageRef.current;
     if (!image || !image.complete || typeof image.naturalWidth !== 'number') return;
-    setState(image.naturalWidth > 0 ? 'loaded' : 'failed');
-  }, [normalizedSrc]);
+    if (image.naturalWidth > 0) {
+      if (!terminalFailureRef.current) setState('loaded');
+      return;
+    }
+    terminalFailureRef.current = true;
+    setState('failed');
+  }, [activation, normalizedSrc]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
     const retryAfterResume = () => {
       if (!normalizedSrc || state !== 'failed' || maxRetries <= 0) return;
+      terminalFailureRef.current = false;
       setState('loading');
       setRetryCount(1);
     };
@@ -48,16 +104,19 @@ export function ImageWithSkeleton({ src, alt, fallback, className = '', imageCla
   }, [maxRetries, normalizedSrc, state]);
 
   useEffect(() => {
-    if (!normalizedSrc || state !== 'loading' || loadTimeoutMs <= 0) return undefined;
+    if (!normalizedSrc || state !== 'loading' || activation !== 'active' || loadTimeoutMs <= 0) return undefined;
+    const sourceAtStart = normalizedSrc;
     const timeout = setTimeout(() => {
+      if (currentSourceRef.current !== sourceAtStart || terminalFailureRef.current) return;
       if (retryCount < maxRetries) {
         setRetryCount((current) => current + 1);
         return;
       }
+      terminalFailureRef.current = true;
       setState('failed');
     }, loadTimeoutMs || IMAGE_LOAD_TIMEOUT_MS);
     return () => clearTimeout(timeout);
-  }, [loadTimeoutMs, maxRetries, normalizedSrc, retryCount, state]);
+  }, [activation, loadTimeoutMs, maxRetries, normalizedSrc, retryCount, state]);
 
   const Wrapper = as;
   const wrapperClassName = `image-with-skeleton${state === 'loading' ? ' is-loading' : ''}${state === 'failed' ? ' is-failed' : ''}${className ? ` ${className}` : ''}`;
@@ -69,29 +128,37 @@ export function ImageWithSkeleton({ src, alt, fallback, className = '', imageCla
   })() : normalizedSrc;
 
   if (!normalizedSrc || state === 'failed') {
-    return <Wrapper className={wrapperClassName}>{fallback}</Wrapper>;
+    return <Wrapper ref={setWrapperRef} className={wrapperClassName}>{fallback}</Wrapper>;
   }
 
   return (
-    <Wrapper className={wrapperClassName}>
+    <Wrapper ref={setWrapperRef} className={wrapperClassName}>
       {state === 'loading' ? <div className="image-with-skeleton-placeholder" data-image-skeleton="true" aria-hidden="true" /> : null}
-      <img
-        ref={imageRef}
-        className={`${imageClassName || 'image-with-skeleton-image'}${state === 'loaded' ? ' is-loaded' : ''}`}
-        src={retrySrc}
-        alt={alt}
-        loading={loading}
-        decoding="async"
-        onLoad={() => setState('loaded')}
-        onError={() => {
-          if (retryCount < maxRetries) {
-            setState('loading');
-            setRetryCount((current) => current + 1);
-            return;
-          }
-          setState('failed');
-        }}
-      />
+      {activation !== 'waiting' ? (
+        <img
+          ref={imageRef}
+          className={`${imageClassName || 'image-with-skeleton-image'}${state === 'loaded' ? ' is-loaded' : ''}`}
+          src={retrySrc}
+          alt={alt}
+          loading={loading}
+          fetchPriority={fetchPriority}
+          decoding="async"
+          onLoad={() => {
+            if (terminalFailureRef.current || currentSourceRef.current !== normalizedSrc) return;
+            setState('loaded');
+          }}
+          onError={() => {
+            if (terminalFailureRef.current || currentSourceRef.current !== normalizedSrc) return;
+            if (retryCount < maxRetries) {
+              setState('loading');
+              setRetryCount((current) => current + 1);
+              return;
+            }
+            terminalFailureRef.current = true;
+            setState('failed');
+          }}
+        />
+      ) : null}
     </Wrapper>
   );
 }
