@@ -8,7 +8,10 @@ type CommunityPatternCardProps = {
   className?: string;
   dataCardIndex?: number;
   loading?: 'eager' | 'lazy';
+  fetchPriority?: 'high' | 'low' | 'auto';
+  deferUntilVisible?: boolean;
   loadTimeoutMs?: number;
+  maxRetries?: number;
   onOpen: (pattern: PatternListCard) => void;
   onOpenAuthor?: (pattern: PatternListCard) => void;
 };
@@ -21,7 +24,7 @@ function formatPatternCount(value: string) {
   return Number.isFinite(numericValue) && numericValue >= 100 ? '99+' : value;
 }
 
-export function CommunityPatternCard({ pattern, className = '', dataCardIndex, loading = 'lazy', loadTimeoutMs = 10_000, onOpen, onOpenAuthor }: CommunityPatternCardProps) {
+export function CommunityPatternCard({ pattern, className = '', dataCardIndex, loading = 'lazy', fetchPriority, deferUntilVisible, loadTimeoutMs = 10_000, maxRetries, onOpen, onOpenAuthor }: CommunityPatternCardProps) {
   return (
     <button
       className={className ? `pattern-card ${className}` : 'pattern-card'}
@@ -30,7 +33,7 @@ export function CommunityPatternCard({ pattern, className = '', dataCardIndex, l
       onClick={() => onOpen(pattern)}
     >
       <div className={`pattern-art ${pattern.tone}`} aria-hidden="true">
-        <ImageWithSkeleton src={pattern.image} alt="" imageClassName="pattern-card-image" loading={loading} loadTimeoutMs={loadTimeoutMs} fallback={<div className="pattern-card-empty">暂无预览图</div>} />
+        <ImageWithSkeleton src={pattern.image} alt="" imageClassName="pattern-card-image" loading={loading} fetchPriority={fetchPriority} deferUntilVisible={deferUntilVisible} loadTimeoutMs={loadTimeoutMs} maxRetries={maxRetries} fallback={<div className="pattern-card-empty">暂无预览图</div>} />
       </div>
       <div className="pattern-card-body">
         <h2>{pattern.title}</h2>

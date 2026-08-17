@@ -5,6 +5,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { HomeShellPage, PhoneLoginModal, ProfileEditModal, XhsImagePickerModal } from './HomeShellPage';
+import { CommunityPatternCard } from '../../community/CommunityPatternCard';
+import { ImageWithSkeleton } from '../../shared/ImageWithSkeleton';
 
 const props = {
   phoneNumber: '', setPhoneNumber: vi.fn(), phonePassword: '1234567', setPhonePassword: vi.fn(), phoneConfirmPassword: '', setPhoneConfirmPassword: vi.fn(), phoneCode: '', setPhoneCode: vi.fn(), phoneAuthMode: 'login', setPhoneAuthMode: vi.fn(), phoneAgreement: true, setPhoneAgreement: vi.fn(), phoneAuthError: '', phoneSending: false, phoneVerifying: false, phoneCountdown: 0, sendPhoneCode: vi.fn(), submitPhoneLogin: vi.fn(), submitPhoneRegister: vi.fn(), closeLoginModal: vi.fn(), logoutPhone: vi.fn(), rememberPassword: true, setRememberPassword: vi.fn(),
@@ -121,6 +123,26 @@ describe('home recent project actions', () => {
       createdAt: '2026-08-01T00:00:00.000Z',
       updatedAt: '2026-08-01T00:00:00.000Z',
     };
+    const homeTemplateCard = {
+      id: 'template-1',
+      title: '热门图纸',
+      author: '作者',
+      authorId: 'author-1',
+      authorAvatar: null,
+      image: '/template.webp',
+      detailImage: '/template.webp',
+      tone: 'pattern-flower',
+      tags: [],
+      likes: '0',
+      comments: '0',
+      downloads: '0',
+      size: '1×1',
+      meta: '今天',
+      beads: [],
+      likesCount: 0,
+      commentsCount: 0,
+      likedByMe: false,
+    };
     const onOpenRecentProject = vi.fn();
     const openBlankCanvasCreation = vi.fn();
     const actionSheet = createElement('div', { 'data-testid': 'recent-project-action-sheet' }, '作品操作');
@@ -171,7 +193,7 @@ describe('home recent project actions', () => {
       requireLogin: vi.fn(),
       setStatus: vi.fn(),
       patternListCards: [],
-      homeTemplateCards: [],
+      homeTemplateCards: [homeTemplateCard],
       setActivePattern: vi.fn(),
       setScreen: vi.fn(),
       warehouses: [],
@@ -199,6 +221,24 @@ describe('home recent project actions', () => {
     expect(markup).toContain('data-testid="recent-project-action-sheet"');
     expect(markup).toContain('src="/api/projects/recent-1/thumbnail"');
     expect(markup).toContain('loading="eager"');
+
+    const recentThumbnail = collectElements(shell).find((element) => element.type === ImageWithSkeleton);
+    expect(recentThumbnail?.props).toMatchObject({
+      loading: 'eager',
+      fetchPriority: 'high',
+      loadTimeoutMs: 2_500,
+      maxRetries: 0,
+    });
+
+    const popularCard = collectElements(shell).find((element) => element.type === CommunityPatternCard);
+    expect(popularCard?.props).toMatchObject({
+      pattern: homeTemplateCard,
+      loading: 'lazy',
+      fetchPriority: 'low',
+      deferUntilVisible: true,
+      loadTimeoutMs: 2_500,
+      maxRetries: 0,
+    });
 
     const recentCard = collectElements(shell).find((element) => element.props.className?.includes('home-recent-card'));
     expect(recentCard).toBeDefined();

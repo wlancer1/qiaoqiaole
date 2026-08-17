@@ -222,7 +222,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
                   {recentProjects.slice(0, 4).map((project: any) => (
                     <button className={`home-recent-card ${project.tone || 'recent-flower'}`} key={project.id} data-project-card-id={project.id} type="button" onClick={() => onOpenRecentProject(project)}>
                       {(project.thumbnailImage || project.sourceImage) ? (
-                        <ImageWithSkeleton className="home-recent-thumb" imageClassName="home-recent-thumb-image" src={project.thumbnailImage || project.sourceImage} alt="" loading="eager" loadTimeoutMs={10_000} fallback={<RecentProjectThumbnailPlaceholder />} />
+                        <ImageWithSkeleton className="home-recent-thumb" imageClassName="home-recent-thumb-image" src={project.thumbnailImage || project.sourceImage} alt="" loading="eager" fetchPriority="high" loadTimeoutMs={2_500} maxRetries={0} fallback={<RecentProjectThumbnailPlaceholder />} />
                       ) : (
                         <RecentProjectThumbnailPlaceholder />
                       )}
@@ -259,7 +259,11 @@ export function HomeShellPage(props: HomeShellPageProps) {
                         key={template.id}
                         pattern={template}
                         className="home-template-card"
-                        loading="eager"
+                        loading="lazy"
+                        fetchPriority="low"
+                        deferUntilVisible
+                        loadTimeoutMs={2_500}
+                        maxRetries={0}
                         onOpen={openCommunityPost}
                       />
                     ))}
