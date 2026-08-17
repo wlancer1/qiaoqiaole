@@ -73,12 +73,13 @@ function collectElements(node: ReactNode): TestElement[] {
 }
 
 describe('home recent project actions', () => {
-  it('renders a local image loading status while the selected drawing is being read', () => {
+  it('delegates local image loading to the application overlay instead of the upload dialog', () => {
     const source = fs.readFileSync(path.resolve('apps/h5/src/pages/home/HomeShellPage.tsx'), 'utf8');
+    const splitProvider = fs.readFileSync(path.resolve('apps/h5/src/features/split/SplitFeatureProvider.tsx'), 'utf8');
 
-    expect(source).toContain('isImportingLocalImage');
-    expect(source).toContain('<SplitCanvasLoading');
-    expect(source).toContain('title="正在读取图片"');
+    expect(source).not.toContain('SplitCanvasLoading');
+    expect(splitProvider).toContain("setOverlaySlot('loading'");
+    expect(splitProvider).toContain('split-import-page-loading');
   });
 
   it('uses independent columns for the popular template masonry layout', () => {

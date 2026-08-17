@@ -193,11 +193,6 @@ export function createBeadPatternCanvas(cells: Cell[], rows: number, cols: numbe
   const context = canvas.getContext('2d');
   if (!context) return canvas;
 
-  context.fillStyle = '#f2f2f2';
-  context.fillRect(0, 0, width, height);
-  context.fillStyle = '#ffffff';
-  context.fillRect(margin, margin + titleHeight - 12, gridWidth, gridHeight + legendGap + legendRows * legendItemHeight);
-
   context.fillStyle = '#151515';
   context.font = '700 34px system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
   context.textAlign = 'center';
@@ -225,9 +220,10 @@ export function createBeadPatternCanvas(cells: Cell[], rows: number, cols: numbe
 
       if (!isHeader) {
         const cell = cells[(y - 1) * cols + (x - 1)];
-        context.fillStyle = patternCellColor(cell);
+        if (cell?.transparent) context.clearRect(px, py, cellSize, cellSize);
+        else context.fillStyle = patternCellColor(cell);
       }
-      context.fillRect(px, py, cellSize, cellSize);
+      if (isHeader || !cells[(y - 1) * cols + (x - 1)]?.transparent) context.fillRect(px, py, cellSize, cellSize);
       context.strokeRect(px, py, cellSize, cellSize);
 
       let label = '';
@@ -238,6 +234,7 @@ export function createBeadPatternCanvas(cells: Cell[], rows: number, cols: numbe
         context.font = `700 ${headerFontSize}px ui-monospace, SFMono-Regular, Menlo, monospace`;
       } else {
         const cell = cells[(y - 1) * cols + (x - 1)];
+        if (cell?.transparent) continue;
         const color = patternCellColor(cell);
         label = colorCodeOf(color);
         context.fillStyle = readableTextColor(color);
@@ -292,6 +289,7 @@ export function createBeadPatternCanvas(cells: Cell[], rows: number, cols: numbe
 export function beadPatternStats(cells: Cell[]): Array<{ code: string; color: string; count: number }> {
   const counts = new Map<string, { code: string; color: string; count: number }>();
   for (const cell of cells) {
+    if (cell.transparent) continue;
     const color = patternCellColor(cell);
     const code = colorCodeOf(color);
     const key = `${code}:${color.toLowerCase()}`;

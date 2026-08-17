@@ -18,12 +18,15 @@ export type ProjectListDomainResult = {
   projects: RecentProject[];
   allProjects: RecentProject[];
   folders: ProjectFolder[];
+  likedProjects: RecentProject[];
+  likedLoading: boolean;
   page: number;
   hasMore: boolean;
   total: number;
   loading: boolean;
   loadPage: (token: string, route: ProjectListRoute, options?: { preserveOnError?: boolean }) => Promise<void>;
   loadFolders: (token: string) => Promise<void>;
+  loadLiked: (token: string) => Promise<void>;
 };
 
 const defaultPageSize = 20;
@@ -37,6 +40,8 @@ export function useProjectListDomain({ requestApi, setStatus, pageSize = default
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [likedProjects, setLikedProjects] = useState<RecentProject[]>([]);
+  const [likedLoading, setLikedLoading] = useState(false);
   const requestSequence = useRef(0);
 
   const projects = useMemo(() => {
@@ -79,5 +84,18 @@ export function useProjectListDomain({ requestApi, setStatus, pageSize = default
     }
   };
 
-  return { projects, allProjects, folders, page, hasMore, total, loading, loadPage, loadFolders };
+  const loadLiked = async (token: string) => {
+    setLikedLoading(true);
+    try {
+      const payload = await requestApi<{ projects?: RecentProject[] }>('/projects/liked?page=1&pageSize=50', {}, token);
+      setLikedProjects(Array.isArray(payload.projects) ? payload.projects : []);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : '喜欢的作品读取失败');
+      setLikedProjects([]);
+    } finally {
+      setLikedLoading(false);
+    }
+  };
+
+  return { projects, allProjects, folders, likedProjects, likedLoading, page, hasMore, total, loading, loadPage, loadFolders, loadLiked };
 }

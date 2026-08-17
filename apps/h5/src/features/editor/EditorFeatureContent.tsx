@@ -24,8 +24,8 @@ export type EditorFeatureCommands = {
   replaceCanvas: (value: { rows: number; cols: number; cells: Cell[]; sourceImage?: string; workMode?: WorkMode }) => void;
   commitCells: (cells: Cell[]) => void;
   createBlankCanvas: (rows?: number, cols?: number) => void;
-  snapshot: () => { rows: number; cols: number; cells: Cell[]; activeProjectId: string; totalBeads: number };
-  markSaved: (projectId: string) => void;
+  snapshot: () => { rows: number; cols: number; cells: Cell[]; activeProjectId: string; projectName: string; totalBeads: number };
+  markSaved: (projectId: string, projectName?: string) => void;
 };
 
 type Props = {
@@ -55,6 +55,7 @@ export function EditorFeatureContent({ requestApi, token, authStatus, requireLog
   const [cells, setCells] = useState<Cell[]>(() => createBlankCells(32, 32));
   const cellsRef = useRef(cells); useEffect(() => { cellsRef.current = cells; }, [cells]);
   const [activeProjectId, setActiveProjectId] = useState('');
+  const [projectName, setProjectName] = useState('未命名作品');
   const [workMode, setWorkMode] = useState<WorkMode>('bead');
   const [selectedColor, setSelectedColor] = useState<string>(MARD_221_COLORS[0]?.hex ?? '#faf4c8');
   const [selectedCode, setSelectedCode] = useState<string>(MARD_221_COLORS[0]?.code ?? 'A1');
@@ -69,12 +70,12 @@ export function EditorFeatureContent({ requestApi, token, authStatus, requireLog
 
   const commit = useCallback((nextOrUpdater: Cell[] | ((current: Cell[]) => Cell[])) => { setCells((current) => { const next = typeof nextOrUpdater === 'function' ? nextOrUpdater(current) : nextOrUpdater; if (sameCells(current, next)) return current; setHistory((items) => [...items.slice(-24), current]); setFuture([]); return next; }); }, []);
   const reset = useCallback((next: { rows: number; cols: number; cells: Cell[]; sourceImage?: string; workMode?: WorkMode }) => {
-    setRows(next.rows); setCols(next.cols); setCfgRows(next.rows); setCfgCols(next.cols); setCells(next.cells); setHistory([]); setFuture([]); setTool('pan'); setCanvasScale(1); setActiveProjectId(''); if (next.workMode) setWorkMode(next.workMode);
+    setRows(next.rows); setCols(next.cols); setCfgRows(next.rows); setCfgCols(next.cols); setCells(next.cells); setHistory([]); setFuture([]); setTool('pan'); setCanvasScale(1); setActiveProjectId(''); setProjectName('未命名作品'); if (next.workMode) setWorkMode(next.workMode);
   }, []);
-  useEffect(() => { onCommands?.({ replaceCanvas: reset, commitCells: commit, createBlankCanvas: (nextRows = 32, nextCols = 32) => { reset({ rows: nextRows, cols: nextCols, cells: createBlankCells(nextRows, nextCols) }); navigate('/canvas'); }, snapshot: () => ({ rows, cols, cells: cellsRef.current, activeProjectId, totalBeads: cellsRef.current.filter((cell) => !cell.transparent).length }), markSaved: setActiveProjectId }); }, [activeProjectId, cols, commit, navigate, onCommands, reset, rows]);
+  useEffect(() => { onCommands?.({ replaceCanvas: reset, commitCells: commit, createBlankCanvas: (nextRows = 32, nextCols = 32) => { reset({ rows: nextRows, cols: nextCols, cells: createBlankCells(nextRows, nextCols) }); navigate('/canvas'); }, snapshot: () => ({ rows, cols, cells: cellsRef.current, activeProjectId, projectName, totalBeads: cellsRef.current.filter((cell) => !cell.transparent).length }), markSaved: (projectId, nextName) => { setActiveProjectId(projectId); if (nextName?.trim()) setProjectName(nextName.trim()); } }); }, [activeProjectId, cols, commit, navigate, onCommands, projectName, reset, rows]);
   useEffect(() => () => { if (referenceImage?.url) URL.revokeObjectURL(referenceImage.url); }, [referenceImage]);
 
-  const loadProject = useCallback((detail: RecentProject) => { const nextRows = Math.max(1, Math.round(detail.rows)); const nextCols = Math.max(1, Math.round(detail.cols)); setRows(nextRows); setCols(nextCols); setCfgRows(nextRows); setCfgCols(nextCols); setCells(parseProjectCells(detail.canvasData, nextRows, nextCols) ?? createBlankCells(nextRows, nextCols)); setHistory([]); setFuture([]); setTool('pan'); setCanvasScale(1); setActiveProjectId(detail.id); setRouteError(null); }, []);
+  const loadProject = useCallback((detail: RecentProject) => { const nextRows = Math.max(1, Math.round(detail.rows)); const nextCols = Math.max(1, Math.round(detail.cols)); setRows(nextRows); setCols(nextCols); setCfgRows(nextRows); setCfgCols(nextCols); setCells(parseProjectCells(detail.canvasData, nextRows, nextCols) ?? createBlankCells(nextRows, nextCols)); setHistory([]); setFuture([]); setTool('pan'); setCanvasScale(1); setActiveProjectId(detail.id); setProjectName(detail.name?.trim() || '未命名作品'); setRouteError(null); }, []);
   useEffect(() => { setRouteError(invalidProjectRoute ? '作品地址无效。' : null); }, [invalidProjectRoute, location.pathname]);
   useEditorProjectLoader<RecentProject>({ projectId: routeProjectId, activeProjectId, enabled: location.pathname === '/canvas' || Boolean(routeProjectId), authStatus, token, requestProject: (id, nextToken) => requestApi<{ project: RecentProject }>(`/projects/${encodeURIComponent(id)}`, {}, nextToken), onLoaded: loadProject, onNeedsLogin: () => { setRouteError('登录后才能查看该作品。'); setStatus('登录后才能查看该作品。'); requireLogin(() => undefined); }, onFailed: (error) => { const status = typeof error === 'object' && error !== null && 'status' in error ? (error as { status?: number }).status : undefined; const message = status === 401 ? '登录后才能查看该作品。' : status === 404 ? '作品不存在或已被删除。' : '作品读取失败，请返回作品列表后重试。'; setRouteError(message); setStatus(message); if (status === 401) requireLogin(() => undefined); }, setStatus });
 
@@ -91,7 +92,7 @@ export function EditorFeatureContent({ requestApi, token, authStatus, requireLog
   const clearReference = () => { setReferenceImage((current) => { if (current?.url) URL.revokeObjectURL(current.url); return null; }); setIsReferenceMinimized(false); };
   const handleReferenceUpload = (file: File | undefined) => { if (!file) return; if (!/^image\/(png|jpe?g|webp)$/.test(file.type) || file.size > MAX_FILE_SIZE) { setStatus(file.size > MAX_FILE_SIZE ? '参考图不能超过 20MB。' : '请上传 PNG、JPG 或 WebP 参考图。'); return; } setReferenceImage((current) => { if (current?.url) URL.revokeObjectURL(current.url); return { name: file.name, url: URL.createObjectURL(file) }; }); setIsReferenceMinimized(false); if (referenceInputRef.current) referenceInputRef.current.value = ''; };
   const handleUpload = async (file: File | undefined) => { await onImportFile?.(file); if (fileInputRef.current) fileInputRef.current.value = ''; };
-  const saveCurrent = () => { if (!token) { requireLogin(() => saveCurrent()); return; } if (!activeProjectId) { setStatus('请先保存作品后再开始拼豆。'); return; } onSave?.({ id: activeProjectId, rows, cols, cells: cellsRef.current }); };
+  const saveCurrent = () => { if (!token) { requireLogin(() => saveCurrent()); return; } onSave?.({ id: activeProjectId, rows, cols, cells: cellsRef.current }); };
   const prioritizedPaletteColors = useMemo(() => filterPaletteByUsage(MARD_221_COLORS, cells, ''), [cells]); const filteredPaletteColors = useMemo(() => filterPaletteByQuery(prioritizedPaletteColors, paletteQuery), [paletteQuery, prioritizedPaletteColors]); const totalBeads = useMemo(() => cells.filter((cell) => !cell.transparent).length, [cells]); const beadListColors = useMemo(() => { const count = new Map<string, number>(); for (const cell of cells) if (!cell.transparent) count.set(cell.color, (count.get(cell.color) ?? 0) + 1); return [...count].map(([color, count]) => ({ color, count, code: colorCodeOf(color) })); }, [cells]);
   if (routeError) return <main className="editor-route-error" role="alert"><p>{routeError}</p><button type="button" onClick={() => navigate('/projects', { replace: true })}>返回作品列表</button></main>;
   if (routeProjectId && activeProjectId !== routeProjectId) return <PageSkeleton kind="editor" label="正在加载作品" />;

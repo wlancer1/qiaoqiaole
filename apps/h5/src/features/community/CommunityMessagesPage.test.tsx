@@ -12,8 +12,6 @@ describe('CommunityMessagesPage', () => {
         isLoggedIn
         notifications={[{ id: 'notice-1', senderName: '小乔', senderAvatar: '', content: '评论了你的作品', createdAt: '2026-08-15T00:00:00.000Z', isRead: false } as never]}
         openNotification={openNotification}
-        setActiveTab={vi.fn()}
-        openUpload={vi.fn()}
         openLogin={vi.fn()}
       />);
     });

@@ -123,6 +123,10 @@ export function CommunityFeatureProvider({ children, requestApi, requireLogin, l
   // by the legacy domain hook, so they deliberately are not dependencies here.
   }, [activeTab, token, domain.communityQuery, domain.communitySelectedTags, domain.communitySort, domain.debouncedCommunityQuery, discovery.value]);
   useEffect(() => {
+    if (activeTab !== 'messages' || !token) return;
+    void domain.loadNotifications(token, { preserveOnError: true });
+  }, [activeTab, domain.loadNotifications, token]);
+  useEffect(() => {
     onCommands?.({
       refreshDiscovery: async (nextToken = token, preserveOnError = false) => {
         await domain.loadCommunityPosts('hot', nextToken, { preserveOnError });

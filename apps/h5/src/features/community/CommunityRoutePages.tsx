@@ -6,10 +6,11 @@ import type { CommunityDomainResult } from './useCommunityDomain';
 
 type Navigate = (to: string) => void;
 
-export function CommunityRoutePages({ screen, detailPost, detailLoading, domain, currentUserId, isLoggedIn, onLogin, onShare, onCopy, copyingProjectId, navigate, locationSearch, locationPath }: {
+export function CommunityRoutePages({ screen, detailPost, detailLoading, onLikePost, domain, currentUserId, isLoggedIn, onLogin, onShare, onCopy, copyingProjectId, navigate, locationSearch, locationPath }: {
   screen: string;
   detailPost: CommunityPost | null;
   detailLoading: boolean;
+  onLikePost: (projectId: string, currentlyLiked: boolean) => Promise<void>;
   domain: CommunityDomainResult;
   currentUserId: string;
   isLoggedIn: boolean;
@@ -64,7 +65,7 @@ export function CommunityRoutePages({ screen, detailPost, detailLoading, domain,
     onOpenAuthor={() => {
       if (pattern.authorId) navigate(`/community/users/${encodeURIComponent(pattern.authorId)}?from=${encodeURIComponent(`${locationPath}${locationSearch}`)}`);
     }}
-    onLike={() => void domain.likeCommunityPost(pattern.id)}
+    onLike={() => void onLikePost(pattern.id, Boolean(pattern.likedByMe))}
     onFollow={() => pattern.authorId && void domain.toggleCommunityFollow(pattern.authorId, Boolean(pattern.isFollowing))}
     onShare={() => onShare(pattern.id)}
     onCopyToRepository={() => onCopy(pattern.id)}

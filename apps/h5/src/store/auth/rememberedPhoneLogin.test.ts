@@ -44,6 +44,26 @@ describe('rememberedPhoneLogin', () => {
     });
   });
 
+  it('strips +86 prefix when writing and reading remembered credentials', () => {
+    const storage = new MemoryStorage();
+
+    writeRememberedPhoneLogin(storage, { phone: '+8613800138000', password: 'password-123' });
+
+    expect(readRememberedPhoneLogin(storage)).toEqual({
+      phone: '13800138000',
+      password: 'password-123',
+    });
+  });
+
+  it('strips legacy 86 prefix when restoring remembered credentials', () => {
+    const storage = storageWith({ phone: '8613800138000', password: 'password-123', remember: true });
+
+    expect(readRememberedPhoneLogin(storage)).toEqual({
+      phone: '13800138000',
+      password: 'password-123',
+    });
+  });
+
   it.each([
     {},
     { phone: '', password: 'password-123' },

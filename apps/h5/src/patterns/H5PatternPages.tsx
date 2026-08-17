@@ -77,6 +77,10 @@ export function AuthorProfilePage({ patterns, authorPattern, authorProfile, load
 
 export function MyWorksPage({
   projects,
+  likedProjects = [],
+  likedLoading = false,
+  receivedLikesCount = 0,
+  onOpenLiked,
   onBack,
   onOpen,
   actionSheet,
@@ -94,6 +98,10 @@ export function MyWorksPage({
   onLoadPrevious,
 }: {
   projects: RecentProject[];
+  likedProjects?: RecentProject[];
+  likedLoading?: boolean;
+  receivedLikesCount?: number;
+  onOpenLiked?: (project: RecentProject) => void;
   onBack: () => void;
   onOpen: (project: RecentProject) => void;
   actionSheet?: ReactNode;
@@ -114,6 +122,7 @@ export function MyWorksPage({
     ? projects
     : projects.filter((project) => (activeFolderId === null ? !project.folderId : project.folderId === activeFolderId));
   const [activeContentTab, setActiveContentTab] = useState<'works' | 'likes'>('works');
+  const displayedProjects = activeContentTab === 'likes' ? likedProjects : visibleProjects;
   const [folderMenuTarget, setFolderMenuTarget] = useState<ProjectFolder | null>(null);
   const folderLongPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressFolderClickRef = useRef(false);
@@ -149,7 +158,7 @@ export function MyWorksPage({
       </section>
       <section className="author-profile-stats my-works-stats" aria-label="作品统计">
         <div><strong>{total}</strong><span>作品</span></div>
-        <div><strong>0</strong><span>获赞</span></div>
+        <div><strong>{receivedLikesCount}</strong><span>获赞</span></div>
         <div><strong>0</strong><span>浏览</span></div>
       </section>
       <nav className="author-profile-tabs" aria-label="作品分类">
@@ -167,20 +176,21 @@ export function MyWorksPage({
         </div>
         {folderMenuTarget && onDeleteFolder ? <div className="my-works-folder-menu" role="menu" aria-label={`${folderMenuTarget.name} 文件夹操作`}><button type="button" role="menuitem" aria-label={`删除文件夹 ${folderMenuTarget.name}`} onClick={() => { onDeleteFolder(folderMenuTarget); setFolderMenuTarget(null); }}>删除文件夹</button><button type="button" role="menuitem" onClick={() => setFolderMenuTarget(null)}>取消</button></div> : null}
       </section> : null}
-      {activeContentTab === 'works' && visibleProjects.length > 0 ? (
+      {activeContentTab === 'likes' && likedLoading ? <section className="author-work-empty" aria-label="喜欢的作品加载中"><strong>正在加载喜欢的作品...</strong></section> : activeContentTab === 'works' && visibleProjects.length > 0 || activeContentTab === 'likes' && displayedProjects.length > 0 ? (
         <section className="author-work-grid" aria-label="我的作品列表">
-          {visibleProjects.map((project, projectIndex) => (
+          {displayedProjects.map((project, projectIndex) => (
             <article
               className="author-work-card my-work-card"
               key={project.id}
               data-project-card-id={project.id}
               role="button"
               tabIndex={0}
-              onClick={() => onOpen(project)}
+              onClick={() => activeContentTab === 'likes' && onOpenLiked ? onOpenLiked(project) : onOpen(project)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault();
-                  onOpen(project);
+                  if (activeContentTab === 'likes' && onOpenLiked) onOpenLiked(project);
+                  else onOpen(project);
                 }
               }}
             >
@@ -316,13 +326,9 @@ export function PatternDiscoverPage({ patterns, activeSort = 'hot', query = '', 
   );
 }
 
-export function PatternMessagesPage({ isLoggedIn, notifications = [], onHome, onDiscover, onUpload, onProfile, onLogin, onOpenNotification }: {
+export function PatternMessagesPage({ isLoggedIn, notifications = [], onLogin, onOpenNotification }: {
   isLoggedIn: boolean;
   notifications?: CommunityNotification[];
-  onHome: () => void;
-  onDiscover: () => void;
-  onUpload: () => void;
-  onProfile: () => void;
   onLogin: () => void;
   onOpenNotification?: (notification: CommunityNotification) => void;
 }) {
@@ -333,7 +339,7 @@ export function PatternMessagesPage({ isLoggedIn, notifications = [], onHome, on
     <main className={hasMessages ? 'pattern-message-page' : 'pattern-message-page is-empty'} aria-label="消息">
       {hasMessages ? (
         <section className="pattern-message-list" aria-label="消息列表">
-          <header><h1>消息</h1><span>{unreadCount > 0 ? `${unreadCount} 条未读` : '全部已读'}</span></header>
+          <header><h1>消息</h1><span aria-label={unreadCount > 0 ? `${unreadCount} 条未读` : '全部已读'}>{unreadCount > 0 ? `${unreadCount} 条未读` : '全部已读'}</span></header>
           {notifications.map((notification) => (
             <button
               className={notification.isRead ? 'pattern-message-item is-read' : 'pattern-message-item'}
@@ -364,16 +370,6 @@ export function PatternMessagesPage({ isLoggedIn, notifications = [], onHome, on
           {!isLoggedIn ? <button type="button" onClick={onLogin}>去登录</button> : null}
         </div>
       )}
-      <nav className="bottom-tabs pattern-message-tabs" aria-label="底部导航">
-        <button type="button" aria-label="首页" onClick={onHome}><Icon name="home" /><span>首页</span></button>
-        <button type="button" aria-label="发现" onClick={onDiscover}><Icon name="discover" /><span>发现</span></button>
-        <button className="plus-tab" type="button" aria-label="上传" onClick={onUpload}><Icon name="plus" /></button>
-        <button className="active" type="button" aria-label="消息">
-          <span className="pattern-message-tab-icon"><Icon name="message" />{unreadCount > 0 ? <i aria-label={`${unreadCount} 条未读`}>{unreadCount > 9 ? '9+' : unreadCount}</i> : null}</span>
-          <span>消息</span>
-        </button>
-        <button type="button" aria-label="我的" onClick={onProfile}><Icon name="profile" /><span>我的</span></button>
-      </nav>
     </main>
   );
 }
@@ -415,6 +411,13 @@ export function PatternDetailPage({ pattern, currentUserId = '', onBack, onOpenA
   const [expandedReplyCommentIds, setExpandedReplyCommentIds] = useState<Set<string>>(() => new Set());
   const [showFullBeadList, setShowFullBeadList] = useState(false);
   useEffect(() => { onLoadComments(); }, [pattern.id]);
+  useEffect(() => {
+    if (typeof window === 'undefined' || window.location.hash !== '#comments') return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById('comments')?.scrollIntoView({ block: 'start', behavior: 'auto' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [pattern.id]);
 
   const submitComment = () => {
     if (!isLoggedIn) return onLogin();
@@ -494,7 +497,7 @@ export function PatternDetailPage({ pattern, currentUserId = '', onBack, onOpenA
           ) : <p className="community-empty">该稿件没有可统计的豆子。</p>}
         </section>
 
-        <section className="detail-comments-card" aria-label="部分评论">
+        <section id="comments" className="detail-comments-card" aria-label="部分评论">
           <div className="detail-section-title"><h2>评论</h2><span>({pattern.commentsCount})</span></div>
           <div className="detail-comment-list">
             {isLoadingComments ? <p className="community-empty">评论加载中…</p> : null}
@@ -549,7 +552,7 @@ export function PatternDetailPage({ pattern, currentUserId = '', onBack, onOpenA
 
       <div className="detail-bottom-actions">
         <div className="detail-bottom-actions-inner">
-          <button className={pattern.likedByMe ? 'detail-like-action active' : 'detail-like-action'} type="button" onClick={onLike}><Heart className={pattern.likedByMe ? 'is-liked' : ''} aria-hidden="true" /> {formatPatternCount(pattern.likes)}</button>
+          <button className={pattern.likedByMe ? 'detail-like-action active' : 'detail-like-action'} type="button" aria-label={pattern.likedByMe ? '取消点赞' : '点赞'} aria-pressed={Boolean(pattern.likedByMe)} onClick={onLike}><Heart className={pattern.likedByMe ? 'is-liked' : ''} aria-hidden="true" />  {formatPatternCount(pattern.likes)}</button>
           <button className="detail-download-action" type="button" disabled={copyingToRepository} onClick={onCopyToRepository}><Copy aria-hidden="true" /> {copyingToRepository ? '复制中…' : '复制到仓库'}</button>
         </div>
       </div>

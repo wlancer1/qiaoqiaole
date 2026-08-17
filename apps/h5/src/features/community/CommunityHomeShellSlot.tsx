@@ -34,12 +34,11 @@ export function CommunityHomeShellSlot(homeProps: Record<string, any>) {
     isImportingLocalImage={split.isImportingLocalImage}
     xhsExtractedTitle={split.xhsExtractedTitle}
     {...home}
+    openBlankCanvasCreation={() => { split.closeUploadModal(); homeProps.openBlankCanvasCreation(); }}
     communityMessagesPage={<CommunityMessagesPage
       isLoggedIn={homeProps.isLoggedIn}
       notifications={domain.notifications}
       openNotification={domain.openNotification}
-      setActiveTab={homeProps.setActiveTab}
-      openUpload={split.openUpload}
       openLogin={actions.requestLogin}
     />}
   />;

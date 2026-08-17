@@ -4,6 +4,8 @@ import type { Cell } from '@qiaoqiaole/core';
 import { useSplitWorkflow } from './useSplitWorkflow';
 import { extractUrlFromText, isSupportedXiaohongshuUrl, loadImageDataFromUrl, safeImageFilename } from '../../utils/h5AppUtils';
 import type { XhsExtractedImage } from '../../shared/h5Types';
+import { SplitCanvasLoading } from '../../flow/H5FlowComponents';
+import { useAppOverlay } from '../../app/overlays/AppOverlayContext';
 
 type ImportCommand = (input: { cells: Cell[]; rows: number; cols: number }) => void;
 type SplitFeatureValue = ReturnType<typeof useSplitWorkflow> & {
@@ -37,6 +39,7 @@ export function SplitFeatureProvider({ children, onImport, setStatus, onCommands
   const routeScope = `${location.key ?? ''}:${location.pathname}:${location.search}`;
   const screen = location.pathname === '/split/crop' ? 'split-crop' : location.pathname === '/split/preview' ? 'split-preview' : location.pathname === '/split' ? 'split' : 'other';
   const workflow = useSplitWorkflow({ screen, setStatus, onImport, onSourceChange: () => undefined });
+  const { setOverlaySlot } = useAppOverlay();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showXhsInput, setShowXhsInput] = useState(false);
@@ -64,6 +67,14 @@ export function SplitFeatureProvider({ children, onImport, setStatus, onCommands
     setShowUploadModal(false); setShowXhsInput(false); setShowXhsImagePicker(false);
     setXhsExtractedImages([]); setXhsExtractedTitle(''); setIsExtractingXhs(false); setIsImportingXhsImage(false); setIsImportingLocalImage(false);
   }, [routeScope, token]);
+  useEffect(() => {
+    setOverlaySlot('loading', isImportingLocalImage ? (
+      <div className="split-import-page-loading" role="dialog" aria-modal="true" aria-label="正在读取图片">
+        <SplitCanvasLoading title="正在读取图片" rows={0} cols={0} stage="正在解析图片尺寸与像素" progress={25} />
+      </div>
+    ) : null);
+  }, [isImportingLocalImage, setOverlaySlot]);
+  useEffect(() => () => setOverlaySlot('loading', null), [setOverlaySlot]);
   const closeUploadModal = () => { if (isImportingLocalImage) return; xhsRequest.current += 1; xhsImport.current += 1; setShowUploadModal(false); setShowXhsInput(false); setShowXhsImagePicker(false); setXhsExtractedImages([]); setXhsExtractedTitle(''); setXhsLink(''); setIsExtractingXhs(false); setIsImportingXhsImage(false); setIsImportingLocalImage(false); };
   const openUpload = () => { setShowUploadModal(true); setShowXhsInput(false); setShowXhsImagePicker(false); setXhsExtractedImages([]); setXhsExtractedTitle(''); setXhsLink(''); setIsImportingLocalImage(false); };
   const value = useMemo(() => ({
@@ -71,6 +82,7 @@ export function SplitFeatureProvider({ children, onImport, setStatus, onCommands
     openFromUpload: async (file: File | undefined) => {
       if (!file) return;
       setIsImportingLocalImage(true);
+      setShowUploadModal(false);
       try {
         const loaded = await workflow.upload(file);
         // Only enter the flow after a valid image actually loaded.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractUrlFromText, imageDataToUrl, isSupportedXiaohongshuUrl, parseGridSizeInput } from './h5AppUtils';
+import { beadPatternStats, createBeadPatternCanvas, extractUrlFromText, imageDataToUrl, isSupportedXiaohongshuUrl, parseGridSizeInput } from './h5AppUtils';
 
 describe('parseGridSizeInput', () => {
   it('keeps an empty draft empty so a number input can be edited', () => {
@@ -72,6 +72,37 @@ describe('imageDataToUrl', () => {
     try {
       expect(imageDataToUrl({ width: 1, height: 1, data: new Uint8ClampedArray(4) } as ImageData)).toBe('data:image/webp;base64,AA==');
       expect(calls).toEqual([['image/webp', 0.86]]);
+    } finally {
+      (globalThis as typeof globalThis & { document?: Document }).document = previousDocument;
+    }
+  });
+});
+
+describe('beadPatternStats', () => {
+  it('omits transparent cells instead of exporting them as a white H2 bead', () => {
+    expect(beadPatternStats([
+      { x: 0, y: 0, color: '#ffffff', transparent: true },
+      { x: 1, y: 0, color: '#ff0000', transparent: false },
+    ])).toHaveLength(1);
+  });
+
+  it('keeps transparent cells transparent in the downloaded pattern grid', () => {
+    const calls: Array<{ type: string; args: number[] }> = [];
+    const context = {
+      beginPath: () => {}, closePath: () => {}, fill: () => {}, fillText: () => {}, lineTo: () => {}, moveTo: () => {}, quadraticCurveTo: () => {}, stroke: () => {},
+      clearRect: (...args: number[]) => calls.push({ type: 'clear', args }),
+      fillRect: (...args: number[]) => calls.push({ type: 'fill', args }),
+      strokeRect: () => {},
+    };
+    const previousDocument = globalThis.document;
+    (globalThis as typeof globalThis & { document: Document }).document = {
+      createElement: () => ({ width: 0, height: 0, getContext: () => context }),
+    } as unknown as Document;
+
+    try {
+      createBeadPatternCanvas([{ x: 0, y: 0, color: '#ffffff', transparent: true }], 1, 1);
+      expect(calls).toContainEqual({ type: 'clear', args: [72, 140, 44, 44] });
+      expect(calls).not.toContainEqual({ type: 'fill', args: [72, 140, 44, 44] });
     } finally {
       (globalThis as typeof globalThis & { document?: Document }).document = previousDocument;
     }

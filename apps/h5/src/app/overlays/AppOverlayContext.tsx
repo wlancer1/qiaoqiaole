@@ -11,6 +11,7 @@ export const appOverlaySlotNames = [
   'projectAction',
   'inventory',
   'warehouse',
+  'loading',
 ] as const;
 
 export type AppOverlaySlotName = (typeof appOverlaySlotNames)[number];

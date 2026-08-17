@@ -541,6 +541,9 @@ async function route(request, response) {
   if (request.method === 'GET' && url.pathname === '/api/projects') {
     return listProjects(response, user.id, url);
   }
+  if (request.method === 'GET' && url.pathname === '/api/projects/liked') {
+    return listLikedProjects(response, user.id, url);
+  }
   if (request.method === 'GET' && url.pathname === '/api/project-folders') {
     return listProjectFolders(response, user.id);
   }
@@ -624,6 +627,9 @@ async function route(request, response) {
   const communityLikeMatch = url.pathname.match(/^\/api\/community\/posts\/([^/]+)\/like$/);
   if (communityLikeMatch && request.method === 'POST') {
     return likeCommunityPost(response, user.id, communityLikeMatch[1]);
+  }
+  if (communityLikeMatch && request.method === 'DELETE') {
+    return unlikeCommunityPost(response, user.id, communityLikeMatch[1]);
   }
   const projectShareMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/share$/);
   if (projectShareMatch && request.method === 'POST') {
@@ -1389,6 +1395,41 @@ function listProjects(response, userId, url) {
   });
 }
 
+function listLikedProjects(response, userId, url) {
+  const pagination = parsePagination(url.searchParams);
+  const projects = getAll(
+    `SELECT p.id, p.name, p.rows, p.cols, p.tone, p.thumbnail_image AS thumbnailImage,
+            p.shared_to_community AS sharedToCommunity, p.shared_at AS sharedAt,
+            p.likes_count AS likesCount, p.created_at AS createdAt, p.updated_at AS updatedAt,
+            l.created_at AS likedAt
+     FROM project_likes l
+     JOIN projects p ON p.id = l.project_id
+     WHERE l.user_id = ? AND p.shared_to_community = 1
+     ORDER BY l.created_at DESC, p.id DESC
+     LIMIT ? OFFSET ?`,
+    [userId, pagination.pageSize, pagination.offset],
+  );
+  const total = getOne(
+    `SELECT COUNT(*) AS total
+     FROM project_likes l JOIN projects p ON p.id = l.project_id
+     WHERE l.user_id = ? AND p.shared_to_community = 1`,
+    [userId],
+  );
+  sendJson(response, 200, {
+    projects: projects.map((project) => ({
+      ...project,
+      likedAt: project.likedAt,
+      thumbnailImage: String(project.thumbnailImage || '').startsWith('data:')
+        ? resolveLegacyProjectThumbnail(project.id, userId)
+        : resolveProjectImage(project.thumbnailImage, userId),
+    })),
+    page: pagination.page,
+    pageSize: pagination.pageSize,
+    total: Number(total?.total || 0),
+    hasMore: projects.length === pagination.pageSize,
+  });
+}
+
 function getProjectDetail(response, userId, projectId) {
   const project = getOne(
     `SELECT id, folder_id AS folderId, name, rows, cols, tone,
@@ -2148,6 +2189,19 @@ async function likeCommunityPost(response, userId, projectId) {
   }
   const latest = getCommunityPost(userId, projectId);
   sendJson(response, 200, { liked: true, likesCount: Number(latest.likesCount || 0) });
+}
+
+async function unlikeCommunityPost(response, userId, projectId) {
+  const post = assertSharedProject(response, userId, projectId);
+  if (!post) return;
+  const existing = getOne('SELECT project_id FROM project_likes WHERE project_id = ? AND user_id = ?', [projectId, userId]);
+  if (existing) {
+    db.run('DELETE FROM project_likes WHERE project_id = ? AND user_id = ?', [projectId, userId]);
+    db.run('UPDATE projects SET likes_count = MAX(likes_count - 1, 0) WHERE id = ?', [projectId]);
+    await persist();
+  }
+  const latest = getCommunityPost(userId, projectId);
+  sendJson(response, 200, { liked: false, likesCount: Number(latest.likesCount || 0) });
 }
 
 async function createWarehouse(request, response, userId) {

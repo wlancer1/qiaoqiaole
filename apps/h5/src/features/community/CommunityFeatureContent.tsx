@@ -31,6 +31,10 @@ export function CommunityFeatureContent({
       screen={screen}
       detailPost={detail.post}
       detailLoading={detail.loading}
+      onLikePost={async (projectId, currentlyLiked) => {
+        const result = await domain.likeCommunityPost(projectId, currentlyLiked);
+        if (result) detail.setLikeState(projectId, result);
+      }}
       domain={domain}
       currentUserId={currentUserId}
       isLoggedIn={isLoggedIn}

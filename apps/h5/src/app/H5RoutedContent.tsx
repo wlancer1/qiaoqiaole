@@ -38,7 +38,7 @@ export function H5RoutedContent({ pages, onReload, authStatus }: {
 }) {
   const location = useLocation();
   const resetKey = `${location.pathname}${location.search}${location.hash}`;
-  const isProtectedPath = /^\/(?:projects|warehouses|following|followers|messages)(?:\/|$)/.test(location.pathname);
+  const isProtectedPath = /^\/(?:projects|warehouses|following|followers)(?:\/|$)/.test(location.pathname);
   const authDecision = isProtectedPath && authStatus ? resolveAuthRoute({ status: authStatus }) : 'allow';
 
   if (authDecision === 'wait') return <DelayedRouteLoadingFallback />;

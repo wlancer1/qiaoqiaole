@@ -19,6 +19,20 @@ async function seedLegacyAuth(page: import('@playwright/test').Page) {
   });
   expect(response.ok()).toBe(true);
   const payload = await response.json() as { token: string; user: { username: string; id: string } };
+  await page.route('**/api/v1/auth/me', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        data: {
+          user: { id: payload.user.id, username: payload.user.username, nickname: payload.user.username },
+          likesCount: 0,
+          followingCount: 0,
+          followersCount: 0,
+        },
+      }),
+    });
+  });
   await page.addInitScript(({ token, user }) => {
     window.localStorage.setItem('qiaoqiaole.auth', JSON.stringify({ token, username: user.username, userId: user.id }));
   }, { token: payload.token, user: payload.user });
@@ -2365,10 +2379,11 @@ test('logs in from profile and manages bead warehouse stock by count and grams',
   await expect(page.getByLabel('豆子仓库')).toBeVisible();
   await page.getByLabel('仓库列表').getByRole('button', { name: '新建豆子仓库' }).click();
   const warehouseDialog = page.getByRole('dialog', { name: '新建豆子仓库' });
+  await expect(warehouseDialog.getByRole('button', { name: '创建仓库' })).toHaveCSS('background-color', 'rgb(20, 108, 255)');
   await warehouseDialog.getByRole('textbox', { name: '仓库名称' }).fill(warehouseName);
   await warehouseDialog.getByRole('textbox', { name: '仓库备注' }).fill('E2E');
   await warehouseDialog.getByRole('button', { name: '创建仓库' }).click();
-  await expect(page.getByRole('button', { name: warehouseName })).toBeVisible();
+  await expect(page.getByRole('button', { name: new RegExp(`^${warehouseName}(?:\\s|$)`) })).toBeVisible();
   await expect(page.locator('.wh-color-grid')).toHaveCSS('grid-template-columns', /^(?:[^ ]+ ){5}[^ ]+$/);
 
   await page.getByRole('button', { name: /^A1 库存 0 颗$/ }).click();

@@ -1,4 +1,4 @@
-import { HomeUploadHero, SplitCanvasLoading } from '../../flow/H5FlowComponents';
+import { HomeUploadHero } from '../../flow/H5FlowComponents';
 import { PatternDiscoverPage, PatternMessagesPage } from '../../patterns/H5PatternPages';
 import { CommunityPatternCard } from '../../community/CommunityPatternCard';
 import { Icon } from '../../shared/h5Icons';
@@ -363,7 +363,6 @@ export function HomeShellPage(props: HomeShellPageProps) {
                     <i className="upload-source-arrow" aria-hidden="true">›</i>
                   </button>
                 </div>
-                {isImportingLocalImage ? <div className="upload-local-loading"><SplitCanvasLoading title="正在读取图片" rows={0} cols={0} stage="正在解析图片尺寸与像素" progress={25} /></div> : null}
                 {showXhsInput ? (
                   <div className="xhs-extract-form">
                     <label>
@@ -418,10 +417,6 @@ export function HomeShellPage(props: HomeShellPageProps) {
         <PatternMessagesPage
           isLoggedIn={isLoggedIn}
           notifications={notifications}
-          onHome={() => setActiveTab('home')}
-          onDiscover={() => setActiveTab('discover')}
-          onUpload={() => openUpload('bead')}
-          onProfile={() => setActiveTab('profile')}
           onLogin={openLogin}
           onOpenNotification={openNotification}
         />
@@ -438,7 +433,6 @@ export function HomeShellPage(props: HomeShellPageProps) {
             <div className="profile-account-top">
               <div className="profile-avatar" aria-hidden="true">
                 <UserAvatar className="profile-avatar-content" avatarUrl={isLoggedIn ? profileAvatarUrl : null} />
-                {isLoggedIn ? <i>✓</i> : null}
               </div>
               <div className="profile-account-copy">
                 <div className="profile-account-name">
@@ -454,7 +448,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
             {isLoggedIn ? (
               <div className="profile-account-stats" aria-label="账号统计">
                 <button type="button" aria-label="查看我的作品" onClick={() => requireLogin(() => openMyWorks?.('profile'))}><strong>{recentProjects.length}</strong><span>作品</span></button>
-                <button type="button" aria-label="查看获赞列表" onClick={() => requireLogin(() => setStatus('获赞列表功能即将开放。'))}><strong>{receivedLikesCount}</strong><span>获赞</span></button>
+                <button type="button" aria-label="查看获赞列表" onClick={() => requireLogin(() => openMyWorks?.('profile'))}><strong>{receivedLikesCount}</strong><span>获赞</span></button>
                 <button type="button" aria-label="查看关注列表" onClick={() => requireLogin(() => openFollowing?.())}><strong>{followingCount}</strong><span>关注</span></button>
                 <button type="button" aria-label="查看粉丝列表" onClick={() => requireLogin(() => openFollowers?.())}><strong>{followersCount}</strong><span>粉丝</span></button>
               </div>

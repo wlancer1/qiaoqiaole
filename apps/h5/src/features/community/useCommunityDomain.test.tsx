@@ -241,16 +241,16 @@ describe('useCommunityDomain', () => {
   });
 
   it('drops a late like result after the authenticated session is cleared', async () => {
-    const like = deferred<{ likesCount: number }>();
+    const like = deferred<{ liked: boolean; likesCount: number }>();
     const harness = createHarness(vi.fn().mockReturnValue(like.promise) as unknown as CommunityRequestApi);
     await harness.mount();
     act(() => { harness.control.current!.setCommunityPosts([post('one', 1)]); });
 
     let operation!: Promise<void>;
-    act(() => { operation = harness.control.current!.likeCommunityPost('one'); });
+    act(() => { operation = harness.control.current!.likeCommunityPost('one', false); });
     await harness.update({ authToken: '' });
     act(() => { harness.control.current!.clearForLogout(); });
-    await act(async () => { like.resolve({ likesCount: 2 }); await operation; });
+    await act(async () => { like.resolve({ liked: true, likesCount: 2 }); await operation; });
 
     expect(harness.control.current!.communityPosts).toEqual([]);
     expect(harness.setStatus).not.toHaveBeenCalled();
@@ -358,18 +358,43 @@ describe('useCommunityDomain', () => {
     expect(harness.control.current!.notifications[0]?.isRead).toBe(false);
   });
 
-  it('applies a current deferred like result and a current deferred follow result', async () => {
-    const like = deferred<{ likesCount: number }>();
+  it('marks a notification read before navigating to its linked work comments', async () => {
+    const requestApi = vi.fn((path: string) => {
+      if (path === '/community/posts/post-1') return Promise.resolve({ post: post('post-1', 0) });
+      if (path === '/notifications/notice-1/read') return Promise.resolve({});
+      return Promise.resolve({});
+    }) as unknown as CommunityRequestApi;
+    const harness = createHarness(requestApi);
+    await harness.mount();
+    const notice = notification('notice-1', { projectId: 'post-1' });
+    act(() => { harness.control.current!.setNotifications([notice]); });
+
+    await act(async () => { await harness.control.current!.openNotification(notice); });
+
+    expect(requestApi).toHaveBeenCalledWith('/notifications/notice-1/read', { method: 'PATCH' });
+    expect(harness.control.current!.notifications[0]).toMatchObject({ isRead: true });
+    expect(harness.navigate).toHaveBeenCalledWith('/community/posts/post-1#comments');
+  });
+
+  it('applies current like and unlike results and a current deferred follow result', async () => {
+    const like = deferred<{ liked: boolean; likesCount: number }>();
+    const unlike = deferred<{ liked: boolean; likesCount: number }>();
     const follow = deferred<{ following: boolean; followersCount: number }>();
-    const requestApiMock = vi.fn().mockReturnValueOnce(like.promise).mockReturnValueOnce(follow.promise);
+    const requestApiMock = vi.fn().mockReturnValueOnce(like.promise).mockReturnValueOnce(unlike.promise).mockReturnValueOnce(follow.promise);
     const harness = createHarness(requestApiMock as unknown as CommunityRequestApi);
     await harness.mount();
     act(() => { harness.control.current!.setCommunityPosts([{ ...post('one', 1), authorId: 'author-1' }]); });
 
     let likeOperation!: Promise<void>;
-    act(() => { likeOperation = harness.control.current!.likeCommunityPost('one'); });
-    await act(async () => { like.resolve({ likesCount: 2 }); await likeOperation; });
+    act(() => { likeOperation = harness.control.current!.likeCommunityPost('one', false); });
+    await act(async () => { like.resolve({ liked: true, likesCount: 2 }); await likeOperation; });
     expect(harness.control.current!.communityPosts[0]).toMatchObject({ likesCount: 2, likedByMe: true });
+
+    let unlikeOperation!: Promise<unknown>;
+    act(() => { unlikeOperation = harness.control.current!.likeCommunityPost('one', true); });
+    await act(async () => { unlike.resolve({ liked: false, likesCount: 1 }); await unlikeOperation; });
+    expect(requestApiMock).toHaveBeenNthCalledWith(2, '/community/posts/one/like', expect.objectContaining({ method: 'DELETE' }), 'token-1');
+    expect(harness.control.current!.communityPosts[0]).toMatchObject({ likesCount: 1, likedByMe: false });
 
     let followOperation!: Promise<void>;
     act(() => { followOperation = harness.control.current!.toggleCommunityFollow('author-1', false); });

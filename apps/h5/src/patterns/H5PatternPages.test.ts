@@ -27,6 +27,22 @@ describe('PatternDiscoverPage', () => {
 });
 
 describe('MyWorksPage thumbnails', () => {
+  it('renders received likes and the connected liked works tab', () => {
+    let renderer!: ReturnType<typeof create>;
+    act(() => { renderer = create(createElement(MyWorksPage, {
+      projects: [],
+      likedProjects: [{ id: 'liked-1', name: '喜欢的作品', rows: 1, cols: 1, tone: 'recent-flower', createdAt: '', updatedAt: '' }],
+      receivedLikesCount: 7,
+      onBack: vi.fn(),
+      onOpen: vi.fn(),
+    })); });
+
+    expect(renderer.root.findAllByType('strong').some((node) => node.children.join('') === '7')).toBe(true);
+    const likesTab = renderer.root.findAllByType('button').find((node) => node.children.join('') === '喜欢');
+    act(() => likesTab?.props.onClick());
+    expect(renderer.root.findAllByType('strong').some((node) => node.children.join('') === '喜欢的作品')).toBe(true);
+  });
+
   it('eagerly loads only the first six thumbnails and defers the rest to avoid mobile request queue congestion', () => {
     const projects = Array.from({ length: 7 }, (_, index) => ({
       id: `project-${index + 1}`,
@@ -470,13 +486,29 @@ describe('PatternMessagesPage', () => {
         content: '晴 评论了你的作品「小猫」', createdAt: '2026-08-09T12:00:00.000Z', isRead: false,
         senderId: 'user-2', senderName: '晴',
       }],
-      onHome: vi.fn(), onDiscover: vi.fn(), onUpload: vi.fn(), onProfile: vi.fn(), onLogin: vi.fn(), onOpenNotification: vi.fn(),
+      onLogin: vi.fn(), onOpenNotification: vi.fn(),
     }));
 
     expect(markup).toContain('晴 评论了你的作品');
     expect(markup).toContain('未读');
     expect(markup).toContain('aria-label="1 条未读"');
     expect(markup).toContain('消息');
+  });
+});
+
+describe('PatternDetailPage comment anchors', () => {
+  it('provides the comments anchor used by message notifications', () => {
+    const markup = renderToStaticMarkup(createElement(PatternDetailPage, {
+      pattern: {
+        id: 'project-1', title: '评论定位', author: '作者', size: '1 × 1', meta: '刚刚',
+        likes: '0', comments: '0', downloads: '0', tone: 'recent-flower', beads: [], image: '',
+        likesCount: 0, commentsCount: 0, likedByMe: false,
+      },
+      onBack: vi.fn(), isLoggedIn: true, comments: [], isLoadingComments: false,
+      onLoadComments: vi.fn(), onLike: vi.fn(), onComment: vi.fn(), onLogin: vi.fn(),
+    }));
+
+    expect(markup).toContain('id="comments"');
   });
 });
 

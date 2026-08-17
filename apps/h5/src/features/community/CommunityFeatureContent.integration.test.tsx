@@ -11,7 +11,7 @@ vi.mock('./CommunityFeatureProvider', () => ({
       likeCommunityPost: vi.fn(), toggleCommunityFollow: vi.fn(), addCommunityComment: vi.fn(), deleteCommunityComment: vi.fn(),
     },
     discovery: { value: { sort: 'hot', query: '', tags: [], page: 1 }, setSort: vi.fn(), setQuery: vi.fn(), setTags: vi.fn(), setPage: vi.fn() },
-    detail: { post: { id: 'deep-link', name: '深链接作品', author: '作者', rows: 2, cols: 2, tone: 'recent-flower', likesCount: 0, commentsCount: 0, likedByMe: false, sharedAt: '' }, loading: false },
+    detail: { post: { id: 'deep-link', name: '深链接作品', author: '作者', rows: 2, cols: 2, tone: 'recent-flower', likesCount: 0, commentsCount: 0, likedByMe: false, sharedAt: '' }, loading: false, setLikeState: vi.fn() },
     actions: { requestLogin: vi.fn(), sharePost: vi.fn(), copyPost: vi.fn(), copyingPostId: '' },
   }),
 }));

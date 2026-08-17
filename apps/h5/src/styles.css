@@ -2814,7 +2814,8 @@ input:focus-visible {
 .home-create-submit {
   height: 1.6508rem;
   border-radius: 0.4444rem;
-  background: var(--flow-brand);
+  /* This sheet is rendered in the app overlay host, outside .h5-home-shell. */
+  background: var(--flow-brand, #146cff);
   color: #fff;
   font-size: 0.4444rem;
   font-weight: 850;
@@ -2823,6 +2824,31 @@ input:focus-visible {
 
 .home-create-submit:active {
   transform: scale(0.98);
+}
+
+.split-import-page-loading {
+  position: fixed;
+  z-index: 1010;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: .5714rem;
+  background: var(--sheet-backdrop);
+}
+
+.split-import-page-loading .split-canvas-loading {
+  width: min(100%, 11rem);
+}
+
+.warehouse-create-submit {
+  display: block;
+  width: 100%;
+  min-height: 1.65rem;
+  margin-top: .12rem;
+  border: 0;
+  background: var(--flow-brand, #146cff);
+  color: #fff;
+  box-shadow: 0 .3175rem .6984rem rgba(20, 108, 255, .2);
 }
 
 .app-status {
@@ -3015,7 +3041,7 @@ input:focus-visible {
 }
 
 .upload-source-option.local-source-option .upload-source-arrow,
-.upload-source-option.blank-canvas-source-option .upload-source-arrow { color: var(--flow-brand); }
+.upload-source-option.blank-canvas-source-option .upload-source-arrow { color: var(--flow-brand, #146cff); }
 
 .xhs-extract-form {
   display: grid;
@@ -3098,7 +3124,7 @@ input:focus-visible {
   height: 0.6349rem;
   padding: 0 0.1905rem;
   border-radius: 31.7143rem;
-  background: var(--flow-brand);
+  background: var(--flow-brand, #146cff);
   color: #fff;
   font-size: 0.3492rem;
   font-weight: 820;
@@ -7697,7 +7723,7 @@ input:focus-visible {
 }
 
 .h5-modal-actions .confirm-btn {
-  background: var(--flow-brand);
+  background: var(--flow-brand, #146cff);
   color: #fff;
 }
 

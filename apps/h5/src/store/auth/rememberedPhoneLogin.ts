@@ -5,6 +5,13 @@ export type RememberedPhoneLogin = {
   password: string;
 };
 
+function normalizeRememberedPhone(phone: string): string {
+  const compact = phone.replace(/[\s-]/g, '');
+  if (compact.startsWith('+86')) return compact.slice(3);
+  if (compact.length === 13 && compact.startsWith('86')) return compact.slice(2);
+  return compact;
+}
+
 function removeRecord(storage: Storage): void {
   try {
     storage.removeItem(REMEMBERED_PHONE_LOGIN_KEY);
@@ -21,7 +28,7 @@ function normalizeRecord(value: unknown): RememberedPhoneLogin | null {
   if (typeof record.phone !== 'string' || record.phone.trim() === '') return null;
   if (typeof record.password !== 'string' || record.password === '') return null;
 
-  return { phone: record.phone, password: record.password };
+  return { phone: normalizeRememberedPhone(record.phone), password: record.password };
 }
 
 export function readRememberedPhoneLogin(storage: Storage | undefined): RememberedPhoneLogin | null {
@@ -54,7 +61,7 @@ export function writeRememberedPhoneLogin(
 
   try {
     storage.setItem(REMEMBERED_PHONE_LOGIN_KEY, JSON.stringify({
-      phone: record.phone,
+      phone: normalizeRememberedPhone(record.phone),
       password: record.password,
       remember: true,
     }));

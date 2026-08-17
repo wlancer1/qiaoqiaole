@@ -112,7 +112,7 @@ function H5Application() {
     token: authToken,
     setStatus,
     onProjectSaved: (project) => {
-      editorCommandsRef.current?.markSaved(project.id);
+      editorCommandsRef.current?.markSaved(project.id, project.name);
       setRecentProjects((projects) => [project, ...projects.filter((item) => item.id !== project.id)]);
     },
     onProjectDeleted: (projectId) => {
@@ -195,6 +195,10 @@ function H5Application() {
     loading: projectListDomain.loading,
     loadPage: projectListDomain.loadPage,
   });
+  useEffect(() => {
+    if (screen !== 'my-works' || !authToken) return;
+    void projectListDomain.loadLiked(authToken);
+  }, [screen, authToken]);
   const {
     saveFolderId,
     setSaveFolderId,
@@ -278,6 +282,7 @@ function H5Application() {
       });
       const saved = await saveRecentProject(name, snapshot.rows, snapshot.cols, sourceImage ? 'recent-dog' : 'recent-flower', imagePayload);
       if (!saved) return false;
+      setStatus('作品保存成功');
       if (shareToCommunity && !saved.sharedToCommunity) projectActions.openShare(saved);
       if (startBeading) await beadingCommandsRef.current?.start(saved.id);
       return true;
@@ -418,7 +423,7 @@ function H5Application() {
   ]);
   const projectSaveOverlay = useProjectSaveOverlay({
     token: authToken,
-    initialName: () => '未命名作品',
+    initialName: () => editorCommandsRef.current?.snapshot().projectName || '未命名作品',
     initialShared: () => false,
     folders: projectFolders,
     folderId: saveFolderId,
@@ -498,8 +503,12 @@ function H5Application() {
   const editorPage = withAppOverlays(<EditorFeatureContent requestApi={requestApi} token={authToken} authStatus={authStatus} requireLogin={requireLogin} setStatus={setStatus} onCommands={(commands) => { editorCommandsRef.current = commands; const pending = pendingEditorCanvasRef.current; if (pending) { pendingEditorCanvasRef.current = null; commands.replaceCanvas(pending); } }} onImportFile={async (file) => { await splitCommandsRef.current?.upload(file); }} sourceImagePresent={Boolean(splitCommandsRef.current?.getSourceImage())} backgroundProcessing={splitCommandsRef.current?.isBackgroundProcessing() ?? false} onToggleBackground={toggleCanvasBackground} onSave={() => projectSaveOverlay.open()} onStartBeading={(projectId, nextToken) => { void beadingCommandsRef.current?.start(projectId, nextToken); }} />);
   const myWorksPage = withAppOverlays(<MyWorksPage
     projects={sortedRecentProjects}
+    likedProjects={projectListDomain.likedProjects}
+    likedLoading={projectListDomain.likedLoading}
+    receivedLikesCount={receivedLikesCount}
     onBack={() => navigate(myWorksBackTargetRef.current === 'profile' ? '/profile' : '/')}
     onOpen={projectActionOverlay.open}
+    onOpenLiked={(project) => navigate(`/community/posts/${encodeURIComponent(project.id)}?from=/projects`)}
     folders={projectFolders}
     activeFolderId={projectListRoute.route.folderId}
     onFolderChange={projectListRoute.selectFolder}

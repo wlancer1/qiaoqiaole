@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CommunityPost } from '../../community/communityData';
-import type { CommunityRequestApi } from './useCommunityDomain';
+import type { CommunityLikeResult, CommunityRequestApi } from './useCommunityDomain';
 
 export function useCommunityPostDetail({ postId, requestApi, setStatus }: {
   postId: string;
@@ -38,5 +38,9 @@ export function useCommunityPostDetail({ postId, requestApi, setStatus }: {
     return () => { requestSequence.current += 1; };
   }, [postId]);
 
-  return { post, loading };
+  const setLikeState = (projectId: string, result: CommunityLikeResult) => {
+    setPost((current) => current?.id === projectId ? { ...current, likesCount: result.likesCount, likedByMe: result.liked } : current);
+  };
+
+  return { post, loading, setLikeState };
 }

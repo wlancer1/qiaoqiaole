@@ -108,7 +108,7 @@ describe('community API', () => {
     expect(posts.body.tagCounts.some((item) => item.tag === '风景')).toBe(false);
   });
 
-  it('shares idempotently, counts one like, and persists comments', async () => {
+  it('shares idempotently, toggles a like, and persists comments', async () => {
     const headers = { authorization: `Bearer ${token}` };
     const firstShare = await shareProject(projectId, headers);
     const secondShare = await shareProject(projectId, headers);
@@ -119,8 +119,10 @@ describe('community API', () => {
     ]);
     expect(secondShare.body.sharedAt).toBe(firstShare.body.sharedAt);
 
-    await request(`/api/community/posts/${projectId}/like`, { method: 'POST', headers });
-    await request(`/api/community/posts/${projectId}/like`, { method: 'POST', headers });
+    const firstLike = await request(`/api/community/posts/${projectId}/like`, { method: 'POST', headers });
+    const repeatedLike = await request(`/api/community/posts/${projectId}/like`, { method: 'POST', headers });
+    expect(firstLike.body).toMatchObject({ liked: true, likesCount: 1 });
+    expect(repeatedLike.body).toMatchObject({ liked: true, likesCount: 1 });
     const comment = await request(`/api/community/posts/${projectId}/comments`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ content: '真实评论' }) });
     const posts = await request('/api/community/posts?sort=hot', { headers });
     const post = posts.body.posts.find((item) => item.id === projectId);
@@ -136,6 +138,19 @@ describe('community API', () => {
     expect(post.thumbnailImage || '').not.toMatch(/^data:/);
     const detail = await request(`/api/community/posts/${projectId}`);
     expect(detail.body.post.beadList).toEqual(firstShare.body.beadList);
+
+    const unlike = await request(`/api/community/posts/${projectId}/like`, { method: 'DELETE', headers });
+    expect(unlike.body).toMatchObject({ liked: false, likesCount: 0 });
+    const afterUnlike = await request('/api/community/posts?sort=hot', { headers });
+    const postAfterUnlike = afterUnlike.body.posts.find((item) => item.id === projectId);
+    expect(postAfterUnlike.likesCount).toBe(0);
+    expect(postAfterUnlike.likedByMe).toBe(false);
+
+    await request(`/api/community/posts/${projectId}/like`, { method: 'POST', headers });
+    const likedProjects = await request('/api/projects/liked?page=1&pageSize=20', { headers });
+    expect(likedProjects.status).toBe(200);
+    expect(likedProjects.body.projects.some((project) => project.id === projectId)).toBe(true);
+    expect(likedProjects.body.projects[0]).not.toHaveProperty('canvasData');
   });
 
   it('groups replies under one thread while allowing replies to replies', async () => {

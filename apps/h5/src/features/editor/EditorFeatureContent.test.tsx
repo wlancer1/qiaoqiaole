@@ -54,6 +54,17 @@ describe('EditorFeatureContent route workflow', () => {
     expect(view.root.findByProps({ className: 'editor-canvas-stub' }).props['data-can-remove-grid-background']).toBe('true');
   });
 
+  it('keeps the loaded project name for the save dialog', async () => {
+    let commands: EditorFeatureCommands | undefined;
+    renderEditor('/projects/project%20one/edit', vi.fn().mockResolvedValue({ project: { ...project, name: '已有名称' } }), {
+      onCommands: (value) => { commands = value; },
+    });
+
+    await act(async () => { await Promise.resolve(); });
+
+    expect(commands!.snapshot().projectName).toBe('已有名称');
+  });
+
   it('loads a direct encoded project route with the decoded id exactly once', async () => {
     const { requestApi } = renderEditor('/projects/project%20one/edit');
     await act(async () => { await Promise.resolve(); });

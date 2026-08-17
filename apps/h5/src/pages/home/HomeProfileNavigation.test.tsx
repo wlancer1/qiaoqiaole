@@ -24,6 +24,19 @@ function profileProps(overrides: Record<string, unknown> = {}) {
 }
 
 describe('my profile navigation', () => {
+  it('opens the message list route without requiring login first', () => {
+    const setActiveTab = vi.fn();
+    const requireLogin = vi.fn();
+    const tree = HomeShellPage(profileProps({ activeTab: 'home', isLoggedIn: false, setActiveTab, requireLogin }));
+    const message = collectElements(tree).find((element) => element.props['aria-label'] === '消息');
+
+    expect(message).toBeDefined();
+    message?.props.onClick?.();
+
+    expect(setActiveTab).toHaveBeenCalledWith('messages');
+    expect(requireLogin).not.toHaveBeenCalled();
+  });
+
   it('renders the refreshed received-like total instead of a fixed placeholder', () => {
     const markup = renderToStaticMarkup(createElement(HomeShellPage, profileProps({ receivedLikesCount: 12 })));
 

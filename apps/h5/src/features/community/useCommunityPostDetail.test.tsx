@@ -44,4 +44,18 @@ describe('useCommunityPostDetail', () => {
     expect(requestApi).toHaveBeenCalledTimes(1);
     await act(async () => { pending.resolve({ post: post('one') }); await pending.promise; renderer.unmount(); });
   });
+
+  it('updates the loaded detail after a successful like or unlike', async () => {
+    let value!: ReturnType<typeof useCommunityPostDetail>;
+    function Probe() { value = useCommunityPostDetail({ postId: 'one', requestApi: vi.fn().mockResolvedValue({ post: post('one') }), setStatus: vi.fn() }); return null; }
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<Probe />); await Promise.resolve(); });
+
+    act(() => { value.setLikeState('one', { liked: true, likesCount: 1 }); });
+
+    expect(value.post).toMatchObject({ id: 'one', likesCount: 1, likedByMe: true });
+    act(() => { value.setLikeState('one', { liked: false, likesCount: 0 }); });
+    expect(value.post).toMatchObject({ id: 'one', likesCount: 0, likedByMe: false });
+    await act(async () => { renderer.unmount(); });
+  });
 });

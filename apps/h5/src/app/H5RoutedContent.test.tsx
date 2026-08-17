@@ -86,6 +86,13 @@ describe('H5RoutedContent', () => {
     expect(renderer.root.findByProps({ 'aria-label': 'page:home' }).children).toEqual(['home']);
   });
 
+  it('keeps the message list route available to anonymous visitors', async () => {
+    const renderer = await renderAt('/messages', routePages(), 'anonymous');
+
+    expect(renderer.root.findByProps({ 'data-location': '/messages' }).children).toEqual(['/messages']);
+    expect(renderer.root.findByProps({ 'aria-label': 'page:home' }).children).toEqual(['home']);
+  });
+
   it('renders the direct page node registered for the matched route', async () => {
     const renderer = await renderAt('/projects/project-1/edit', routePages({ canvas: <main aria-label="editor-route-page">编辑器</main> }));
 

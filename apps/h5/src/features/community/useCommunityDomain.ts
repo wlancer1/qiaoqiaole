@@ -3,6 +3,7 @@ import { insertCommentReply, removeCommentTree, sortCommunityPosts, toPatternLis
 import type { AuthorProfile, FollowingUser, PatternListCard } from '../../shared/h5Types';
 
 export type CommunityRequestApi = <T>(path: string, options?: RequestInit, token?: string | null) => Promise<T>;
+export type CommunityLikeResult = { liked: boolean; likesCount: number };
 
 export type CommunityDomainOptions = {
   activeTab: string;
@@ -74,7 +75,7 @@ export type CommunityDomainResult = {
   loadCommunityComments: (projectId: string) => Promise<void>;
   loadNotifications: (token?: string, options?: { preserveOnError?: boolean }) => Promise<void>;
   openNotification: (notification: CommunityNotification) => Promise<void>;
-  likeCommunityPost: (projectId: string, token?: string) => Promise<void>;
+  likeCommunityPost: (projectId: string, currentlyLiked: boolean, token?: string) => Promise<CommunityLikeResult | null>;
   toggleCommunityFollow: (authorId: string, currentlyFollowing: boolean, token?: string) => Promise<void>;
   addCommunityComment: (projectId: string, content: string, parentId?: string, token?: string) => Promise<void>;
   deleteCommunityComment: (projectId: string, commentId: string, token?: string) => Promise<void>;
@@ -355,7 +356,6 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, routeScop
       try {
         await requestApi<{ post: CommunityPost }>(`/community/posts/${notification.projectId}`);
         if (notificationOperationSeqRef.current !== operationSeq || !isOperationCurrent(operation)) return;
-        navigate(`/community/posts/${encodeURIComponent(notification.projectId)}`);
         opened = true;
       } catch (error) {
         if (notificationOperationSeqRef.current === operationSeq && isOperationCurrent(operation)) setStatus(error instanceof Error ? error.message : '作品读取失败');
@@ -369,20 +369,28 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, routeScop
         if (notificationOperationSeqRef.current === operationSeq && isOperationCurrent(operation)) setStatus(error instanceof Error ? error.message : '消息状态更新失败');
       }
     }
+    if (opened && notification.projectId && notificationOperationSeqRef.current === operationSeq && isOperationCurrent(operation)) {
+      navigate(`/community/posts/${encodeURIComponent(notification.projectId)}#comments`);
+    }
   };
 
-  const likeCommunityPost = async (projectId: string, token = authToken) => {
+  const likeCommunityPost = async (projectId: string, currentlyLiked: boolean, token = authToken): Promise<CommunityLikeResult | null> => {
     if (!token) {
-      requireLogin((nextToken) => void likeCommunityPost(projectId, nextToken));
-      return;
+      requireLogin((nextToken) => void likeCommunityPost(projectId, currentlyLiked, nextToken));
+      return null;
     }
     const operationSeq = socialMutationSeqRef.current + 1; socialMutationSeqRef.current = operationSeq;
     const operation = captureOperationScope();
     try {
-      const payload = await requestApi<{ likesCount: number }>(`/community/posts/${projectId}/like`, { method: 'POST', headers: { authorization: `Bearer ${token}` } }, token);
-      if (socialMutationSeqRef.current === operationSeq && isOperationCurrent(operation) && operation.authToken === token) setCommunityPosts((posts) => posts.map((post) => post.id === projectId ? { ...post, likesCount: payload.likesCount, likedByMe: true } : post));
+      const payload = await requestApi<CommunityLikeResult>(`/community/posts/${projectId}/like`, { method: currentlyLiked ? 'DELETE' : 'POST', headers: { authorization: `Bearer ${token}` } }, token);
+      if (socialMutationSeqRef.current === operationSeq && isOperationCurrent(operation) && operation.authToken === token) {
+        setCommunityPosts((posts) => posts.map((post) => post.id === projectId ? { ...post, likesCount: payload.likesCount, likedByMe: payload.liked } : post));
+        return payload;
+      }
+      return null;
     } catch (error) {
-      if (socialMutationSeqRef.current === operationSeq && isOperationCurrent(operation) && operation.authToken === token) setStatus(error instanceof Error ? error.message : '点赞失败');
+      if (socialMutationSeqRef.current === operationSeq && isOperationCurrent(operation) && operation.authToken === token) setStatus(error instanceof Error ? error.message : currentlyLiked ? '取消点赞失败' : '点赞失败');
+      return null;
     }
   };
 
