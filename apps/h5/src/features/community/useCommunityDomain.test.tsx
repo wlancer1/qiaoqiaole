@@ -135,6 +135,301 @@ describe('useCommunityDomain', () => {
     expect(harness.control.current!.communityPosts.at(-1)?.id).toBe('second');
   });
 
+  it('serializes two immediate hot page-two requests behind one append owner', async () => {
+    const pageTwo = deferred<{ posts: CommunityPost[] }>();
+    const firstPage = Array.from({ length: 12 }, (_, index) => post(`hot-first-${index}`, 12 - index));
+    const requestApiMock = vi.fn()
+      .mockResolvedValueOnce({ posts: firstPage })
+      .mockReturnValueOnce(pageTwo.promise);
+    const harness = createHarness(requestApiMock as unknown as CommunityRequestApi);
+    await harness.mount();
+
+    await act(async () => { await harness.control.current!.loadCommunityPosts('hot'); });
+
+    let firstAppend!: Promise<void>;
+    let secondAppend!: Promise<void>;
+    act(() => {
+      firstAppend = harness.control.current!.loadMoreCommunityPosts('hot');
+      secondAppend = harness.control.current!.loadMoreCommunityPosts('hot');
+    });
+
+    expect(requestApiMock).toHaveBeenCalledTimes(2);
+    expect(requestApiMock).toHaveBeenNthCalledWith(2, '/community/posts?sort=hot&page=2&pageSize=12', { headers: { authorization: 'Bearer token-1' } }, 'token-1');
+
+    await act(async () => {
+      pageTwo.resolve({ posts: [post('hot-second', 0)] });
+      await Promise.all([firstAppend, secondAppend]);
+    });
+
+    expect(harness.control.current!.communityPosts.map(({ id }) => id)).toEqual([
+      ...firstPage.map(({ id }) => id),
+      'hot-second',
+    ]);
+    expect(harness.control.current!.communityHasMore).toBe(false);
+    expect(harness.control.current!.isCommunityLoadingMore).toBe(false);
+  });
+
+  it('does not append when the requested sort differs from the committed list', async () => {
+    const firstPage = Array.from({ length: 12 }, (_, index) => post(`hot-${index}`, 12 - index));
+    const requestApiMock = vi.fn().mockResolvedValue({ posts: firstPage });
+    const harness = createHarness(requestApiMock as unknown as CommunityRequestApi);
+    await harness.mount();
+
+    await act(async () => { await harness.control.current!.loadCommunityPosts('hot'); });
+    await act(async () => { await harness.control.current!.loadMoreCommunityPosts('latest'); });
+
+    expect(requestApiMock).toHaveBeenCalledTimes(1);
+    expect(harness.control.current!.communityPosts.map(({ id }) => id)).toEqual(firstPage.map(({ id }) => id));
+    expect(harness.control.current!.communityHasMore).toBe(true);
+    expect(harness.control.current!.isCommunityLoadingMore).toBe(false);
+  });
+
+  it('preserves the committed list and retries the same page after an append failure', async () => {
+    const firstPage = Array.from({ length: 12 }, (_, index) => post(`hot-${index}`, 12 - index));
+    const requestApiMock = vi.fn()
+      .mockResolvedValueOnce({ posts: firstPage })
+      .mockRejectedValueOnce(new Error('第二页失败'))
+      .mockResolvedValueOnce({ posts: [post('hot-page-two', 0)] });
+    const harness = createHarness(requestApiMock as unknown as CommunityRequestApi);
+    await harness.mount();
+
+    await act(async () => { await harness.control.current!.loadCommunityPosts('hot'); });
+    await act(async () => { await harness.control.current!.loadMoreCommunityPosts('hot'); });
+
+    expect(requestApiMock).toHaveBeenNthCalledWith(2, '/community/posts?sort=hot&page=2&pageSize=12', { headers: { authorization: 'Bearer token-1' } }, 'token-1');
+    expect(harness.control.current!.communityPosts.map(({ id }) => id)).toEqual(firstPage.map(({ id }) => id));
+    expect(harness.control.current!.communityHasMore).toBe(true);
+    expect(harness.control.current!.isCommunityLoadingMore).toBe(false);
+
+    await act(async () => { await harness.control.current!.loadMoreCommunityPosts('hot'); });
+
+    expect(requestApiMock).toHaveBeenNthCalledWith(3, '/community/posts?sort=hot&page=2&pageSize=12', { headers: { authorization: 'Bearer token-1' } }, 'token-1');
+    expect(harness.control.current!.communityPosts.map(({ id }) => id)).toEqual([
+      ...firstPage.map(({ id }) => id),
+      'hot-page-two',
+    ]);
+    expect(harness.control.current!.communityHasMore).toBe(false);
+    expect(harness.control.current!.isCommunityLoadingMore).toBe(false);
+  });
+
+  it('lets a newer latest base and append supersede a pending hot append', async () => {
+    const hotPageTwo = deferred<{ posts: CommunityPost[] }>();
+    const latestBase = deferred<{ posts: CommunityPost[] }>();
+    const latestPageTwo = deferred<{ posts: CommunityPost[] }>();
+    const hotFirstPage = Array.from({ length: 12 }, (_, index) => post(`hot-${index}`, 12 - index));
+    const latestFirstPage = Array.from({ length: 12 }, (_, index) => post(`latest-${index}`, 0));
+    const requestApiMock = vi.fn((path: string) => {
+      if (path === '/community/posts?sort=hot&page=1&pageSize=12') return Promise.resolve({ posts: hotFirstPage });
+      if (path === '/community/posts?sort=hot&page=2&pageSize=12') return hotPageTwo.promise;
+      if (path === '/community/posts?sort=latest&page=1&pageSize=12') return latestBase.promise;
+      if (path === '/community/posts?sort=latest&page=2&pageSize=12') return latestPageTwo.promise;
+      return Promise.reject(new Error(`unexpected request: ${path}`));
+    });
+    const harness = createHarness(requestApiMock as unknown as CommunityRequestApi);
+    await harness.mount();
+
+    await act(async () => { await harness.control.current!.loadCommunityPosts('hot'); });
+    let hotAppendOperation!: Promise<void>;
+    act(() => { hotAppendOperation = harness.control.current!.loadMoreCommunityPosts('hot'); });
+    expect(harness.control.current!.isCommunityLoadingMore).toBe(true);
+
+    let latestBaseOperation!: Promise<void>;
+    act(() => { latestBaseOperation = harness.control.current!.loadCommunityPosts('latest'); });
+    expect(harness.control.current!.communityHasMore).toBe(false);
+    expect(harness.control.current!.isCommunityLoading).toBe(true);
+    expect(harness.control.current!.isCommunityLoadingMore).toBe(false);
+    await act(async () => {
+      latestBase.resolve({ posts: latestFirstPage });
+      await latestBaseOperation;
+    });
+
+    expect(harness.control.current!.communityPosts.map(({ id }) => id)).toEqual(latestFirstPage.map(({ id }) => id));
+    expect(harness.control.current!.communityHasMore).toBe(true);
+    let latestAppendOperation!: Promise<void>;
+    act(() => { latestAppendOperation = harness.control.current!.loadMoreCommunityPosts('latest'); });
+    expect(requestApiMock).toHaveBeenCalledWith('/community/posts?sort=latest&page=2&pageSize=12', { headers: { authorization: 'Bearer token-1' } }, 'token-1');
+    expect(harness.control.current!.isCommunityLoadingMore).toBe(true);
+
+    await act(async () => {
+      latestPageTwo.resolve({ posts: [post('latest-page-two', 0)] });
+      await latestAppendOperation;
+    });
+    expect(harness.control.current!.communityPosts.map(({ id }) => id)).toEqual([
+      ...latestFirstPage.map(({ id }) => id),
+      'latest-page-two',
+    ]);
+    expect(harness.control.current!.communityHasMore).toBe(false);
+
+    await act(async () => {
+      hotPageTwo.resolve({ posts: [post('stale-hot-page-two', 100)] });
+      await hotAppendOperation;
+    });
+    expect(harness.control.current!.communityPosts.map(({ id }) => id)).toEqual([
+      ...latestFirstPage.map(({ id }) => id),
+      'latest-page-two',
+    ]);
+    expect(harness.control.current!.communityHasMore).toBe(false);
+    expect(harness.control.current!.isCommunityLoading).toBe(false);
+    expect(harness.control.current!.isCommunityLoadingMore).toBe(false);
+  });
+
+  it('restores the committed hot page after a preserved refresh failure', async () => {
+    const firstPage = Array.from({ length: 12 }, (_, index) => post(`hot-first-${index}`, 24 - index));
+    const secondPage = Array.from({ length: 12 }, (_, index) => post(`hot-second-${index}`, 12 - index));
+    const requestApiMock = vi.fn()
+      .mockResolvedValueOnce({ posts: firstPage })
+      .mockResolvedValueOnce({ posts: secondPage })
+      .mockRejectedValueOnce(new Error('刷新失败'))
+      .mockResolvedValueOnce({ posts: [post('hot-third', 0)] });
+    const harness = createHarness(requestApiMock as unknown as CommunityRequestApi);
+    await harness.mount();
+
+    await act(async () => { await harness.control.current!.loadCommunityPosts('hot'); });
+    await act(async () => { await harness.control.current!.loadMoreCommunityPosts('hot'); });
+    await act(async () => {
+      await harness.control.current!.loadCommunityPosts('hot', 'token-1', { preserveOnError: true });
+    });
+
+    expect(harness.control.current!.communityPosts).toHaveLength(24);
+    expect(harness.control.current!.communityHasMore).toBe(true);
+    expect(harness.control.current!.isCommunityLoading).toBe(false);
+
+    await act(async () => { await harness.control.current!.loadMoreCommunityPosts('hot'); });
+
+    expect(requestApiMock).toHaveBeenNthCalledWith(4, '/community/posts?sort=hot&page=3&pageSize=12', { headers: { authorization: 'Bearer token-1' } }, 'token-1');
+    expect(harness.control.current!.communityPosts).toHaveLength(25);
+    expect(harness.control.current!.communityPosts.at(-1)?.id).toBe('hot-third');
+    expect(harness.control.current!.communityHasMore).toBe(false);
+  });
+
+  it('keeps the newest overlapping base owner and restores the last committed context on failure', async () => {
+    const olderLatestBase = deferred<{ posts: CommunityPost[] }>();
+    const newerHotRefresh = deferred<{ posts: CommunityPost[] }>();
+    const committedHotPage = Array.from({ length: 12 }, (_, index) => post(`committed-hot-${index}`, 12 - index));
+    const requestApiMock = vi.fn()
+      .mockResolvedValueOnce({ posts: committedHotPage })
+      .mockReturnValueOnce(olderLatestBase.promise)
+      .mockReturnValueOnce(newerHotRefresh.promise)
+      .mockResolvedValueOnce({ posts: [post('committed-hot-page-two', 0)] });
+    const harness = createHarness(requestApiMock as unknown as CommunityRequestApi);
+    await harness.mount();
+
+    await act(async () => { await harness.control.current!.loadCommunityPosts('hot'); });
+    let olderOperation!: Promise<void>;
+    let newerOperation!: Promise<void>;
+    act(() => { olderOperation = harness.control.current!.loadCommunityPosts('latest'); });
+    act(() => {
+      newerOperation = harness.control.current!.loadCommunityPosts('hot', 'token-1', { preserveOnError: true });
+    });
+
+    await act(async () => {
+      olderLatestBase.resolve({ posts: Array.from({ length: 12 }, (_, index) => post(`stale-latest-${index}`, 0)) });
+      await olderOperation;
+    });
+    expect(harness.control.current!.communityPosts.map(({ id }) => id)).toEqual(committedHotPage.map(({ id }) => id));
+    expect(harness.control.current!.isCommunityLoading).toBe(true);
+    expect(harness.control.current!.communityHasMore).toBe(false);
+
+    await act(async () => {
+      newerHotRefresh.reject(new Error('较新的刷新失败'));
+      await newerOperation;
+    });
+    expect(harness.control.current!.communityPosts.map(({ id }) => id)).toEqual(committedHotPage.map(({ id }) => id));
+    expect(harness.control.current!.communityHasMore).toBe(true);
+    expect(harness.control.current!.isCommunityLoading).toBe(false);
+
+    await act(async () => { await harness.control.current!.loadMoreCommunityPosts('hot'); });
+    expect(requestApiMock).toHaveBeenNthCalledWith(4, '/community/posts?sort=hot&page=2&pageSize=12', { headers: { authorization: 'Bearer token-1' } }, 'token-1');
+    expect(harness.control.current!.communityPosts.at(-1)?.id).toBe('committed-hot-page-two');
+  });
+
+  it('isolates a new session append owner from an old page-two request settling after logout', async () => {
+    const oldHotAppend = deferred<{ posts: CommunityPost[] }>();
+    const newLatestAppend = deferred<{ posts: CommunityPost[] }>();
+    const oldHotPage = Array.from({ length: 12 }, (_, index) => post(`old-hot-${index}`, 12 - index));
+    const newLatestPage = Array.from({ length: 12 }, (_, index) => post(`new-latest-${index}`, 0));
+    const requestApiMock = vi.fn((path: string, _options?: RequestInit, token?: string | null) => {
+      if (token === 'token-1' && path === '/community/posts?sort=hot&page=1&pageSize=12') return Promise.resolve({ posts: oldHotPage });
+      if (token === 'token-1' && path === '/community/posts?sort=hot&page=2&pageSize=12') return oldHotAppend.promise;
+      if (token === 'token-2' && path === '/community/posts?sort=latest&page=1&pageSize=12') return Promise.resolve({ posts: newLatestPage });
+      if (token === 'token-2' && path === '/community/posts?sort=latest&page=2&pageSize=12') return newLatestAppend.promise;
+      return Promise.reject(new Error(`unexpected request: ${token ?? 'none'} ${path}`));
+    });
+    const harness = createHarness(requestApiMock as unknown as CommunityRequestApi);
+    await harness.mount();
+
+    await act(async () => { await harness.control.current!.loadCommunityPosts('hot'); });
+    let oldAppendOperation!: Promise<void>;
+    act(() => { oldAppendOperation = harness.control.current!.loadMoreCommunityPosts('hot'); });
+    await harness.update({ authToken: '' });
+    act(() => { harness.control.current!.clearForLogout(); });
+    expect(harness.control.current!.communityPosts).toEqual([]);
+    expect(harness.control.current!.communityHasMore).toBe(false);
+    expect(harness.control.current!.isCommunityLoadingMore).toBe(false);
+
+    await harness.update({ authToken: 'token-2' });
+    await act(async () => { await harness.control.current!.loadCommunityPosts('latest', 'token-2'); });
+    let newAppendOperation!: Promise<void>;
+    act(() => { newAppendOperation = harness.control.current!.loadMoreCommunityPosts('latest'); });
+    expect(requestApiMock).toHaveBeenCalledWith('/community/posts?sort=latest&page=2&pageSize=12', { headers: { authorization: 'Bearer token-2' } }, 'token-2');
+    expect(harness.control.current!.isCommunityLoadingMore).toBe(true);
+
+    await act(async () => {
+      oldHotAppend.resolve({ posts: [post('stale-old-hot', 100)] });
+      await oldAppendOperation;
+    });
+    expect(harness.control.current!.communityPosts.map(({ id }) => id)).toEqual(newLatestPage.map(({ id }) => id));
+    expect(harness.control.current!.communityHasMore).toBe(true);
+    expect(harness.control.current!.isCommunityLoadingMore).toBe(true);
+
+    await act(async () => {
+      newLatestAppend.resolve({ posts: [post('new-latest-page-two', 0)] });
+      await newAppendOperation;
+    });
+    expect(harness.control.current!.communityPosts.map(({ id }) => id)).toEqual([
+      ...newLatestPage.map(({ id }) => id),
+      'new-latest-page-two',
+    ]);
+    expect(harness.control.current!.communityHasMore).toBe(false);
+    expect(harness.control.current!.isCommunityLoadingMore).toBe(false);
+  });
+
+  it('clears the committed context after a non-preserved base failure', async () => {
+    const committedHotPage = Array.from({ length: 12 }, (_, index) => post(`hot-${index}`, 12 - index));
+    const requestApiMock = vi.fn()
+      .mockResolvedValueOnce({ posts: committedHotPage })
+      .mockRejectedValueOnce(new Error('切换列表失败'));
+    const harness = createHarness(requestApiMock as unknown as CommunityRequestApi);
+    await harness.mount();
+
+    await act(async () => { await harness.control.current!.loadCommunityPosts('hot'); });
+    await act(async () => { await harness.control.current!.loadCommunityPosts('latest'); });
+
+    expect(harness.control.current!.communityPosts).toEqual([]);
+    expect(harness.control.current!.communityHasMore).toBe(false);
+    expect(harness.control.current!.isCommunityLoading).toBe(false);
+    await act(async () => { await harness.control.current!.loadMoreCommunityPosts('hot'); });
+    expect(requestApiMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not carry a committed pagination context across logout', async () => {
+    const committedHotPage = Array.from({ length: 12 }, (_, index) => post(`hot-${index}`, 12 - index));
+    const requestApiMock = vi.fn().mockResolvedValue({ posts: committedHotPage });
+    const harness = createHarness(requestApiMock as unknown as CommunityRequestApi);
+    await harness.mount();
+
+    await act(async () => { await harness.control.current!.loadCommunityPosts('hot'); });
+    await harness.update({ authToken: '' });
+    act(() => { harness.control.current!.clearForLogout(); });
+    await harness.update({ authToken: 'token-2' });
+    await act(async () => { await harness.control.current!.loadMoreCommunityPosts('hot'); });
+
+    expect(requestApiMock).toHaveBeenCalledTimes(1);
+    expect(harness.control.current!.communityPosts).toEqual([]);
+    expect(harness.control.current!.communityHasMore).toBe(false);
+    expect(harness.control.current!.isCommunityLoadingMore).toBe(false);
+  });
+
   it('discards a response from an older request', async () => {
     const first = deferred<{ posts: CommunityPost[] }>();
     const second = deferred<{ posts: CommunityPost[] }>();

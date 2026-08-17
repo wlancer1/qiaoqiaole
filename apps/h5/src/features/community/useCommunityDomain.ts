@@ -66,7 +66,7 @@ export type CommunityDomainResult = {
     token?: string,
     options?: { preserveOnError?: boolean; append?: boolean; page?: number },
   ) => Promise<void>;
-  loadMoreCommunityPosts: () => Promise<void>;
+  loadMoreCommunityPosts: (sort?: 'hot' | 'latest') => Promise<void>;
   loadAuthorProfile: (authorId: string, token?: string, page?: number, append?: boolean) => Promise<void>;
   loadMoreAuthorProfile: (authorId: string) => void;
   loadFollowingUsers: (token?: string) => Promise<void>;
@@ -83,6 +83,15 @@ export type CommunityDomainResult = {
 };
 
 const COMMUNITY_PAGE_SIZE = 12;
+type CommunityListContext = { sort: 'hot' | 'latest'; page: number; hasMore: boolean };
+type CommunityOperationScope = { authToken: string; routeScope: string; generation: number };
+type CommunityLoadOptions = {
+  preserveOnError?: boolean;
+  append?: boolean;
+  page?: number;
+  appendOwner?: symbol;
+  operation?: CommunityOperationScope;
+};
 
 export function useCommunityDomain({ activeTab, screen, routeAuthorId, routeScope = `${activeTab}:${screen}:${routeAuthorId}`, authToken, requestApi, setStatus, requireLogin, navigate, loadFollowingCount }: CommunityDomainOptions): CommunityDomainResult {
   const [communityPosts, setCommunityPosts] = useState<CommunityPost[]>([]);
@@ -114,6 +123,9 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, routeScop
   const [commentDeletePendingId, setCommentDeletePendingId] = useState('');
   const communityPostsRequestSeqRef = useRef(0);
   const communityPageRef = useRef(1);
+  const committedCommunityContextRef = useRef<CommunityListContext | null>(null);
+  const communityBaseOwnerRef = useRef<symbol | null>(null);
+  const communityAppendOwnerRef = useRef<symbol | null>(null);
   const authorProfilePageRef = useRef(1);
   const authorProfileRequestSeqRef = useRef(0);
   const communityCommentsRequestSeqRef = useRef(0);
@@ -143,20 +155,55 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, routeScop
   const loadCommunityPosts = async (
     sort = communitySort,
     token = authToken,
-    { preserveOnError = false, append = false, page: requestedPage = 1 } = {},
+    {
+      preserveOnError = false,
+      append = false,
+      page: requestedPage,
+      appendOwner: providedAppendOwner,
+      operation: providedOperation,
+    }: CommunityLoadOptions = {},
   ) => {
-    const requestSeq = communityPostsRequestSeqRef.current + 1;
-    communityPostsRequestSeqRef.current = requestSeq;
-    const operation = captureOperationScope();
-    if (append) setIsCommunityLoadingMore(true);
-    else {
+    const operation = providedOperation ?? captureOperationScope();
+    const baseOwner = append ? null : Symbol('community-base');
+    const appendOwner = append ? (providedAppendOwner ?? Symbol('community-append')) : null;
+    let page: number;
+
+    if (append) {
+      const committedContext = committedCommunityContextRef.current;
+      if (
+        !appendOwner
+        || communityBaseOwnerRef.current
+        || (communityAppendOwnerRef.current && communityAppendOwnerRef.current !== appendOwner)
+        || !committedContext
+        || committedContext.sort !== sort
+        || !committedContext.hasMore
+        || !isOperationCurrent(operation)
+        || operation.authToken !== token
+      ) return;
+      communityAppendOwnerRef.current = appendOwner;
+      page = requestedPage ?? committedContext.page + 1;
+      setIsCommunityLoadingMore(true);
+    } else {
+      page = Math.max(1, Math.floor(requestedPage ?? 1) || 1);
+      communityBaseOwnerRef.current = baseOwner;
+      communityAppendOwnerRef.current = null;
       setIsCommunityLoading(true);
-      communityPageRef.current = Math.max(1, Math.floor(requestedPage) || 1);
+      setIsCommunityLoadingMore(false);
       setCommunityHasMore(false);
     }
 
+    const requestSeq = communityPostsRequestSeqRef.current + 1;
+    communityPostsRequestSeqRef.current = requestSeq;
+    const isCurrentRequest = () => (
+      communityPostsRequestSeqRef.current === requestSeq
+      && (append
+        ? communityAppendOwnerRef.current === appendOwner
+        : communityBaseOwnerRef.current === baseOwner)
+      && isOperationCurrent(operation)
+      && operation.authToken === token
+    );
+
     try {
-      const page = append ? communityPageRef.current + 1 : communityPageRef.current;
       const params = new URLSearchParams({ sort, page: String(page), pageSize: String(COMMUNITY_PAGE_SIZE) });
       if (activeTab === 'discover' && debouncedCommunityQuery.trim()) params.set('q', debouncedCommunityQuery.trim());
       if (activeTab === 'discover' && communitySelectedTags.length) params.set('tags', communitySelectedTags.join(','));
@@ -165,30 +212,67 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, routeScop
         { headers: token ? { authorization: `Bearer ${token}` } : {} },
         token,
       );
-      if (communityPostsRequestSeqRef.current !== requestSeq || !isOperationCurrent(operation) || operation.authToken !== token) return;
+      if (!isCurrentRequest()) return;
       setCommunityAvailableTags((payload.tagCounts || []).filter(({ count }) => count > 0).map(({ tag }) => tag));
       const posts = Array.isArray(payload.posts) ? payload.posts : [];
       setCommunityPosts((current) => {
         const next = append ? [...current, ...posts] : posts;
         return sort === 'hot' ? sortCommunityPosts(next) : next;
       });
+      const hasMore = posts.length === COMMUNITY_PAGE_SIZE;
+      committedCommunityContextRef.current = { sort, page, hasMore };
       communityPageRef.current = page;
-      setCommunityHasMore(posts.length === COMMUNITY_PAGE_SIZE);
+      setCommunityHasMore(hasMore);
     } catch (error) {
-      if (communityPostsRequestSeqRef.current !== requestSeq || !isOperationCurrent(operation) || operation.authToken !== token) return;
-      if (!append && !preserveOnError) setCommunityPosts([]);
+      if (!isCurrentRequest()) return;
+      if (!append && preserveOnError) {
+        const committedContext = committedCommunityContextRef.current;
+        communityPageRef.current = committedContext?.page ?? 1;
+        setCommunityHasMore(committedContext?.hasMore ?? false);
+      } else if (!append) {
+        committedCommunityContextRef.current = null;
+        communityPageRef.current = 1;
+        setCommunityPosts([]);
+        setCommunityHasMore(false);
+      }
       setStatus(error instanceof Error ? error.message : append ? '更多社区稿件读取失败' : '社区稿件读取失败');
     } finally {
-      if (communityPostsRequestSeqRef.current === requestSeq && isOperationCurrent(operation) && operation.authToken === token) {
-        if (append) setIsCommunityLoadingMore(false);
-        else setIsCommunityLoading(false);
+      if (isCurrentRequest()) {
+        if (append) {
+          communityAppendOwnerRef.current = null;
+          setIsCommunityLoadingMore(false);
+        } else {
+          communityBaseOwnerRef.current = null;
+          setIsCommunityLoading(false);
+        }
       }
     }
   };
 
-  const loadMoreCommunityPosts = async () => {
-    if (isCommunityLoadingMore || !communityHasMore) return;
-    await loadCommunityPosts(communitySort, authToken, { append: true });
+  const loadMoreCommunityPosts = async (sort = communitySort) => {
+    const operation = captureOperationScope();
+    const committedContext = committedCommunityContextRef.current;
+    if (
+      communityAppendOwnerRef.current
+      || communityBaseOwnerRef.current
+      || !committedContext
+      || committedContext.sort !== sort
+      || !committedContext.hasMore
+      || !isOperationCurrent(operation)
+      || operation.authToken !== authToken
+    ) return;
+    const owner = Symbol('community-append');
+    communityAppendOwnerRef.current = owner;
+    try {
+      await loadCommunityPosts(sort, authToken, {
+        append: true,
+        page: committedContext.page + 1,
+        appendOwner: owner,
+        operation,
+      });
+    } finally {
+      if (communityAppendOwnerRef.current === owner) communityAppendOwnerRef.current = null;
+    }
   };
 
   const loadFollowingUsers = async (token = authToken) => {
@@ -293,6 +377,10 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, routeScop
     socialMutationSeqRef.current += 1;
     commentMutationSeqRef.current += 1;
     notificationOperationSeqRef.current += 1;
+    committedCommunityContextRef.current = null;
+    communityPageRef.current = 1;
+    communityBaseOwnerRef.current = null;
+    communityAppendOwnerRef.current = null;
     setCommunityPosts([]);
     setCommunityAvailableTags([]);
     setCommunityHasMore(false);
