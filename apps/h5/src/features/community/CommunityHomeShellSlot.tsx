@@ -4,14 +4,17 @@ import { CommunityMessagesPage } from './CommunityMessagesPage';
 import { useCommunityFeature } from './CommunityFeatureProvider';
 import { useCommunityHomeAdapter } from './useCommunityHomeAdapter';
 import { useSplitFeature } from '../split/SplitFeatureProvider';
+import { useAppSelector } from '../../store/hooks';
+import { selectAuthUserId } from '../../store/auth/authSlice';
 
 /** Feature-owned adapter for the community portions of the shared home shell. */
 export function CommunityHomeShellSlot(homeProps: Record<string, any>) {
   const location = useLocation();
   const navigate = useNavigate();
   const { domain, discovery, actions } = useCommunityFeature();
+  const currentUserId = useAppSelector(selectAuthUserId);
   const split = useSplitFeature();
-  const home = useCommunityHomeAdapter({ domain, navigate, pathname: location.pathname, search: location.search, route: discovery });
+  const home = useCommunityHomeAdapter({ domain, currentUserId, navigate, pathname: location.pathname, search: location.search, route: discovery });
   return <HomeShellPage
     {...homeProps}
     fileInputRef={split.fileInputRef}

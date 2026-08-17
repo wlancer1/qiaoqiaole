@@ -24,6 +24,8 @@ export const H5_ROUTE_PATHS = {
   splitPreview: '/split/preview',
   canvas: '/canvas',
   beading: '/beading',
+  userAgreement: '/user-agreement',
+  privacyPolicy: '/privacy-policy',
 } as const;
 
 const routeState: Array<{ pattern: RegExp; state: H5RouteState }> = [

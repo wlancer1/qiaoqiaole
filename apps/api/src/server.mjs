@@ -2,6 +2,7 @@ import http from 'node:http';
 import { createHmac, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { openSqliteDatabase } from './sqliteStore.mjs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   decodeHtml,
   extractUrlFromText,
@@ -26,7 +27,10 @@ import { createBeadingSessionService, BeadingError } from './beadingSessionServi
 loadEnvFile();
 
 const PORT = Number(process.env.PORT || 3000);
-const DB_PATH = process.env.SQLITE_PATH || '/tmp/qiaoqiaole.sqlite';
+const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+const DEFAULT_DB_PATH = path.join(PROJECT_ROOT, 'data/qiaoqiaole.sqlite');
+const configuredDbPath = String(process.env.SQLITE_PATH || '').trim();
+const DB_PATH = configuredDbPath ? (path.isAbsolute(configuredDbPath) ? configuredDbPath : path.resolve(PROJECT_ROOT, configuredDbPath)) : DEFAULT_DB_PATH;
 const AUTH_USERNAME = requiredEnv('QIAOQIAOLE_USERNAME');
 const AUTH_PASSWORD = requiredEnv('QIAOQIAOLE_PASSWORD');
 const SESSION_DAYS = 30;

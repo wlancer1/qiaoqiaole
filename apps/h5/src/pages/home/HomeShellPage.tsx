@@ -1,5 +1,5 @@
 import { HomeUploadHero } from '../../flow/H5FlowComponents';
-import { PatternDiscoverPage, PatternMessagesPage } from '../../patterns/H5PatternPages';
+import { LoadMoreSentinel, PatternDiscoverPage, PatternMessagesPage } from '../../patterns/H5PatternPages';
 import { CommunityPatternCard } from '../../community/CommunityPatternCard';
 import { Icon } from '../../shared/h5Icons';
 import { ImageWithSkeleton } from '../../shared/ImageWithSkeleton';
@@ -9,6 +9,7 @@ import { useEffect, type ReactNode } from 'react';
 import { passwordValidationMessage } from '../../utils/passwordValidation';
 import { useBodyScrollLock } from '../../app/overlays/useBodyScrollLock';
 import { CompositionSafeInput } from '../../shared/CompositionSafeInput';
+import { Link } from 'react-router-dom';
 
 type HomeShellPageProps = Record<string, any> & { actionSheet?: ReactNode };
 
@@ -80,7 +81,7 @@ export function PhoneLoginModal(props: Record<string, any>) {
         ) : null}
         <label className="phone-agreement-row">
           <input type="checkbox" checked={phoneAgreement} onChange={(event) => setPhoneAgreement(event.target.checked)} />
-          <span>我已阅读并同意用户协议和隐私政策</span>
+          <span>我已阅读并同意<Link to="/user-agreement" onClick={(event) => { event.stopPropagation(); closeLoginModal(); }}>《用户协议》</Link>和<Link to="/privacy-policy" onClick={(event) => { event.stopPropagation(); closeLoginModal(); }}>《隐私政策》</Link></span>
         </label>
         {phoneAuthError ? <p className="phone-auth-error" role="alert">{phoneAuthError}</p> : null}
         <button className="home-create-submit phone-login-submit" onClick={() => void (phoneAuthMode === 'register' ? submitPhoneRegister() : submitPhoneLogin())} disabled={phoneVerifying || !phonePassword || (phoneAuthMode === 'register' && phoneCode.length !== 6)}>
@@ -164,6 +165,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
     openBlankCanvasCreation,
     cfgCols, setCfgCols, cfgRows, setCfgRows, normalizeGridSize, parseGridSizeInput, createBlankCanvas, requireLogin,
     setStatus, patternListCards, homeTemplateCards, openCommunityPost, openAuthorProfile, stockedColorCount, totalWarehouseStock,
+    communityHasMore = false, isCommunityLoadingMore = false, loadMoreHomeTemplates,
     activeWarehouse, mardColors, openWarehouse, setActiveTab, communitySort, setCommunitySort,
     logoutPhone, notifications, loadNotifications, openNotification,
     profileAvatarUrl, receivedLikesCount = 0, followingCount = 0, followersCount = 0, showProfileEditModal, openProfileEdit, profileEditModal, confirmDialog, requestConfirm, openMyWorks, openFollowing, openFollowers,
@@ -240,13 +242,13 @@ export function HomeShellPage(props: HomeShellPageProps) {
 
             <section className="home-template-section" aria-labelledby="home-template-title">
               <div className="home-section-heading">
-                <h2 id="home-template-title">热门模板</h2>
-                <button type="button" aria-label="查看更多热门模板" onClick={() => setActiveTab('discover')}>
+                <h2 id="home-template-title">热门图纸</h2>
+                <button type="button" aria-label="查看更多热门图纸" onClick={() => setActiveTab('discover')}>
                   更多
                   <span aria-hidden="true">›</span>
                 </button>
               </div>
-              <div className="home-template-row" aria-label="热门模板预览">
+              <div className="home-template-row" aria-label="热门图纸预览">
                 {homeTemplateCards.length > 0 ? [
                   homeTemplateCards.filter((_: any, index: number) => index % 2 === 0),
                   homeTemplateCards.filter((_: any, index: number) => index % 2 === 1),
@@ -264,6 +266,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
                   </div>
                 )) : <p className="community-empty">还没有分享的作品</p>}
               </div>
+              <LoadMoreSentinel hasMore={communityHasMore} loadingMore={isCommunityLoadingMore} onLoadMore={loadMoreHomeTemplates} />
             </section>
           </div>
 

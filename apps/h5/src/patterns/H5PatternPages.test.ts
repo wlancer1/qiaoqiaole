@@ -7,6 +7,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { AuthorProfilePage, limitCommentContent, MyWorksPage, PatternDetailPage, PatternDiscoverPage, PatternMessagesPage } from './H5PatternPages';
 
 describe('PatternDiscoverPage', () => {
+  it('uses the works flow brand for community pagination', () => {
+    const styles = fs.readFileSync(path.resolve('apps/h5/src/styles.css'), 'utf8');
+    const loadMore = styles.match(/\.community-load-more\s*\{([^}]*)\}/)?.[1] ?? '';
+
+    expect(loadMore).toContain('color: var(--flow-brand, #146cff)');
+  });
+
   it('marks the selected community sort tab as active', () => {
     const markup = renderToStaticMarkup(createElement(PatternDiscoverPage, {
       patterns: [],
@@ -23,6 +30,20 @@ describe('PatternDiscoverPage', () => {
     expect(markup).not.toContain('>动物</button>');
     expect(markup).not.toContain('>人物</button>');
     expect(markup).not.toContain('>植物</button>');
+  });
+
+  it('prioritizes the first six discovery images and gives deferred images a finite loading path', () => {
+    const patterns = Array.from({ length: 7 }, (_, index) => ({
+      id: `post-${index + 1}`, title: `作品${index + 1}`, author: '作者', authorId: 'author-1', authorAvatar: null,
+      image: `/images/${index + 1}.webp`, detailImage: `/images/${index + 1}.webp`, tone: 'pattern-flower',
+      tags: [], likes: '0', comments: '0', downloads: '0', size: '16×16', meta: '刚刚', beads: [], likesCount: 0, commentsCount: 0, likedByMe: false,
+    }));
+    const markup = renderToStaticMarkup(createElement(PatternDiscoverPage, {
+      patterns, onOpen: vi.fn(), onOpenAuthor: vi.fn(),
+    }));
+
+    expect(markup.match(/loading="eager"/g)).toHaveLength(6);
+    expect(markup.match(/loading="lazy"/g)).toHaveLength(1);
   });
 });
 
@@ -41,6 +62,20 @@ describe('MyWorksPage thumbnails', () => {
     const likesTab = renderer.root.findAllByType('button').find((node) => node.children.join('') === '喜欢');
     act(() => likesTab?.props.onClick());
     expect(renderer.root.findAllByType('strong').some((node) => node.children.join('') === '喜欢的作品')).toBe(true);
+  });
+
+  it('delegates liked-tab changes to the routed works page', () => {
+    const onContentTabChange = vi.fn();
+    let renderer!: ReturnType<typeof create>;
+    act(() => { renderer = create(createElement(MyWorksPage, {
+      projects: [], likedProjects: [], activeContentTab: 'works', onContentTabChange,
+      onBack: vi.fn(), onOpen: vi.fn(),
+    })); });
+
+    const likesTab = renderer.root.findAllByType('button').find((node) => node.children.join('') === '喜欢');
+    act(() => likesTab?.props.onClick());
+
+    expect(onContentTabChange).toHaveBeenCalledWith('likes');
   });
 
   it('eagerly loads only the first six thumbnails and defers the rest to avoid mobile request queue congestion', () => {

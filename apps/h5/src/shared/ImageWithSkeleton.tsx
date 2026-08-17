@@ -11,10 +11,11 @@ type ImageWithSkeletonProps = {
   imageClassName?: string;
   loading?: 'eager' | 'lazy';
   loadTimeoutMs?: number;
+  maxRetries?: number;
   as?: 'div' | 'span';
 };
 
-export function ImageWithSkeleton({ src, alt, fallback, className = '', imageClassName = '', loading = 'lazy', loadTimeoutMs = 0, as = 'div' }: ImageWithSkeletonProps) {
+export function ImageWithSkeleton({ src, alt, fallback, className = '', imageClassName = '', loading = 'lazy', loadTimeoutMs = 0, maxRetries = MAX_IMAGE_RETRIES, as = 'div' }: ImageWithSkeletonProps) {
   const normalizedSrc = src?.trim() ?? '';
   const [state, setState] = useState<'loading' | 'loaded' | 'failed'>(() => normalizedSrc ? 'loading' : 'failed');
   const [retryCount, setRetryCount] = useState(0);
@@ -34,7 +35,7 @@ export function ImageWithSkeleton({ src, alt, fallback, className = '', imageCla
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
     const retryAfterResume = () => {
-      if (!normalizedSrc || state !== 'failed') return;
+      if (!normalizedSrc || state !== 'failed' || maxRetries <= 0) return;
       setState('loading');
       setRetryCount(1);
     };
@@ -44,19 +45,19 @@ export function ImageWithSkeleton({ src, alt, fallback, className = '', imageCla
       window.removeEventListener('online', retryAfterResume);
       window.removeEventListener('pageshow', retryAfterResume);
     };
-  }, [normalizedSrc, state]);
+  }, [maxRetries, normalizedSrc, state]);
 
   useEffect(() => {
     if (!normalizedSrc || state !== 'loading' || loadTimeoutMs <= 0) return undefined;
     const timeout = setTimeout(() => {
-      if (retryCount < MAX_IMAGE_RETRIES) {
+      if (retryCount < maxRetries) {
         setRetryCount((current) => current + 1);
         return;
       }
       setState('failed');
     }, loadTimeoutMs || IMAGE_LOAD_TIMEOUT_MS);
     return () => clearTimeout(timeout);
-  }, [loadTimeoutMs, normalizedSrc, retryCount, state]);
+  }, [loadTimeoutMs, maxRetries, normalizedSrc, retryCount, state]);
 
   const Wrapper = as;
   const wrapperClassName = `image-with-skeleton${state === 'loading' ? ' is-loading' : ''}${state === 'failed' ? ' is-failed' : ''}${className ? ` ${className}` : ''}`;
@@ -83,7 +84,7 @@ export function ImageWithSkeleton({ src, alt, fallback, className = '', imageCla
         decoding="async"
         onLoad={() => setState('loaded')}
         onError={() => {
-          if (retryCount < MAX_IMAGE_RETRIES) {
+          if (retryCount < maxRetries) {
             setState('loading');
             setRetryCount((current) => current + 1);
             return;

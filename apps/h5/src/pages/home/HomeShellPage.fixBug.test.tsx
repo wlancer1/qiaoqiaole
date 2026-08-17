@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Children, createElement, isValidElement, type ReactElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { HomeShellPage, PhoneLoginModal, ProfileEditModal, XhsImagePickerModal } from './HomeShellPage';
 
@@ -9,20 +10,33 @@ const props = {
   phoneNumber: '', setPhoneNumber: vi.fn(), phonePassword: '1234567', setPhonePassword: vi.fn(), phoneConfirmPassword: '', setPhoneConfirmPassword: vi.fn(), phoneCode: '', setPhoneCode: vi.fn(), phoneAuthMode: 'login', setPhoneAuthMode: vi.fn(), phoneAgreement: true, setPhoneAgreement: vi.fn(), phoneAuthError: '', phoneSending: false, phoneVerifying: false, phoneCountdown: 0, sendPhoneCode: vi.fn(), submitPhoneLogin: vi.fn(), submitPhoneRegister: vi.fn(), closeLoginModal: vi.fn(), logoutPhone: vi.fn(), rememberPassword: true, setRememberPassword: vi.fn(),
 };
 
+function renderPhoneLoginModal(nextProps = props) {
+  return renderToStaticMarkup(createElement(MemoryRouter, null, createElement(PhoneLoginModal, nextProps)));
+}
+
 describe('phone login bug fixes', () => {
   it('shows the short-password error and keeps the primary button branded', () => {
-    const markup = renderToStaticMarkup(createElement(PhoneLoginModal, props));
+    const markup = renderPhoneLoginModal();
     expect(markup).toContain('密码至少需要 8 位');
     expect(markup).toContain('phone-login-submit');
     expect(markup).toContain('home-create-submit');
   });
 
   it('shows the remember-password option only for phone login', () => {
-    const loginMarkup = renderToStaticMarkup(createElement(PhoneLoginModal, props));
+    const loginMarkup = renderPhoneLoginModal();
     expect(loginMarkup).toContain('记住手机号和密码');
 
-    const registerMarkup = renderToStaticMarkup(createElement(PhoneLoginModal, { ...props, phoneAuthMode: 'register' }));
+    const registerMarkup = renderPhoneLoginModal({ ...props, phoneAuthMode: 'register' });
     expect(registerMarkup).not.toContain('记住手机号和密码');
+  });
+
+  it('links the agreement copy to the legal pages without replacing the checkbox', () => {
+    const markup = renderPhoneLoginModal();
+
+    expect(markup).toContain('href="/user-agreement"');
+    expect(markup).toContain('href="/privacy-policy"');
+    expect(markup).toContain('《用户协议》');
+    expect(markup).toContain('《隐私政策》');
   });
 });
 

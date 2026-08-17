@@ -29,7 +29,7 @@ export function CommunityRoutePages({ screen, detailPost, detailLoading, onLikeP
     const error = following ? domain.followingError : domain.followersError;
     const retry = following ? domain.loadFollowingUsers : domain.loadFollowersUsers;
     if (loading && users.length === 0) return <PageSkeleton kind="profile-list" label={following ? '正在加载关注列表' : '正在加载粉丝列表'} />;
-    const openUser = (user: { id: string }) => navigate(`/community/users/${encodeURIComponent(user.id)}?from=${encodeURIComponent(locationPath + locationSearch)}`);
+    const openUser = (user: { id: string }) => navigate(user.id === currentUserId ? '/projects' : `/community/users/${encodeURIComponent(user.id)}?from=${encodeURIComponent(locationPath + locationSearch)}`);
     const props = { users, loading, error, onBack: () => navigate('/profile'), onRetry: () => void retry(), onOpenUser: openUser };
     return following ? <FollowingPage {...props} /> : <FollowersPage {...props} />;
   }
@@ -63,7 +63,9 @@ export function CommunityRoutePages({ screen, detailPost, detailLoading, onLikeP
     isLoadingComments={domain.isCommunityCommentsLoading}
     onLoadComments={() => void domain.loadCommunityComments(pattern.id)}
     onOpenAuthor={() => {
-      if (pattern.authorId) navigate(`/community/users/${encodeURIComponent(pattern.authorId)}?from=${encodeURIComponent(`${locationPath}${locationSearch}`)}`);
+      if (!pattern.authorId) return;
+      if (pattern.authorId === currentUserId) navigate('/projects');
+      else navigate(`/community/users/${encodeURIComponent(pattern.authorId)}?from=${encodeURIComponent(`${locationPath}${locationSearch}`)}`);
     }}
     onLike={() => void onLikePost(pattern.id, Boolean(pattern.likedByMe))}
     onFollow={() => pattern.authorId && void domain.toggleCommunityFollow(pattern.authorId, Boolean(pattern.isFollowing))}

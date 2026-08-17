@@ -126,7 +126,7 @@ test('shows the reference-driven home hierarchy with only real tools', async ({ 
   await expect(page.getByRole('button', { name: '创建敲豆图纸' })).toBeVisible();
   await expect(page.getByRole('button', { name: '新建空白画布' })).toBeVisible();
   await expect(page.getByText('最近项目')).toHaveCount(0);
-  await expect(page.getByText('热门模板')).toHaveCount(0);
+  await expect(page.getByText('热门图纸')).toHaveCount(0);
 });
 ```
 

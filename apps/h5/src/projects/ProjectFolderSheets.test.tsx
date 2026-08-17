@@ -488,6 +488,25 @@ describe('MoveProjectFolderSheet', () => {
 });
 
 describe('project folder sheet styles', () => {
+  it('uses the project flow brand for its primary action', () => {
+    const styles = fs.readFileSync(path.resolve('apps/h5/src/styles.css'), 'utf8');
+    const primary = styles.match(/\.project-folder-sheet-primary\s*\{([^}]*)\}/)?.[1] ?? '';
+    const selected = styles.match(/\.project-folder-option\.is-selected\s*\{([^}]*)\}/)?.[1] ?? '';
+    const create = [...styles.matchAll(/\.project-folder-create-option\s*\{([^}]*)\}/g)].at(-1)?.[1] ?? '';
+    const focus = styles.match(/\.project-folder-sheet button:focus-visible[^\{]*\{([^}]*)\}/)?.[1] ?? '';
+    const actionPrimary = styles.match(/\.project-action-tile\.is-primary\s*\{([^}]*)\}/)?.[1] ?? '';
+    const actionFolderFocus = styles.match(/\.project-action-folder:focus-within\s*\{([^}]*)\}/)?.[1] ?? '';
+
+    expect(primary).toContain('background: var(--flow-brand, #146cff)');
+    expect(primary).toContain('border-color: var(--flow-brand, #146cff)');
+    expect(selected).toContain('border-color: var(--flow-brand, #146cff)');
+    expect(selected).toContain('background: var(--flow-brand-soft, #eaf2ff)');
+    expect(create).toContain('color: var(--flow-brand, #146cff)');
+    expect(focus).toContain('outline: .0635rem solid var(--flow-brand, #146cff)');
+    expect(actionPrimary).toContain('background: var(--flow-brand, #146cff)');
+    expect(actionFolderFocus).toContain('border-color: var(--flow-brand, #146cff)');
+  });
+
   it('constrains the viewport and scrolls only the options area with a safe-area footer', () => {
     const styles = fs.readFileSync(path.resolve('apps/h5/src/styles.css'), 'utf8');
     const backdrop = styles.match(/\.project-folder-sheet-backdrop\s*\{([^}]*)\}/)?.[1] ?? '';

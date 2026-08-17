@@ -4,6 +4,7 @@ import { DelayedRouteLoadingFallback, RouteLoadErrorBoundary } from '../loading/
 import { resolveAuthRoute } from '../features/auth/authRouteGuard';
 import type { AppScreen } from '../shared/h5Types';
 import { H5_ROUTE_PATHS } from './h5Routes';
+import { PrivacyPolicyPage, UserAgreementPage } from '../pages/legal/LegalPages';
 
 export type H5RoutePages = Partial<Record<AppScreen, ReactNode>>;
 
@@ -27,6 +28,8 @@ export function H5RouteSwitch({ pages }: { pages: H5RoutePages }) {
     <Route path={H5_ROUTE_PATHS.splitPreview} element={pages['split-preview']} />
     <Route path={H5_ROUTE_PATHS.canvas} element={pages.canvas} />
     <Route path={H5_ROUTE_PATHS.beading} element={pages.beading} />
+    <Route path={H5_ROUTE_PATHS.userAgreement} element={<UserAgreementPage />} />
+    <Route path={H5_ROUTE_PATHS.privacyPolicy} element={<PrivacyPolicyPage />} />
     <Route path="*" element={<Navigate to={H5_ROUTE_PATHS.home} replace />} />
   </Routes>;
 }

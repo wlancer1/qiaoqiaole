@@ -4,7 +4,7 @@ import type { RecentProject } from '../../shared/h5Types';
 import { getProjectFolders, getRecentProjects } from '../../projects/projectApi';
 import type { ProjectFolder } from '../../projects/projectFolders';
 import type { ProjectListRoute } from './projectRoute';
-import { foldersLoaded, projectsLoaded, selectProjectFolders, selectProjects } from '../../store/projects/projectSlice';
+import { foldersLoaded, projectsAppended, projectsLoaded, selectProjectFolders, selectProjects } from '../../store/projects/projectSlice';
 
 export type ProjectRequestApi = <T>(path: string, options?: RequestInit, token?: string | null) => Promise<T>;
 
@@ -29,7 +29,7 @@ export type ProjectListDomainResult = {
   loadLiked: (token: string) => Promise<void>;
 };
 
-const defaultPageSize = 20;
+const defaultPageSize = 12;
 
 export function useProjectListDomain({ requestApi, setStatus, pageSize = defaultPageSize }: ProjectListDomainOptions): ProjectListDomainResult {
   const dispatch = useDispatch();
@@ -65,7 +65,9 @@ export function useProjectListDomain({ requestApi, setStatus, pageSize = default
     try {
       const payload = await getRecentProjects(requestApi, token, { page: route.page, pageSize, folderId: route.folderId });
       if (requestSequence.current !== sequence) return;
-      dispatch(projectsLoaded(Array.isArray(payload.projects) ? payload.projects : []));
+      const nextProjects = Array.isArray(payload.projects) ? payload.projects : [];
+      const appendPage = route.page > page && route.folderId === folderId && allProjects.length > 0;
+      dispatch(appendPage ? projectsAppended(nextProjects) : projectsLoaded(nextProjects));
       setPage(payload.page || route.page);
       setFolderId(route.folderId);
       setHasMore(Boolean(payload.hasMore));

@@ -9,3 +9,6 @@ playwright-report
 .figwright
 .superpowers
 .worktrees/
+data/*.sqlite
+data/*.sqlite-*
+data

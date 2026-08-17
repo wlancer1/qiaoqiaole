@@ -11,6 +11,8 @@ loadEnvFile();
 
 const MAX_PROJECT_IMAGE_BYTES = 20 * 1024 * 1024;
 const IMAGE_DATA_URL_RE = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=\s]+)$/i;
+const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+const DEFAULT_DB_PATH = path.join(PROJECT_ROOT, 'data/qiaoqiaole.sqlite');
 
 export function isImageDataUrl(value) {
   return IMAGE_DATA_URL_RE.test(String(value || '').trim());
@@ -59,7 +61,7 @@ function printUsage() {
   node apps/api/scripts/migrate-project-images.mjs --execute
 
 可选参数：
-  --db <路径>       SQLite 数据库路径，默认读取 SQLITE_PATH 或 /tmp/qiaoqiaole.sqlite
+  --db <路径>       SQLite 数据库路径，默认读取 SQLITE_PATH 或 data/qiaoqiaole.sqlite
   --backup-dir <路径> 备份目录，默认数据库同目录
   --limit <数量>    本次最多迁移多少个图片字段
 `);
@@ -86,7 +88,8 @@ async function migrate() {
   }
 
   const execute = shouldExecuteMigration(args);
-  const dbPath = path.resolve(getArg(args, '--db', process.env.SQLITE_PATH || '/tmp/qiaoqiaole.sqlite'));
+  const configuredDbPath = getArg(args, '--db', process.env.SQLITE_PATH || DEFAULT_DB_PATH);
+  const dbPath = path.isAbsolute(configuredDbPath) ? configuredDbPath : path.resolve(PROJECT_ROOT, configuredDbPath);
   const backupDir = path.resolve(getArg(args, '--backup-dir', path.dirname(dbPath)));
   const parsedLimit = Number(getArg(args, '--limit', '0'));
   const limit = Number.isInteger(parsedLimit) && parsedLimit > 0 ? parsedLimit : Number.POSITIVE_INFINITY;

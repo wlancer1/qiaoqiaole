@@ -5,6 +5,7 @@ import { parseProjectListRoute, projectListPath, type ProjectListRoute } from '.
 export type ProjectListRouteResult = {
   route: ProjectListRoute;
   selectFolder: (folderId: string | null | 'all') => void;
+  selectTab: (tab: ProjectListRoute['tab']) => void;
   loadMore: () => void;
   loadPrevious: () => void;
 };
@@ -29,30 +30,33 @@ export function useProjectListRoute({
   loadPageRef.current = loadPage;
 
   useEffect(() => {
-    if (!enabled || !token) return;
+    if (!enabled || route.tab !== 'works' || !token) return;
     void loadPageRef.current(token, route, { preserveOnError: true });
-  }, [enabled, route.folderId, route.page, token]);
+  }, [enabled, route.folderId, route.page, route.tab, token]);
 
   useEffect(() => {
-    if (!enabled || !token || typeof window === 'undefined') return undefined;
+    if (!enabled || route.tab !== 'works' || !token || typeof window === 'undefined') return undefined;
     const refreshRestoredPage = (event: PageTransitionEvent) => {
       if (!event.persisted) return;
       void loadPageRef.current(token, route, { preserveOnError: true });
     };
     window.addEventListener('pageshow', refreshRestoredPage);
     return () => window.removeEventListener('pageshow', refreshRestoredPage);
-  }, [enabled, route.folderId, route.page, token]);
+  }, [enabled, route.folderId, route.page, route.tab, token]);
 
   const selectFolder = (folderId: string | null | 'all') => {
-    navigate(projectListPath({ folderId: folderId || 'all', page: 1 }));
+    navigate(projectListPath({ folderId: folderId || 'all', page: 1, tab: 'works' }));
+  };
+  const selectTab = (tab: ProjectListRoute['tab']) => {
+    navigate(projectListPath({ folderId: tab === 'likes' ? 'all' : route.folderId, page: 1, tab }));
   };
   const loadMore = () => {
     if (!hasMore || loading) return;
-    navigate(projectListPath({ folderId: route.folderId, page: route.page + 1 }));
+    navigate(projectListPath({ folderId: route.folderId, page: route.page + 1, tab: 'works' }));
   };
   const loadPrevious = () => {
-    if (route.page > 1) navigate(projectListPath({ folderId: route.folderId, page: route.page - 1 }));
+    if (route.page > 1) navigate(projectListPath({ folderId: route.folderId, page: route.page - 1, tab: 'works' }));
   };
 
-  return { route, selectFolder, loadMore, loadPrevious };
+  return { route, selectFolder, selectTab, loadMore, loadPrevious };
 }

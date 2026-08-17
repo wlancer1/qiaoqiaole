@@ -12,4 +12,34 @@ describe('useCommunityHomeAdapter', () => {
     act(() => { adapter.openCommunityPost({ id: 'post 1' } as never); });
     expect(navigate).toHaveBeenCalledWith('/community/posts/post%201?from=%2Fdiscover%3Fsort%3Dlatest');
   });
+
+  it('loads more home templates without navigating away from the home route', async () => {
+    const navigate = vi.fn();
+    const loadMoreCommunityPosts = vi.fn().mockResolvedValue(undefined);
+    let adapter!: ReturnType<typeof useCommunityHomeAdapter>;
+    function Probe() {
+      adapter = useCommunityHomeAdapter({ domain: { communityCards: [], homeTemplateCards: [], communityHasMore: true, isCommunityLoadingMore: false, loadMoreCommunityPosts, notifications: [] } as never, navigate, pathname: '/', search: '', route: { value: { sort: 'hot', tags: [], page: 1, query: '' }, setSort: vi.fn(), setTags: vi.fn(), setQuery: vi.fn(), setPage: vi.fn() } });
+      return null;
+    }
+    await act(async () => { create(<Probe />); });
+
+    await act(async () => { await adapter.loadMoreHomeTemplates(); });
+
+    expect(loadMoreCommunityPosts).toHaveBeenCalledOnce();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('opens my works when the discovery author is the signed-in user', async () => {
+    const navigate = vi.fn();
+    let adapter!: ReturnType<typeof useCommunityHomeAdapter>;
+    function Probe() {
+      adapter = useCommunityHomeAdapter({ currentUserId: 'me', domain: { communityCards: [], homeTemplateCards: [], communityHasMore: false, isCommunityLoadingMore: false, notifications: [] } as never, navigate, pathname: '/discover', search: '', route: { value: { sort: 'hot', tags: [], page: 1, query: '' }, setSort: vi.fn(), setTags: vi.fn(), setQuery: vi.fn(), setPage: vi.fn() } });
+      return null;
+    }
+    await act(async () => { create(<Probe />); });
+
+    act(() => { adapter.openAuthorProfile({ id: 'post-1', authorId: 'me' } as never); });
+
+    expect(navigate).toHaveBeenCalledWith('/projects');
+  });
 });

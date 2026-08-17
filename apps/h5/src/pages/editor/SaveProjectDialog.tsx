@@ -51,7 +51,7 @@ export function SaveProjectDialog({ saveProjectName, setSaveProjectName, shareTo
         <label className={`save-project-share-option${shareToCommunity || activeProjectShared ? ' is-checked' : ''}`}>
           <input type="checkbox" checked={shareToCommunity} onChange={(event) => { if (!covered) setShareToCommunity(event.target.checked); }} disabled={isSaving || activeProjectShared || covered} />
           <span className="save-project-share-mark" aria-hidden="true">✓</span>
-          <span><strong>{activeProjectShared ? '已分享到社区' : '分享到社区'}</strong><small>{activeProjectShared ? '保存不会重复分享或刷新分享时间' : '分享后会出现在发现和热门模板'}</small></span>
+          <span><strong>{activeProjectShared ? '已分享到社区' : '分享到社区'}</strong><small>{activeProjectShared ? '保存不会重复分享或刷新分享时间' : '分享后会出现在发现和热门图纸'}</small></span>
         </label>
         <button className="save-project-submit save-project-primary" type="submit" aria-label="保存到作品" onClick={() => submit(false)} disabled={isSaving || covered || !saveProjectName.trim()}><Save aria-hidden="true" />{isSaving ? '保存中…' : '保存到作品'}</button>
         <button className="save-project-submit save-project-start" type="button" aria-label="保存并开始拼豆" onClick={() => submit(true)} disabled={isSaving || covered || !saveProjectName.trim()}><Save aria-hidden="true" />保存并开始拼豆</button>

@@ -37,7 +37,7 @@ function LoginReturnHarness({ returnTo, onReady, trace }: { returnTo: string; on
   });
   useEffect(() => { auth.gate.attach('return-test'); return () => auth.gate.release('return-test'); }, [auth.gate]);
   onReady(dialog, () => `${location.pathname}${location.search}`);
-  return <><button aria-label="受保护操作" type="button" onClick={() => auth.gate.require({ scopeId: store.getState().ui.currentRouteScope, returnTo })}>受保护操作</button><button aria-label="填写并登录" onClick={() => { dialog.setPhoneNumber('13800138000'); dialog.setPassword('password1'); dialog.setAgreement(true); }}>填写</button><button aria-label="提交登录" onClick={() => void dialog.submitPhoneLogin()}>提交</button><output data-location={`${location.pathname}${location.search}`} /></>;
+  return <><button aria-label="受保护操作" type="button" onClick={() => auth.gate.require({ scopeId: store.getState().ui.currentRouteScope, returnTo })}>受保护操作</button><button aria-label="资料编辑入口" type="button" onClick={() => void auth.requireLogin(() => { trace.push('open-profile-editor'); })}>资料编辑</button><button aria-label="填写并登录" onClick={() => { dialog.setPhoneNumber('13800138000'); dialog.setPassword('password1'); dialog.setAgreement(true); }}>填写</button><button aria-label="提交登录" onClick={() => void dialog.submitPhoneLogin()}>提交</button><output data-location={`${location.pathname}${location.search}`} /></>;
 }
 
 async function renderLogin(returnTo: string) {
@@ -73,5 +73,16 @@ describe('protected login return integration', () => {
     await act(async () => { renderer.root.findByProps({ 'aria-label': '填写并登录' }).props.onClick(); await Promise.resolve(); });
     await act(async () => { await renderer.root.findByProps({ 'aria-label': '提交登录' }).props.onClick(); await Promise.resolve(); });
     expect(renderer.root.findByType('output').props['data-location']).toBe('/profile');
+  });
+
+  it('runs the protected profile action immediately after login succeeds', async () => {
+    const { renderer, controller, trace } = await renderLogin('/profile');
+    await act(async () => { renderer.root.findByProps({ 'aria-label': '资料编辑入口' }).props.onClick(); await Promise.resolve(); });
+    await act(async () => { renderer.root.findByProps({ 'aria-label': '填写并登录' }).props.onClick(); await Promise.resolve(); });
+    await act(async () => { await renderer.root.findByProps({ 'aria-label': '提交登录' }).props.onClick(); await Promise.resolve(); });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(controller.error).toBe('');
+    expect(trace).toContain('open-profile-editor');
   });
 });

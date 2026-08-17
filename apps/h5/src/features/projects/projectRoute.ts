@@ -1,6 +1,7 @@
 export type ProjectListRoute = {
   folderId: string | 'all';
   page: number;
+  tab: 'works' | 'likes';
 };
 
 function positiveInteger(value: string | null): number | null {
@@ -15,11 +16,13 @@ export function parseProjectListRoute(search: string): ProjectListRoute {
   return {
     folderId: folder || 'all',
     page: positiveInteger(params.get('page')) ?? 1,
+    tab: params.get('tab') === 'likes' ? 'likes' : 'works',
   };
 }
 
-export function projectListPath({ folderId, page }: ProjectListRoute): string {
+export function projectListPath({ folderId, page, tab = 'works' }: ProjectListRoute): string {
   const params = new URLSearchParams();
+  if (tab === 'likes') params.set('tab', 'likes');
   if (folderId !== 'all') params.set('folder', folderId);
   if (page > 1) params.set('page', String(page));
   const search = params.toString();

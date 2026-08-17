@@ -82,7 +82,7 @@ export type CommunityDomainResult = {
   clearForLogout: () => void;
 };
 
-const COMMUNITY_PAGE_SIZE = 50;
+const COMMUNITY_PAGE_SIZE = 12;
 
 export function useCommunityDomain({ activeTab, screen, routeAuthorId, routeScope = `${activeTab}:${screen}:${routeAuthorId}`, authToken, requestApi, setStatus, requireLogin, navigate, loadFollowingCount }: CommunityDomainOptions): CommunityDomainResult {
   const [communityPosts, setCommunityPosts] = useState<CommunityPost[]>([]);
@@ -469,7 +469,7 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, routeScop
   }, [screen, authToken]);
 
   const communityCards = useMemo(() => communityPosts.map(toPatternListCard), [communityPosts]);
-  const homeTemplateCards = useMemo(() => communityCards.slice(0, 3), [communityCards]);
+  const homeTemplateCards = useMemo(() => communityCards, [communityCards]);
 
   return {
     communityPosts,

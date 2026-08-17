@@ -27,12 +27,14 @@ describe('useProjectListRoute', () => {
     });
     renderers.push(renderer);
 
-    expect(loadPage).toHaveBeenCalledWith('token', { folderId: 'folder-1', page: 2 }, { preserveOnError: true });
+    expect(loadPage).toHaveBeenCalledWith('token', { folderId: 'folder-1', page: 2, tab: 'works' }, { preserveOnError: true });
     act(() => { control.current!.selectFolder('folder-2'); });
-    expect(control.current!.route).toEqual({ folderId: 'folder-2', page: 1 });
+    expect(control.current!.route).toEqual({ folderId: 'folder-2', page: 1, tab: 'works' });
+    act(() => { control.current!.selectTab('likes'); });
+    expect(control.current!.route).toEqual({ folderId: 'all', page: 1, tab: 'likes' });
   });
 
-  it('moves to the next URL page instead of accumulating an unbounded client list', async () => {
+  it('moves to the next URL page for the load-more flow', async () => {
     const loadPage = vi.fn().mockResolvedValue(undefined);
     const control = { current: null as ProjectListRouteResult | null };
     function Probe() {
@@ -44,7 +46,7 @@ describe('useProjectListRoute', () => {
     renderers.push(renderer);
 
     act(() => { control.current!.loadMore(); });
-    expect(control.current!.route).toEqual({ folderId: 'all', page: 3 });
+    expect(control.current!.route).toEqual({ folderId: 'all', page: 3, tab: 'works' });
   });
 
   it('refreshes the current page after mobile Safari restores it from the page cache', async () => {
@@ -65,6 +67,6 @@ describe('useProjectListRoute', () => {
 
     await act(async () => { listeners.get('pageshow')?.({ persisted: true }); });
 
-    expect(loadPage).toHaveBeenCalledWith('token', { folderId: 'all', page: 2 }, { preserveOnError: true });
+    expect(loadPage).toHaveBeenCalledWith('token', { folderId: 'all', page: 2, tab: 'works' }, { preserveOnError: true });
   });
 });

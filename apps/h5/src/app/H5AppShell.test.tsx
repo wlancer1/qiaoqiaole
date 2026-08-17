@@ -84,8 +84,8 @@ describe('H5AppShell production overlay ownership', () => {
     store.dispatch(sessionEstablished({ token: 'token-project', user: { id: 'user-1', username: 'u', displayName: '用户', avatarUrl: '', legacyDraftOwnerId: '', likesCount: 0, followingCount: 0, followersCount: 0 } }));
     installRuntimeDom();
     const fetchMock = vi.fn(async (input: string) => {
-      if (input.includes('/projects?folder=folder-1&page=2&pageSize=20')) return new Response(JSON.stringify({ projects: [{ id: 'project-page-2', name: '第二页作品', rows: 1, cols: 1, tone: 'recent', createdAt: '2026-01-01', updatedAt: '2026-01-01', folderId: 'folder-1' }], page: 2, pageSize: 20, total: 40, hasMore: false }), { status: 200 });
-      if (input.includes('/projects?folder=folder-1&page=1&pageSize=20')) return new Response(JSON.stringify({ projects: [{ id: 'project-page-1', name: '第一页作品', rows: 1, cols: 1, tone: 'recent', createdAt: '2026-01-01', updatedAt: '2026-01-01', folderId: 'folder-1' }], page: 1, pageSize: 20, total: 40, hasMore: true }), { status: 200 });
+      if (input.includes('/projects?folder=folder-1&page=2&pageSize=12')) return new Response(JSON.stringify({ projects: [{ id: 'project-page-2', name: '第二页作品', rows: 1, cols: 1, tone: 'recent', createdAt: '2026-01-01', updatedAt: '2026-01-01', folderId: 'folder-1' }], page: 2, pageSize: 12, total: 40, hasMore: false }), { status: 200 });
+      if (input.includes('/projects?folder=folder-1&page=1&pageSize=12')) return new Response(JSON.stringify({ projects: [{ id: 'project-page-1', name: '第一页作品', rows: 1, cols: 1, tone: 'recent', createdAt: '2026-01-01', updatedAt: '2026-01-01', folderId: 'folder-1' }], page: 1, pageSize: 12, total: 40, hasMore: true }), { status: 200 });
       if (input.includes('/project-folders')) return new Response(JSON.stringify({ folders: [{ id: 'folder-1', name: '收藏', projectCount: 40 }] }), { status: 200 });
       return new Response(JSON.stringify({}), { status: 200 });
     });
@@ -94,14 +94,14 @@ describe('H5AppShell production overlay ownership', () => {
     let renderer!: ReactTestRenderer;
     await act(async () => { renderer = create(<H5Application appStore={store} renderRouter={(children) => <MemoryRouter initialEntries={['/projects?folder=folder-1&page=2']}><RuntimeRouter onNavigateReady={(next) => { navigate = next; }}>{children}</RuntimeRouter></MemoryRouter>} />); await Promise.resolve(); });
     renderers.push(renderer);
-    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/projects?folder=folder-1&page=2&pageSize=20'))).toBe(true);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/projects?folder=folder-1&page=2&pageSize=12'))).toBe(true);
     expect(renderer.root.findAll((node) => node.children.join('').includes('第二页作品'))).not.toHaveLength(0);
     expect(renderer.root.findByProps({ className: 'my-works-count' }).children.join('')).toBe('40 件');
     expect(renderer.root.findByProps({ className: 'author-profile-stats my-works-stats' }).findAllByType('strong')[0].children.join('')).toBe('40');
     expect(renderer.root.findByProps({ className: 'my-works-folder-scroll' }).findAllByType('span').some((node) => node.children.join('') === '40')).toBe(true);
     const host = renderer.root.findByProps({ 'data-testid': 'h5-app-overlay-host' });
     await act(async () => { navigate('/projects?folder=folder-1'); await Promise.resolve(); });
-    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/projects?folder=folder-1&page=1&pageSize=20'))).toBe(true);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/projects?folder=folder-1&page=1&pageSize=12'))).toBe(true);
     expect(renderer.root.findAll((node) => node.children.join('').includes('第一页作品'))).not.toHaveLength(0);
     await act(async () => { navigate(-1); await Promise.resolve(); });
     expect(renderer.root.findAll((node) => node.children.join('').includes('第二页作品'))).not.toHaveLength(0);
@@ -204,6 +204,8 @@ describe('H5AppShell production overlay ownership', () => {
       }));
     });
     act(() => renderer.root.findByProps({ 'aria-label': '我的' }).props.onClick());
+    act(() => renderer.root.findByProps({ className: 'profile-edit-btn' }).props.onClick());
+    expect(overlayHostBeforeNavigation.findAllByProps({ className: 'profile-edit-panel' })).toHaveLength(1);
     act(() => renderer.root.findByProps({ className: 'profile-logout-btn' }).props.onClick());
     expect(overlayHostBeforeNavigation.findAllByProps({ role: 'alertdialog' })).toHaveLength(1);
   });

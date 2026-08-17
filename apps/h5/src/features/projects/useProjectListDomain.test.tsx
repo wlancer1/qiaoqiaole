@@ -23,8 +23,8 @@ describe('useProjectListDomain', () => {
 
   it('loads only the requested page and filters its current-page summaries by folder', async () => {
     const requestApi = vi.fn().mockImplementation(async (path: string) => {
-      if (path === '/projects?folder=folder-1&page=2&pageSize=20') {
-        return { projects: [project('chosen', '2026-08-02', 'folder-1')], page: 2, pageSize: 20, hasMore: true };
+      if (path === '/projects?folder=folder-1&page=2&pageSize=12') {
+        return { projects: [project('chosen', '2026-08-02', 'folder-1')], page: 2, pageSize: 12, hasMore: true };
       }
       return { folders: [{ id: 'folder-1', name: '收藏' }] };
     }) as unknown as ProjectRequestApi;
@@ -40,12 +40,35 @@ describe('useProjectListDomain', () => {
 
     await act(async () => { await control.current!.loadPage('token', { page: 2, folderId: 'folder-1' }); });
 
-    expect(requestApi).toHaveBeenCalledWith('/projects?folder=folder-1&page=2&pageSize=20', {}, 'token');
+    expect(requestApi).toHaveBeenCalledWith('/projects?folder=folder-1&page=2&pageSize=12', {}, 'token');
     expect(requestApi).toHaveBeenCalledWith('/project-folders', {}, 'token');
     expect(control.current!.projects.map((item) => item.id)).toEqual(['chosen']);
     expect(control.current!.page).toBe(2);
     expect(control.current!.hasMore).toBe(true);
     expect(store.getState().projects.projects.map((item) => item.id)).toEqual(['chosen']);
+  });
+
+  it('appends the next page to the current project list when the folder stays the same', async () => {
+    const requestApi = vi.fn().mockImplementation(async (path: string) => {
+      if (path === '/projects?page=1&pageSize=12') return { projects: [project('first', '2026-08-03')], page: 1, pageSize: 12, hasMore: true };
+      if (path === '/projects?page=2&pageSize=12') return { projects: [project('second', '2026-08-02')], page: 2, pageSize: 12, hasMore: false };
+      return { folders: [] };
+    }) as unknown as ProjectRequestApi;
+    const control = { current: null as ProjectListDomainResult | null };
+    const store = configureStore({ reducer: { projects: projectReducer } });
+    function Probe() {
+      control.current = useProjectListDomain({ requestApi, setStatus: vi.fn() });
+      return null;
+    }
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<Provider store={store}><Probe /></Provider>); });
+    renderers.push(renderer);
+
+    await act(async () => { await control.current!.loadPage('token', { page: 1, folderId: 'all' }); });
+    await act(async () => { await control.current!.loadPage('token', { page: 2, folderId: 'all' }); });
+
+    expect(control.current!.projects.map((item) => item.id)).toEqual(['first', 'second']);
+    expect(store.getState().projects.projects.map((item) => item.id)).toEqual(['first', 'second']);
   });
 
   it('rejects a stale response after a newer route page is requested', async () => {
@@ -68,8 +91,8 @@ describe('useProjectListDomain', () => {
     let newLoad!: Promise<void>;
     act(() => { oldLoad = control.current!.loadPage('token', { page: 1, folderId: 'all' }); });
     act(() => { newLoad = control.current!.loadPage('token', { page: 2, folderId: 'all' }); });
-    await act(async () => { resolveNew({ projects: [project('new', '2026-08-02')], page: 2, pageSize: 20, hasMore: false }); await newLoad; });
-    await act(async () => { resolveOld({ projects: [project('old', '2026-08-01')], page: 1, pageSize: 20, hasMore: true }); await oldLoad; });
+    await act(async () => { resolveNew({ projects: [project('new', '2026-08-02')], page: 2, pageSize: 12, hasMore: false }); await newLoad; });
+    await act(async () => { resolveOld({ projects: [project('old', '2026-08-01')], page: 1, pageSize: 12, hasMore: true }); await oldLoad; });
 
     expect(control.current!.projects.map((item) => item.id)).toEqual(['new']);
     expect(control.current!.page).toBe(2);

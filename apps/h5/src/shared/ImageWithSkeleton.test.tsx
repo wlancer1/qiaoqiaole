@@ -102,6 +102,18 @@ describe('ImageWithSkeleton', () => {
     expect(renderer!.root.findByProps({ 'data-fallback': 'true' })).toBeTruthy();
   });
 
+  it('can fail fast without retrying slow list thumbnails', () => {
+    vi.useFakeTimers();
+    act(() => {
+      renderer = create(<ImageWithSkeleton src="/slow-thumb.png" alt="作品预览" loadTimeoutMs={2_500} maxRetries={0} fallback={<span data-fallback="true">暂无预览图</span>} />);
+    });
+
+    act(() => { vi.advanceTimersByTime(2_500); });
+
+    expect(renderer!.root.findByProps({ 'data-fallback': 'true' })).toBeTruthy();
+    expect(renderer!.root.findAllByType('img')).toHaveLength(0);
+  });
+
   it('uses a block wrapper by default so legacy span artwork selectors do not match the loader', () => {
     act(() => {
       renderer = create(<ImageWithSkeleton src="/pattern.png" alt="作品预览" fallback={<span>暂无预览图</span>} />);

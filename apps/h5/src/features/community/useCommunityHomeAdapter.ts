@@ -11,8 +11,9 @@ type DiscoveryRouteController = {
   setPage: (page: number) => void;
 };
 
-export function useCommunityHomeAdapter({ domain, navigate, pathname, search, route }: {
+export function useCommunityHomeAdapter({ domain, currentUserId = '', navigate, pathname, search, route }: {
   domain: CommunityDomainResult;
+  currentUserId?: string;
   navigate: (to: string) => void;
   pathname: string;
   search: string;
@@ -23,12 +24,19 @@ export function useCommunityHomeAdapter({ domain, navigate, pathname, search, ro
   }, [navigate, pathname, search]);
   const openAuthorProfile = useCallback((pattern: PatternListCard, from: 'discover' | 'detail' | 'following' | 'followers' = 'discover') => {
     if (!pattern.authorId) return;
+    if (currentUserId && pattern.authorId === currentUserId) {
+      navigate('/projects');
+      return;
+    }
     const returnTo = from === 'detail' ? `/community/posts/${encodeURIComponent(pattern.id)}` : from === 'following' ? '/following' : from === 'followers' ? '/followers' : `${pathname}${search}`;
     navigate(`/community/users/${encodeURIComponent(pattern.authorId)}?from=${encodeURIComponent(returnTo)}`);
-  }, [navigate, pathname, search]);
+  }, [currentUserId, navigate, pathname, search]);
   const loadMoreCommunityPosts = useCallback(() => {
     if (domain.communityHasMore && !domain.isCommunityLoadingMore) route.setPage(route.value.page + 1);
   }, [domain.communityHasMore, domain.isCommunityLoadingMore, route]);
+  const loadMoreHomeTemplates = useCallback(() => {
+    if (domain.communityHasMore && !domain.isCommunityLoadingMore) void domain.loadMoreCommunityPosts();
+  }, [domain.communityHasMore, domain.isCommunityLoadingMore, domain.loadMoreCommunityPosts]);
   return useMemo(() => ({
     patternListCards: domain.communityCards,
     homeTemplateCards: domain.homeTemplateCards,
@@ -37,6 +45,7 @@ export function useCommunityHomeAdapter({ domain, navigate, pathname, search, ro
     communityHasMore: domain.communityHasMore,
     isCommunityLoadingMore: domain.isCommunityLoadingMore,
     loadMoreCommunityPosts,
+    loadMoreHomeTemplates,
     notifications: domain.notifications,
     loadNotifications: domain.loadNotifications,
     openNotification: domain.openNotification,
@@ -47,5 +56,5 @@ export function useCommunityHomeAdapter({ domain, navigate, pathname, search, ro
     communitySelectedTags: route.value.tags,
     setCommunitySelectedTags: route.setTags,
     communityAvailableTags: domain.communityAvailableTags,
-  }), [domain, loadMoreCommunityPosts, openAuthorProfile, openCommunityPost, route]);
+  }), [domain, loadMoreCommunityPosts, loadMoreHomeTemplates, openAuthorProfile, openCommunityPost, route]);
 }

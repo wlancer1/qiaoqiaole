@@ -13,7 +13,7 @@ import type { ProjectFolder } from '../projects/projectFolders';
 import { CompositionSafeInput } from '../shared/CompositionSafeInput';
 import { PageLoadBoundary } from '../loading/H5LoadingStates';
 
-function LoadMoreSentinel({ hasMore, loadingMore, onLoadMore }: { hasMore: boolean; loadingMore: boolean; onLoadMore?: () => void }) {
+export function LoadMoreSentinel({ hasMore, loadingMore, onLoadMore }: { hasMore: boolean; loadingMore: boolean; onLoadMore?: () => void }) {
   const sentinelRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
@@ -84,6 +84,8 @@ export function MyWorksPage({
   onBack,
   onOpen,
   actionSheet,
+  activeContentTab,
+  onContentTabChange,
   folders = [],
   activeFolderId = 'all',
   onFolderChange,
@@ -93,13 +95,13 @@ export function MyWorksPage({
   loading = false,
   loadingMore = false,
   onLoadMore,
-  page = 1,
   total = projects.length,
-  onLoadPrevious,
 }: {
   projects: RecentProject[];
   likedProjects?: RecentProject[];
   likedLoading?: boolean;
+  activeContentTab?: 'works' | 'likes';
+  onContentTabChange?: (tab: 'works' | 'likes') => void;
   receivedLikesCount?: number;
   onOpenLiked?: (project: RecentProject) => void;
   onBack: () => void;
@@ -121,8 +123,13 @@ export function MyWorksPage({
   const visibleProjects = activeFolderId === 'all'
     ? projects
     : projects.filter((project) => (activeFolderId === null ? !project.folderId : project.folderId === activeFolderId));
-  const [activeContentTab, setActiveContentTab] = useState<'works' | 'likes'>('works');
-  const displayedProjects = activeContentTab === 'likes' ? likedProjects : visibleProjects;
+  const [uncontrolledContentTab, setUncontrolledContentTab] = useState<'works' | 'likes'>('works');
+  const currentContentTab = activeContentTab ?? uncontrolledContentTab;
+  const selectContentTab = (tab: 'works' | 'likes') => {
+    onContentTabChange?.(tab);
+    if (activeContentTab === undefined) setUncontrolledContentTab(tab);
+  };
+  const displayedProjects = currentContentTab === 'likes' ? likedProjects : visibleProjects;
   const [folderMenuTarget, setFolderMenuTarget] = useState<ProjectFolder | null>(null);
   const folderLongPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressFolderClickRef = useRef(false);
@@ -162,10 +169,10 @@ export function MyWorksPage({
         <div><strong>0</strong><span>浏览</span></div>
       </section>
       <nav className="author-profile-tabs" aria-label="作品分类">
-        <button className={activeContentTab === 'works' ? 'active' : ''} type="button" onClick={() => setActiveContentTab('works')}>作品</button>
-        <button className={activeContentTab === 'likes' ? 'active' : ''} type="button" onClick={() => setActiveContentTab('likes')}>喜欢</button>
+        <button className={currentContentTab === 'works' ? 'active' : ''} type="button" onClick={() => selectContentTab('works')}>作品</button>
+        <button className={currentContentTab === 'likes' ? 'active' : ''} type="button" onClick={() => selectContentTab('likes')}>喜欢</button>
       </nav>
-      {activeContentTab === 'works' ? <section className="my-works-folder-filter" aria-label="作品文件夹">
+      {currentContentTab === 'works' ? <section className="my-works-folder-filter" aria-label="作品文件夹">
         <div className="my-works-folder-header">
           <div className="my-works-folder-title"><strong>文件夹</strong><span>{folders.length}</span></div>
           {onCreateFolder ? <button type="button" className="my-works-create-folder" onClick={() => { setFolderMenuTarget(null); onCreateFolder(); }}><FolderPlus aria-hidden="true" />新建</button> : null}
@@ -176,7 +183,7 @@ export function MyWorksPage({
         </div>
         {folderMenuTarget && onDeleteFolder ? <div className="my-works-folder-menu" role="menu" aria-label={`${folderMenuTarget.name} 文件夹操作`}><button type="button" role="menuitem" aria-label={`删除文件夹 ${folderMenuTarget.name}`} onClick={() => { onDeleteFolder(folderMenuTarget); setFolderMenuTarget(null); }}>删除文件夹</button><button type="button" role="menuitem" onClick={() => setFolderMenuTarget(null)}>取消</button></div> : null}
       </section> : null}
-      {activeContentTab === 'likes' && likedLoading ? <section className="author-work-empty" aria-label="喜欢的作品加载中"><strong>正在加载喜欢的作品...</strong></section> : activeContentTab === 'works' && visibleProjects.length > 0 || activeContentTab === 'likes' && displayedProjects.length > 0 ? (
+      {currentContentTab === 'likes' && likedLoading ? <section className="author-work-empty" aria-label="喜欢的作品加载中"><strong>正在加载喜欢的作品...</strong></section> : currentContentTab === 'works' && visibleProjects.length > 0 || currentContentTab === 'likes' && displayedProjects.length > 0 ? (
         <section className="author-work-grid" aria-label="我的作品列表">
           {displayedProjects.map((project, projectIndex) => (
             <article
@@ -185,11 +192,11 @@ export function MyWorksPage({
               data-project-card-id={project.id}
               role="button"
               tabIndex={0}
-              onClick={() => activeContentTab === 'likes' && onOpenLiked ? onOpenLiked(project) : onOpen(project)}
+              onClick={() => currentContentTab === 'likes' && onOpenLiked ? onOpenLiked(project) : onOpen(project)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault();
-                  if (activeContentTab === 'likes' && onOpenLiked) onOpenLiked(project);
+                  if (currentContentTab === 'likes' && onOpenLiked) onOpenLiked(project);
                   else onOpen(project);
                 }
               }}
@@ -201,7 +208,8 @@ export function MyWorksPage({
                   src={project.thumbnailImage || project.sourceImage}
                   alt=""
                   loading={projectIndex < 6 ? 'eager' : 'lazy'}
-                  loadTimeoutMs={projectIndex < 6 ? 10_000 : 0}
+                  loadTimeoutMs={projectIndex < 6 ? 2_500 : 0}
+                  maxRetries={projectIndex < 6 ? 0 : undefined}
                   fallback={<div className="my-work-thumb-placeholder" aria-hidden="true" />}
                 />
               ) : (
@@ -214,14 +222,11 @@ export function MyWorksPage({
         </section>
       ) : (
         <section className="author-work-empty" aria-label="暂无作品">
-          <strong>{activeContentTab === 'likes' ? '还没有喜欢的作品' : projects.length ? '这个文件夹里还没有作品' : '还没有保存的作品'}</strong>
-          <span>{activeContentTab === 'likes' ? '去发现页看看喜欢的作品吧' : projects.length ? '把作品移动到这里后会显示在这里' : '完成创作并保存后，作品会显示在这里'}</span>
+          <strong>{currentContentTab === 'likes' ? '还没有喜欢的作品' : projects.length ? '这个文件夹里还没有作品' : '还没有保存的作品'}</strong>
+          <span>{currentContentTab === 'likes' ? '去发现页看看喜欢的作品吧' : projects.length ? '把作品移动到这里后会显示在这里' : '完成创作并保存后，作品会显示在这里'}</span>
         </section>
       )}
-      {activeContentTab === 'works' && (hasMore || loadingMore || page > 1) ? <div className="project-page-controls" aria-label="作品分页">
-        <button type="button" onClick={onLoadPrevious} disabled={page <= 1 || loadingMore}>上一页作品</button>
-        <button type="button" onClick={onLoadMore} disabled={loadingMore || !hasMore}>{loadingMore ? '加载中…' : '下一页作品'}</button>
-      </div> : null}
+      {currentContentTab === 'works' ? <LoadMoreSentinel hasMore={hasMore} loadingMore={loadingMore} onLoadMore={onLoadMore} /> : null}
       {actionSheet}
     </main>
     </PageLoadBoundary>
@@ -313,6 +318,8 @@ export function PatternDiscoverPage({ patterns, activeSort = 'hot', query = '', 
                   key={card.title}
                   pattern={card}
                   dataCardIndex={patterns.indexOf(card)}
+                  loading={patterns.indexOf(card) < 6 ? 'eager' : 'lazy'}
+                  loadTimeoutMs={10_000}
                   onOpen={onOpen}
                   onOpenAuthor={onOpenAuthor}
                 />

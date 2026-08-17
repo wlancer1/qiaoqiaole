@@ -99,7 +99,7 @@ describe('useCommunityDomain', () => {
 
     await act(async () => { await harness.control.current!.loadCommunityPosts('hot'); });
 
-    expect(requestApi).toHaveBeenCalledWith('/community/posts?sort=hot&page=1&pageSize=50', { headers: { authorization: 'Bearer token-1' } }, 'token-1');
+    expect(requestApi).toHaveBeenCalledWith('/community/posts?sort=hot&page=1&pageSize=12', { headers: { authorization: 'Bearer token-1' } }, 'token-1');
     expect(harness.control.current!.communityPosts.map((item) => item.id)).toEqual(['high', 'low']);
     expect(harness.control.current!.communityAvailableTags).toEqual(['动物']);
     expect(harness.control.current!.communityHasMore).toBe(false);
@@ -113,14 +113,14 @@ describe('useCommunityDomain', () => {
 
     await act(async () => { await harness.control.current!.loadCommunityPosts('latest', 'token-1', { page: 3 }); });
 
-    expect(requestApi).toHaveBeenCalledWith('/community/posts?sort=latest&page=3&pageSize=50', { headers: { authorization: 'Bearer token-1' } }, 'token-1');
+    expect(requestApi).toHaveBeenCalledWith('/community/posts?sort=latest&page=3&pageSize=12', { headers: { authorization: 'Bearer token-1' } }, 'token-1');
     expect(harness.control.current!.communityPosts.map((item) => item.id)).toEqual(['page-three']);
   });
 
   it('appends the next page without losing the current list', async () => {
     const requestApiMock = vi.fn();
     requestApiMock
-      .mockResolvedValueOnce({ posts: Array.from({ length: 50 }, (_, index) => post(`first-${index}`, 1)) })
+      .mockResolvedValueOnce({ posts: Array.from({ length: 12 }, (_, index) => post(`first-${index}`, 1)) })
       .mockResolvedValueOnce({ posts: [post('second', 2)] });
     const requestApi = requestApiMock as unknown as CommunityRequestApi;
     const harness = createHarness(requestApi);
@@ -130,8 +130,8 @@ describe('useCommunityDomain', () => {
     await act(async () => { await harness.control.current!.loadCommunityPosts(); });
     await act(async () => { await harness.control.current!.loadMoreCommunityPosts(); });
 
-    expect(requestApi).toHaveBeenLastCalledWith('/community/posts?sort=latest&page=2&pageSize=50', { headers: { authorization: 'Bearer token-1' } }, 'token-1');
-    expect(harness.control.current!.communityPosts).toHaveLength(51);
+    expect(requestApi).toHaveBeenLastCalledWith('/community/posts?sort=latest&page=2&pageSize=12', { headers: { authorization: 'Bearer token-1' } }, 'token-1');
+    expect(harness.control.current!.communityPosts).toHaveLength(13);
     expect(harness.control.current!.communityPosts.at(-1)?.id).toBe('second');
   });
 

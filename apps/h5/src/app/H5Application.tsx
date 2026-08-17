@@ -48,6 +48,7 @@ import type {
 } from '../shared/h5Types';
 
 const API_BASE = '/api';
+const API_REQUEST_TIMEOUT_MS = 15_000;
 const CAPTCHA_APP_ID = String((import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_TENCENT_CAPTCHA_APP_ID || '');
 type RequestApiError = Error & { status?: number; code?: string; body?: unknown };
 
@@ -68,21 +69,35 @@ function H5Application() {
   const authSessionVersion = useAppSelector((state) => state.auth.sessionVersion);
   const requestApi = async <T,>(path: string, options: RequestInit = {}, token?: string | null): Promise<T> => {
     const effectiveToken = token === null ? '' : token || authToken;
-    const response = await fetch(`${API_BASE}${path}`, {
-      ...options,
-      headers: {
-        'content-type': 'application/json',
-        ...(effectiveToken ? { authorization: `Bearer ${effectiveToken}` } : {}),
-        ...(options.headers ?? {}),
-      },
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const message = response.status === 401 ? '登录状态已失效，请重新登录' : payload.message || '请求失败';
-      const error = Object.assign(new Error(message), { status: response.status, code: payload.error || payload.code, body: payload }) as RequestApiError;
+    const controller = new AbortController();
+    const timeout = globalThis.setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
+    const callerSignal = options.signal;
+    const abortFromCaller = () => controller.abort();
+    callerSignal?.addEventListener('abort', abortFromCaller, { once: true });
+    try {
+      const response = await fetch(`${API_BASE}${path}`, {
+        ...options,
+        signal: controller.signal,
+        headers: {
+          'content-type': 'application/json',
+          ...(effectiveToken ? { authorization: `Bearer ${effectiveToken}` } : {}),
+          ...(options.headers ?? {}),
+        },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const message = response.status === 401 ? '登录状态已失效，请重新登录' : payload.message || '请求失败';
+        const error = Object.assign(new Error(message), { status: response.status, code: payload.error || payload.code, body: payload }) as RequestApiError;
+        throw error;
+      }
+      return payload as T;
+    } catch (error) {
+      if (controller.signal.aborted && !callerSignal?.aborted) throw new Error('请求超时，请检查网络后重试');
       throw error;
+    } finally {
+      globalThis.clearTimeout(timeout);
+      callerSignal?.removeEventListener('abort', abortFromCaller);
     }
-    return payload as T;
   };
   const requestApiRef = useRef<(<T,>(path: string, options?: RequestInit, token?: string | null) => Promise<T>) | null>(null);
   const communityCommandsRef = useRef<CommunityFeatureCommands | null>(null);
@@ -186,7 +201,7 @@ function H5Application() {
   requestApiRef.current = requestApi;
 
   const loadRecentProjects = async (token: string, { preserveOnError = false, page = 1 } = {}) => {
-    await projectListDomain.loadPage(token, { folderId: 'all', page }, { preserveOnError });
+    await projectListDomain.loadPage(token, { folderId: 'all', page, tab: 'works' }, { preserveOnError });
   };
   const projectListRoute = useProjectListRoute({
     token: authToken,
@@ -196,9 +211,9 @@ function H5Application() {
     loadPage: projectListDomain.loadPage,
   });
   useEffect(() => {
-    if (screen !== 'my-works' || !authToken) return;
+    if (screen !== 'my-works' || projectListRoute.route.tab !== 'likes' || !authToken) return;
     void projectListDomain.loadLiked(authToken);
-  }, [screen, authToken]);
+  }, [screen, projectListRoute.route.tab, authToken]);
   const {
     saveFolderId,
     setSaveFolderId,
@@ -464,8 +479,10 @@ function H5Application() {
   ]);
   useEffect(() => {
     setOverlaySlot('login', loginModalFallback);
+  }, [loginModalFallback, setOverlaySlot]);
+  useLayoutEffect(() => {
     setOverlaySlot('profile', profileEditOverlay);
-  }, [loginModalFallback, profileEditOverlay, setOverlaySlot]);
+  }, [profileEditOverlay, setOverlaySlot]);
 
   const createCommunityPage = () => withAppOverlays(<CommunityFeatureContent fallback={<CommunityHomeShellSlot
     status={status} activeTab={activeTab}
@@ -505,6 +522,8 @@ function H5Application() {
     projects={sortedRecentProjects}
     likedProjects={projectListDomain.likedProjects}
     likedLoading={projectListDomain.likedLoading}
+    activeContentTab={projectListRoute.route.tab}
+    onContentTabChange={projectListRoute.selectTab}
     receivedLikesCount={receivedLikesCount}
     onBack={() => navigate(myWorksBackTargetRef.current === 'profile' ? '/profile' : '/')}
     onOpen={projectActionOverlay.open}
