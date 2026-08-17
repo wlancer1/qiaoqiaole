@@ -5,10 +5,10 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/api ./apps/api
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 make g++ \
-    && npm ci --omit=dev \
-    && rm -rf /var/lib/apt/lists/*
+RUN npm ci --omit=dev --ignore-scripts
+
+COPY docker/better_sqlite3.node \
+  /app/node_modules/better-sqlite3/build/Release/better_sqlite3.node
 
 ENV PORT=3000
 ENV SQLITE_PATH=/data/qiaoqiaole.sqlite
