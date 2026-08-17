@@ -11,6 +11,7 @@ describe('useProjectListRoute', () => {
   afterEach(() => {
     for (const renderer of renderers) act(() => renderer.unmount());
     renderers.length = 0;
+    vi.unstubAllGlobals();
   });
 
   it('loads its validated deep-link page and changes folders through router navigation', async () => {
@@ -44,5 +45,26 @@ describe('useProjectListRoute', () => {
 
     act(() => { control.current!.loadMore(); });
     expect(control.current!.route).toEqual({ folderId: 'all', page: 3 });
+  });
+
+  it('refreshes the current page after mobile Safari restores it from the page cache', async () => {
+    const listeners = new Map<string, (event: { persisted?: boolean }) => void>();
+    vi.stubGlobal('window', {
+      addEventListener: (name: string, listener: (event: { persisted?: boolean }) => void) => listeners.set(name, listener),
+      removeEventListener: (name: string) => listeners.delete(name),
+    });
+    const loadPage = vi.fn().mockResolvedValue(undefined);
+    function Probe() {
+      useProjectListRoute({ token: 'token', enabled: true, hasMore: false, loading: false, loadPage });
+      return null;
+    }
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<MemoryRouter initialEntries={['/projects?page=2']}><Probe /></MemoryRouter>); });
+    renderers.push(renderer);
+    loadPage.mockClear();
+
+    await act(async () => { listeners.get('pageshow')?.({ persisted: true }); });
+
+    expect(loadPage).toHaveBeenCalledWith('token', { folderId: 'all', page: 2 }, { preserveOnError: true });
   });
 });

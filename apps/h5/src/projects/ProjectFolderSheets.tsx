@@ -1,6 +1,7 @@
 import { FolderPlus, X } from 'lucide-react';
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from 'react';
 import type { ProjectFolder } from './projectFolders';
+import { CompositionSafeInput } from '../shared/CompositionSafeInput';
 
 type FocusTargetRef = RefObject<HTMLElement | null>;
 
@@ -178,14 +179,14 @@ export function CreateProjectFolderSheet({ name, onNameChange, onCreate, onClose
     >
       <form id="create-project-folder-form" className="project-folder-create-form" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
         <label htmlFor="project-folder-name">文件夹名称</label>
-        <input
+        <CompositionSafeInput
           ref={inputRef}
           id="project-folder-name"
           aria-label="文件夹名称"
           maxLength={30}
           value={name}
           disabled={interactionLocked}
-          onChange={(event) => onNameChange(event.target.value)}
+          onValueChange={onNameChange}
           placeholder="例如：动物系列"
         />
         {error ? <p className="project-folder-sheet-error" role="alert">{error}</p> : null}

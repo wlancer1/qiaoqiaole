@@ -46,6 +46,19 @@ describe('H5 flow presentation components', () => {
     expect(source).not.toContain("setStatus('已撤销上一步。');");
   });
 
+  it('allows local image loading to use the shared progress UI without a grid-size label', () => {
+    const markup = renderToStaticMarkup(createElement(SplitCanvasLoading, {
+      rows: 0,
+      cols: 0,
+      title: '正在读取图片',
+      stage: '正在解析图片尺寸与像素',
+      progress: 25,
+    }));
+
+    expect(markup).toContain('正在读取图片');
+    expect(markup).not.toContain('正在生成 0 × 0 格画布');
+  });
+
   it('renders a non-blocking pixel-grid loading state for the generated canvas', () => {
     const markup = renderToStaticMarkup(createElement(SplitCanvasLoading, {
       rows: 160,

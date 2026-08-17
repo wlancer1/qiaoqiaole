@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Search, X } from 'lucide-react';
+import { CompositionSafeInput } from '../../shared/CompositionSafeInput';
 
 type Requirement = { colorCode: string; required: number };
 
@@ -113,7 +114,7 @@ export function BeadingToolPanels(props: BeadingToolPanelsProps) {
         <label className="beading-search-input">
           <Search aria-hidden="true" />
           <span className="sr-only">搜索作品色号</span>
-          <input ref={searchInputRef} value={props.query} onChange={(event) => props.onQueryChange(event.target.value)} placeholder="输入色号" />
+          <CompositionSafeInput ref={searchInputRef} value={props.query} onValueChange={props.onQueryChange} placeholder="输入色号" />
         </label>
         <div className="beading-search-results">
           {visibleRequirements.length === 0 ? <p className="beading-search-empty">无结果</p> : visibleRequirements.map((item) => {

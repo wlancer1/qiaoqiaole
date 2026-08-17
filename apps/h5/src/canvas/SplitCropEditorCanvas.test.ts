@@ -1,7 +1,15 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { cropSelectionRect, hitCropHandle } from './SplitCropEditorCanvas';
 
 describe('single canvas crop geometry', () => {
+  it('reserves a default viewport inset for crop handles around a full-image selection', () => {
+    const source = readFileSync(resolve('apps/h5/src/canvas/SplitCropEditorCanvas.tsx'), 'utf8');
+
+    expect(source).toContain('const padding = Math.min(24, Math.max(12, Math.min(viewport.width, viewport.height) * 0.05));');
+  });
+
   it('maps quick split bounds into the displayed image rectangle', () => {
     expect(cropSelectionRect(
       { x: 20, y: 40, width: 300, height: 200 },

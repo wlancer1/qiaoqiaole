@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
+const IMAGE_LOAD_TIMEOUT_MS = 10_000;
+const MAX_IMAGE_RETRIES = 2;
+
 type ImageWithSkeletonProps = {
   src?: string | null;
   alt: string;
@@ -7,16 +10,19 @@ type ImageWithSkeletonProps = {
   className?: string;
   imageClassName?: string;
   loading?: 'eager' | 'lazy';
+  loadTimeoutMs?: number;
   as?: 'div' | 'span';
 };
 
-export function ImageWithSkeleton({ src, alt, fallback, className = '', imageClassName = '', loading = 'lazy', as = 'div' }: ImageWithSkeletonProps) {
+export function ImageWithSkeleton({ src, alt, fallback, className = '', imageClassName = '', loading = 'lazy', loadTimeoutMs = 0, as = 'div' }: ImageWithSkeletonProps) {
   const normalizedSrc = src?.trim() ?? '';
   const [state, setState] = useState<'loading' | 'loaded' | 'failed'>(() => normalizedSrc ? 'loading' : 'failed');
+  const [retryCount, setRetryCount] = useState(0);
   const imageRef = useRef<HTMLImageElement | null>(null);
 
   useEffect(() => {
     setState(normalizedSrc ? 'loading' : 'failed');
+    setRetryCount(0);
   }, [normalizedSrc]);
 
   useEffect(() => {
@@ -25,8 +31,41 @@ export function ImageWithSkeleton({ src, alt, fallback, className = '', imageCla
     setState(image.naturalWidth > 0 ? 'loaded' : 'failed');
   }, [normalizedSrc]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const retryAfterResume = () => {
+      if (!normalizedSrc || state !== 'failed') return;
+      setState('loading');
+      setRetryCount(1);
+    };
+    window.addEventListener('online', retryAfterResume);
+    window.addEventListener('pageshow', retryAfterResume);
+    return () => {
+      window.removeEventListener('online', retryAfterResume);
+      window.removeEventListener('pageshow', retryAfterResume);
+    };
+  }, [normalizedSrc, state]);
+
+  useEffect(() => {
+    if (!normalizedSrc || state !== 'loading' || loadTimeoutMs <= 0) return undefined;
+    const timeout = setTimeout(() => {
+      if (retryCount < MAX_IMAGE_RETRIES) {
+        setRetryCount((current) => current + 1);
+        return;
+      }
+      setState('failed');
+    }, loadTimeoutMs || IMAGE_LOAD_TIMEOUT_MS);
+    return () => clearTimeout(timeout);
+  }, [loadTimeoutMs, normalizedSrc, retryCount, state]);
+
   const Wrapper = as;
   const wrapperClassName = `image-with-skeleton${state === 'loading' ? ' is-loading' : ''}${state === 'failed' ? ' is-failed' : ''}${className ? ` ${className}` : ''}`;
+  const retrySrc = retryCount > 0 ? (() => {
+    const hashIndex = normalizedSrc.indexOf('#');
+    const base = hashIndex >= 0 ? normalizedSrc.slice(0, hashIndex) : normalizedSrc;
+    const hash = hashIndex >= 0 ? normalizedSrc.slice(hashIndex) : '';
+    return `${base}${base.includes('?') ? '&' : '?'}imageRetry=${retryCount}${hash}`;
+  })() : normalizedSrc;
 
   if (!normalizedSrc || state === 'failed') {
     return <Wrapper className={wrapperClassName}>{fallback}</Wrapper>;
@@ -38,12 +77,19 @@ export function ImageWithSkeleton({ src, alt, fallback, className = '', imageCla
       <img
         ref={imageRef}
         className={`${imageClassName || 'image-with-skeleton-image'}${state === 'loaded' ? ' is-loaded' : ''}`}
-        src={normalizedSrc}
+        src={retrySrc}
         alt={alt}
         loading={loading}
         decoding="async"
         onLoad={() => setState('loaded')}
-        onError={() => setState('failed')}
+        onError={() => {
+          if (retryCount < MAX_IMAGE_RETRIES) {
+            setState('loading');
+            setRetryCount((current) => current + 1);
+            return;
+          }
+          setState('failed');
+        }}
       />
     </Wrapper>
   );

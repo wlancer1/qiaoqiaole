@@ -73,8 +73,8 @@ export function useProjectSaveOverlay({
       onFolderChange={onFolderChange}
       onCreateFolder={onCreateFolder}
     /> : null);
-    return () => setOverlaySlot('save', null);
   }, [folderId, folders, name, onCreateFolder, onFolderChange, pending, saveOpen, setOverlaySlot, shareToCommunity]);
+  useEffect(() => () => setOverlaySlot('save', null), [setOverlaySlot]);
 
   useEffect(() => {
     const slot = loginPromptOpen ? <div className="save-login-prompt" role="presentation" onClick={() => setLoginPromptOpen(false)} onTouchStart={(event) => event.stopPropagation()}>
@@ -89,8 +89,8 @@ export function useProjectSaveOverlay({
       </div>
     </div> : null;
     setOverlaySlot('saveLoginPrompt', slot);
-    return () => setOverlaySlot('saveLoginPrompt', null);
   }, [loginPromptOpen, requireLogin, setOverlaySlot]);
+  useEffect(() => () => setOverlaySlot('saveLoginPrompt', null), [setOverlaySlot]);
 
   return { open };
 }

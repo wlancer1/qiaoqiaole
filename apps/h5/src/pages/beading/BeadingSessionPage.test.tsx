@@ -258,6 +258,20 @@ beforeEach(() => {
 });
 
 describe('BeadingSessionPage integration', () => {
+  it('initially highlights the first color chip in the default order', async () => {
+    const { renderer } = await renderPage(callbacks({
+      session: session({
+        requirements: [
+          { colorCode: 'B2', required: 1 },
+          { colorCode: 'A1', required: 2 },
+        ],
+      }),
+    }));
+
+    expect(canvasSpy.props?.overlay.currentColorCode).toBe('A1');
+    expect(button(renderer, '选择色号 A1，当前')).toBeDefined();
+  });
+
   it('selects colors, restores highlight, and passes all Canvas overlay/display props', async () => {
     const { renderer } = await renderPage();
     expect(canvasSpy.props?.overlay).toEqual({

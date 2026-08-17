@@ -1,4 +1,4 @@
-import { HomeUploadHero } from '../../flow/H5FlowComponents';
+import { HomeUploadHero, SplitCanvasLoading } from '../../flow/H5FlowComponents';
 import { PatternDiscoverPage, PatternMessagesPage } from '../../patterns/H5PatternPages';
 import { CommunityPatternCard } from '../../community/CommunityPatternCard';
 import { Icon } from '../../shared/h5Icons';
@@ -8,6 +8,7 @@ import { LogOut } from 'lucide-react';
 import { useEffect, type ReactNode } from 'react';
 import { passwordValidationMessage } from '../../utils/passwordValidation';
 import { useBodyScrollLock } from '../../app/overlays/useBodyScrollLock';
+import { CompositionSafeInput } from '../../shared/CompositionSafeInput';
 
 type HomeShellPageProps = Record<string, any> & { actionSheet?: ReactNode };
 
@@ -45,26 +46,26 @@ export function PhoneLoginModal(props: Record<string, any>) {
             <span>手机号</span>
             <div className="phone-input-row">
               <b>+86</b>
-              <input type="tel" inputMode="numeric" aria-label="手机号" placeholder="请输入手机号" maxLength={13} value={phoneNumber} onChange={(event) => setPhoneNumber(event.target.value)} />
+              <CompositionSafeInput type="tel" inputMode="numeric" aria-label="手机号" placeholder="请输入手机号" maxLength={13} value={phoneNumber} onValueChange={setPhoneNumber} />
             </div>
           </label>
           <label>
             <span>密码</span>
             <div className="phone-password-row">
-              <input type="password" aria-label="密码" placeholder="请输入 8-128 位密码" maxLength={128} value={phonePassword} onChange={(event) => setPhonePassword(event.target.value)} />
+              <CompositionSafeInput type="password" aria-label="密码" placeholder="请输入 8-128 位密码" maxLength={128} value={phonePassword} onValueChange={setPhonePassword} />
             </div>
           </label>
           {passwordError ? <p className="phone-auth-error phone-password-error" role="alert">{passwordError}</p> : null}
           {phoneAuthMode === 'register' ? <label>
             <span>确认密码</span>
             <div className="phone-password-row">
-              <input type="password" aria-label="确认密码" placeholder="请再次输入密码" maxLength={128} value={phoneConfirmPassword} onChange={(event) => setPhoneConfirmPassword(event.target.value)} />
+              <CompositionSafeInput type="password" aria-label="确认密码" placeholder="请再次输入密码" maxLength={128} value={phoneConfirmPassword} onValueChange={setPhoneConfirmPassword} />
             </div>
           </label> : null}
           {phoneAuthMode === 'register' ? <label>
             <span>验证码</span>
             <div className="phone-code-row">
-              <input type="text" inputMode="numeric" aria-label="验证码" placeholder="6位验证码" maxLength={6} value={phoneCode} onChange={(event) => setPhoneCode(event.target.value.replace(/\D/g, '').slice(0, 6))} />
+              <CompositionSafeInput type="text" inputMode="numeric" aria-label="验证码" placeholder="6位验证码" maxLength={6} value={phoneCode} onValueChange={(nextValue) => setPhoneCode(nextValue.replace(/\D/g, '').slice(0, 6))} />
               <button type="button" className="phone-send-code" onClick={() => void sendPhoneCode()} disabled={phoneSending || phoneCountdown > 0}>
                 {phoneSending ? '发送中' : phoneCountdown > 0 ? `${phoneCountdown}s 后重发` : '获取验证码'}
               </button>
@@ -106,7 +107,7 @@ export function ProfileEditModal(props: Record<string, any>) {
         </button>
         <label className="profile-edit-name-field">
           <span>用户名</span>
-          <input value={profileEditName} maxLength={32} placeholder="请输入用户名" onChange={(event) => setProfileEditName(event.target.value)} />
+          <CompositionSafeInput value={profileEditName} maxLength={32} placeholder="请输入用户名" onValueChange={setProfileEditName} />
         </label>
         {profileEditError ? <p className="phone-auth-error" role="alert">{profileEditError}</p> : null}
         <button type="button" className="home-create-submit profile-edit-submit" onClick={() => void saveProfile()} disabled={profileEditSaving || !profileEditName.trim()}>
@@ -158,14 +159,14 @@ export function HomeShellPage(props: HomeShellPageProps) {
     fileInputRef, handleUpload, status, activeTab, recentProjects, onOpenRecentProject, actionSheet,
     openUpload, isLoggedIn, loginName, isLoginModalOpen,
     openLogin, showUploadModal, closeUploadModal, showXhsInput, setShowXhsInput, xhsLink, setXhsLink,
-    xhsExtractedImages, isExtractingXhs, chooseLocalDrawing, extractXiaohongshuImage, importXhsImage, showXhsImagePicker, closeXhsImagePicker,
+    xhsExtractedImages, isExtractingXhs, isImportingLocalImage, chooseLocalDrawing, extractXiaohongshuImage, importXhsImage, showXhsImagePicker, closeXhsImagePicker,
     xhsPreviewSrc, showCreateCanvasModal, setShowCreateCanvasModal,
     openBlankCanvasCreation,
     cfgCols, setCfgCols, cfgRows, setCfgRows, normalizeGridSize, parseGridSizeInput, createBlankCanvas, requireLogin,
-    setStatus, patternListCards, homeTemplateCards, openCommunityPost, setScreen, openAuthorProfile, stockedColorCount, totalWarehouseStock,
+    setStatus, patternListCards, homeTemplateCards, openCommunityPost, openAuthorProfile, stockedColorCount, totalWarehouseStock,
     activeWarehouse, mardColors, openWarehouse, setActiveTab, communitySort, setCommunitySort,
     logoutPhone, notifications, loadNotifications, openNotification,
-    profileAvatarUrl, receivedLikesCount = 0, followingCount = 0, followersCount = 0, showProfileEditModal, openProfileEdit, profileEditModal, confirmDialog, requestConfirm, openMyWorks,
+    profileAvatarUrl, receivedLikesCount = 0, followingCount = 0, followersCount = 0, showProfileEditModal, openProfileEdit, profileEditModal, confirmDialog, requestConfirm, openMyWorks, openFollowing, openFollowers,
   } = props;
   const unreadNotificationCount = (notifications ?? []).filter((item: { isRead?: boolean }) => !item.isRead).length;
   return (
@@ -201,7 +202,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
               <div className="home-section-heading">
                 <h2 id="home-recent-title">最近项目</h2>
                 {isLoggedIn && recentProjects.length > 0 ? (
-                  <button type="button" aria-label="查看全部最近项目" onClick={() => openMyWorks ? openMyWorks('home') : setScreen('my-works')}>
+                  <button type="button" aria-label="查看全部最近项目" onClick={() => openMyWorks?.('home')}>
                     全部
                     <span aria-hidden="true">›</span>
                   </button>
@@ -219,7 +220,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
                   {recentProjects.slice(0, 4).map((project: any) => (
                     <button className={`home-recent-card ${project.tone || 'recent-flower'}`} key={project.id} data-project-card-id={project.id} type="button" onClick={() => onOpenRecentProject(project)}>
                       {(project.thumbnailImage || project.sourceImage) ? (
-                        <ImageWithSkeleton className="home-recent-thumb" imageClassName="home-recent-thumb-image" src={project.thumbnailImage || project.sourceImage} alt="" fallback={<RecentProjectThumbnailPlaceholder />} />
+                        <ImageWithSkeleton className="home-recent-thumb" imageClassName="home-recent-thumb-image" src={project.thumbnailImage || project.sourceImage} alt="" loading="eager" loadTimeoutMs={10_000} fallback={<RecentProjectThumbnailPlaceholder />} />
                       ) : (
                         <RecentProjectThumbnailPlaceholder />
                       )}
@@ -246,16 +247,22 @@ export function HomeShellPage(props: HomeShellPageProps) {
                 </button>
               </div>
               <div className="home-template-row" aria-label="热门模板预览">
-                {homeTemplateCards.map((template: any) => (
-                  <CommunityPatternCard
-                    key={template.id}
-                    pattern={template}
-                    className="home-template-card"
-                    loading="eager"
-                    onOpen={openCommunityPost ?? ((pattern) => setScreen('pattern-detail', pattern.id))}
-                  />
-                ))}
-                {homeTemplateCards.length === 0 ? <p className="community-empty">还没有分享的作品</p> : null}
+                {homeTemplateCards.length > 0 ? [
+                  homeTemplateCards.filter((_: any, index: number) => index % 2 === 0),
+                  homeTemplateCards.filter((_: any, index: number) => index % 2 === 1),
+                ].map((column, columnIndex) => (
+                  <div className="home-template-masonry-column" key={`home-template-column-${columnIndex}`}>
+                    {column.map((template: any) => (
+                      <CommunityPatternCard
+                        key={template.id}
+                        pattern={template}
+                        className="home-template-card"
+                        loading="eager"
+                        onOpen={openCommunityPost}
+                      />
+                    ))}
+                  </div>
+                )) : <p className="community-empty">还没有分享的作品</p>}
               </div>
             </section>
           </div>
@@ -313,7 +320,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
             </div>
           ) : null}
           {showUploadModal ? (
-            <div className="home-create-modal" role="dialog" aria-label="上传图纸">
+            <div className="home-create-modal" role="dialog" aria-label="上传图纸" aria-busy={isImportingLocalImage}>
               <div className="home-create-panel upload-drawing-panel">
                 <div className="home-create-head">
                   <span className="modal-sheet-handle" aria-hidden="true" />
@@ -321,12 +328,13 @@ export function HomeShellPage(props: HomeShellPageProps) {
                   <button
                     aria-label="关闭上传图纸"
                     onClick={closeUploadModal}
+                    disabled={isImportingLocalImage}
                   >
                     关闭
                   </button>
                 </div>
                 <div className="upload-source-list">
-                  <button className="upload-source-option blank-canvas-source-option" type="button" onClick={openBlankCanvasCreation}>
+                  <button className="upload-source-option blank-canvas-source-option" type="button" onClick={openBlankCanvasCreation} disabled={isImportingLocalImage}>
                     <span className="upload-source-icon"><Icon name="brush" /></span>
                     <span>
                       <strong>新建空白画布</strong>
@@ -334,17 +342,18 @@ export function HomeShellPage(props: HomeShellPageProps) {
                     </span>
                     <i className="upload-source-arrow" aria-hidden="true">›</i>
                   </button>
-                  <button className="upload-source-option local-source-option" aria-label="选择图纸" onClick={chooseLocalDrawing}>
+                  <button className="upload-source-option local-source-option" aria-label="选择图纸" onClick={chooseLocalDrawing} disabled={isImportingLocalImage}>
                     <span className="upload-source-icon"><Icon name="upload" /></span>
                     <span>
-                      <strong>从相册或文件选择</strong>
-                      <small>打开设备相册或文件选择器</small>
+                      <strong>{isImportingLocalImage ? '正在读取图片…' : '从相册或文件选择'}</strong>
+                      <small>{isImportingLocalImage ? '正在解析图片尺寸与像素' : '打开设备相册或文件选择器'}</small>
                     </span>
                     <i className="upload-source-arrow" aria-hidden="true">›</i>
                   </button>
                   <button
                     className={showXhsInput ? 'upload-source-option xhs-source-option active' : 'upload-source-option xhs-source-option'}
                     onClick={() => requireLogin(() => setShowXhsInput(true))}
+                    disabled={isImportingLocalImage}
                   >
                     <span className="upload-source-icon"><Icon name="spark" /></span>
                     <span>
@@ -354,16 +363,17 @@ export function HomeShellPage(props: HomeShellPageProps) {
                     <i className="upload-source-arrow" aria-hidden="true">›</i>
                   </button>
                 </div>
+                {isImportingLocalImage ? <div className="upload-local-loading"><SplitCanvasLoading title="正在读取图片" rows={0} cols={0} stage="正在解析图片尺寸与像素" progress={25} /></div> : null}
                 {showXhsInput ? (
                   <div className="xhs-extract-form">
                     <label>
                       <span>小红书链接</span>
-                      <input
+                      <CompositionSafeInput
                         type="url"
                         aria-label="小红书链接"
                         placeholder="粘贴小红书笔记链接或分享口令"
                         value={xhsLink}
-                        onChange={(event) => setXhsLink(event.target.value)}
+                        onValueChange={setXhsLink}
                       />
                     </label>
                     <button className="home-create-submit" onClick={() => void extractXiaohongshuImage()} disabled={isExtractingXhs}>
@@ -399,7 +409,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
           hasMore={props.communityHasMore}
           loadingMore={props.isCommunityLoadingMore}
           onLoadMore={props.loadMoreCommunityPosts}
-          onOpen={openCommunityPost ?? ((pattern: any) => setScreen('pattern-detail', pattern.id))}
+          onOpen={openCommunityPost}
           onOpenAuthor={(pattern: any) => {
             openAuthorProfile?.(pattern, 'discover');
           }}
@@ -443,10 +453,10 @@ export function HomeShellPage(props: HomeShellPageProps) {
             </div>
             {isLoggedIn ? (
               <div className="profile-account-stats" aria-label="账号统计">
-                <button type="button" aria-label="查看我的作品" onClick={() => requireLogin(() => openMyWorks ? openMyWorks('profile') : setScreen('my-works'))}><strong>{recentProjects.length}</strong><span>作品</span></button>
+                <button type="button" aria-label="查看我的作品" onClick={() => requireLogin(() => openMyWorks?.('profile'))}><strong>{recentProjects.length}</strong><span>作品</span></button>
                 <button type="button" aria-label="查看获赞列表" onClick={() => requireLogin(() => setStatus('获赞列表功能即将开放。'))}><strong>{receivedLikesCount}</strong><span>获赞</span></button>
-                <button type="button" aria-label="查看关注列表" onClick={() => requireLogin(() => setScreen('following'))}><strong>{followingCount}</strong><span>关注</span></button>
-                <button type="button" aria-label="查看粉丝列表" onClick={() => requireLogin(() => setScreen('followers'))}><strong>{followersCount}</strong><span>粉丝</span></button>
+                <button type="button" aria-label="查看关注列表" onClick={() => requireLogin(() => openFollowing?.())}><strong>{followingCount}</strong><span>关注</span></button>
+                <button type="button" aria-label="查看粉丝列表" onClick={() => requireLogin(() => openFollowers?.())}><strong>{followersCount}</strong><span>粉丝</span></button>
               </div>
             ) : null}
           </section>

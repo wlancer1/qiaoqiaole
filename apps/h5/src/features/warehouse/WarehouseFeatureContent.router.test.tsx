@@ -16,6 +16,7 @@ describe('WarehouseFeatureContent async route guards', () => {
   beforeEach(() => { navigate = null; (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true; Object.assign(globalThis, { window: new EventTarget() }); });
 
   it('does not restore warehouse list after navigation and logout while the route request is pending', async () => {
+    vi.useFakeTimers();
     const pending = deferred<Response>();
     vi.stubGlobal('fetch', vi.fn(() => pending.promise));
     const store = createH5Store({ storage: undefined });
@@ -23,10 +24,13 @@ describe('WarehouseFeatureContent async route guards', () => {
     let renderer!: ReturnType<typeof create>;
     await act(async () => { renderer = create(<Provider store={store}><MemoryRouter initialEntries={['/warehouses']}><AppOverlayProvider><Navigator /><WarehouseFeatureContent requireLogin={vi.fn()} /></AppOverlayProvider></MemoryRouter></Provider>); });
     expect(globalThis.fetch).toHaveBeenCalledWith('/api/warehouses', expect.anything());
+    act(() => { vi.advanceTimersByTime(300); });
+    expect(renderer.root.findByProps({ 'aria-label': '正在加载仓库列表' }).props.role).toBe('status');
     await act(async () => { navigate?.('/profile'); store.dispatch(sessionCleared()); });
     await act(async () => { pending.resolve(new Response(JSON.stringify({ warehouses: [{ id: 'stale', name: '旧仓库' }] }), { status: 200, headers: { 'content-type': 'application/json' } })); await Promise.resolve(); });
     expect(store.getState().warehouses.items).toEqual([]);
     await act(async () => { renderer.unmount(); });
+    vi.useRealTimers();
   });
 
   it('sends one create request when duplicate anonymous taps resume after login', async () => {
@@ -61,6 +65,33 @@ describe('WarehouseFeatureContent async route guards', () => {
     await act(async () => { cancelled.resolve(false); await Promise.resolve(); });
     await act(async () => { submit().props.onClick(); });
     expect(requireLogin).toHaveBeenCalledTimes(2);
+    await act(async () => { renderer.unmount(); });
+  });
+
+  it('shows a light success status after stock is added', async () => {
+    vi.stubGlobal('fetch', vi.fn((path: string, options?: RequestInit) => {
+      if (path === '/api/warehouses') {
+        return Promise.resolve(new Response(JSON.stringify({ warehouses: [{ id: 'w1', name: '默认仓库' }] }), { status: 200, headers: { 'content-type': 'application/json' } }));
+      }
+      if (path === '/api/warehouses/w1/inventory' && options?.method === 'POST') {
+        return Promise.resolve(new Response(JSON.stringify({ inventory: { A1: 100 } }), { status: 200, headers: { 'content-type': 'application/json' } }));
+      }
+      return Promise.resolve(new Response(JSON.stringify({ inventory: {} }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    }));
+    const store = createH5Store({ storage: undefined });
+    store.dispatch(sessionEstablished({ token: 'token-a', user: { id: 'u1', username: 'u', displayName: 'u', avatarUrl: '', legacyDraftOwnerId: '', likesCount: 0, followingCount: 0, followersCount: 0 } }));
+    let renderer!: ReturnType<typeof create>;
+    await act(async () => {
+      renderer = create(<Provider store={store}><MemoryRouter initialEntries={['/warehouses/w1']}><AppOverlayProvider><WarehouseFeatureContent requireLogin={vi.fn()} /></AppOverlayProvider></MemoryRouter></Provider>);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const color = renderer.root.findAllByType('button').find((button) => button.props['aria-label'] === 'A1 库存 0 颗')!;
+    await act(async () => { color.props.onClick(); });
+    const stockIn = renderer.root.findAllByType('button').find((button) => button.children.includes('入库'))!;
+    await act(async () => { stockIn.props.onClick(); await Promise.resolve(); });
+
+    expect(store.getState().ui.status?.message).toBe('入库成功');
     await act(async () => { renderer.unmount(); });
   });
 });

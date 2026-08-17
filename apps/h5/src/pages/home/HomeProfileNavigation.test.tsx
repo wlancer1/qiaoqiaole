@@ -16,7 +16,7 @@ function profileProps(overrides: Record<string, unknown> = {}) {
     activeTab: 'profile', isLoggedIn: true, loginName: '测试用户', recentProjects: [], followingCount: 3, followersCount: 5,
     mardColors: [], stockedColorCount: 0, totalWarehouseStock: 0, activeWarehouse: null,
     notifications: [], patternListCards: [], homeTemplateCards: [], communitySort: 'latest',
-    setScreen: vi.fn(), setActiveTab: vi.fn(), openWarehouse: vi.fn(), setShowLoginModal: vi.fn(), requireLogin: vi.fn((next: (token: string) => void) => next('test-token')),
+    openMyWorks: vi.fn(), openFollowing: vi.fn(), openFollowers: vi.fn(), setActiveTab: vi.fn(), openWarehouse: vi.fn(), setShowLoginModal: vi.fn(), requireLogin: vi.fn((next: (token: string) => void) => next('test-token')),
     openProfileEdit: vi.fn(), showProfileEditModal: false, profileAvatarUrl: '', showLoginModal: false,
     showLogoutConfirm: false, setShowLogoutConfirm: vi.fn(), requestConfirm: vi.fn(), logoutPhone: vi.fn(),
     ...overrides,
@@ -31,30 +31,30 @@ describe('my profile navigation', () => {
   });
 
   it('opens my works when the works statistic is selected', () => {
-    const setScreen = vi.fn();
-    const tree = HomeShellPage(profileProps({ setScreen }));
+    const openMyWorks = vi.fn();
+    const tree = HomeShellPage(profileProps({ openMyWorks }));
     const works = collectElements(tree).find((element) => element.props['aria-label'] === '查看我的作品');
     expect(works).toBeDefined();
     works?.props.onClick?.();
-    expect(setScreen).toHaveBeenCalledWith('my-works');
+    expect(openMyWorks).toHaveBeenCalledWith('profile');
   });
 
   it('opens the following list when the following statistic is selected', () => {
-    const setScreen = vi.fn();
-    const tree = HomeShellPage(profileProps({ setScreen }));
+    const openFollowing = vi.fn();
+    const tree = HomeShellPage(profileProps({ openFollowing }));
     const following = collectElements(tree).find((element) => element.props['aria-label'] === '查看关注列表');
     expect(following).toBeDefined();
     following?.props.onClick?.();
-    expect(setScreen).toHaveBeenCalledWith('following');
+    expect(openFollowing).toHaveBeenCalledTimes(1);
   });
 
   it('opens the followers list when the followers statistic is selected', () => {
-    const setScreen = vi.fn();
-    const tree = HomeShellPage(profileProps({ setScreen }));
+    const openFollowers = vi.fn();
+    const tree = HomeShellPage(profileProps({ openFollowers }));
     const followers = collectElements(tree).find((element) => element.props['aria-label'] === '查看粉丝列表');
     expect(followers).toBeDefined();
     followers?.props.onClick?.();
-    expect(setScreen).toHaveBeenCalledWith('followers');
+    expect(openFollowers).toHaveBeenCalledTimes(1);
   });
 
   it('hides account statistics while logged out and keeps settings login-gated', () => {

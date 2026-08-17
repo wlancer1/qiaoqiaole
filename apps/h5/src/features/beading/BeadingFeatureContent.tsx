@@ -170,7 +170,8 @@ export function BeadingFeatureContent({ requestApi, requireLogin, onCommands }: 
       if (isCurrent()) inventoryChanging.current = false;
     }
   }, [requestApi, session, setStatus]);
-  useEffect(() => { setOverlaySlot('inventory', inventory ? <InventoryCheckSheet result={inventory} warehouseId={inventory.warehouseId || ''} warehouseOptions={warehouses} onWarehouseChange={changeWarehouse} onClose={() => setInventory(null)} onStart={() => { setInventory(null); }} /> : null); return () => setOverlaySlot('inventory', null); }, [changeWarehouse, inventory, setOverlaySlot, warehouses]);
+  useEffect(() => { setOverlaySlot('inventory', inventory ? <InventoryCheckSheet result={inventory} warehouseId={inventory.warehouseId || ''} warehouseOptions={warehouses} onWarehouseChange={changeWarehouse} onClose={() => setInventory(null)} onStart={() => { setInventory(null); }} /> : null); }, [changeWarehouse, inventory, setOverlaySlot, warehouses]);
+  useEffect(() => () => setOverlaySlot('inventory', null), [setOverlaySlot]);
 
   if (!route) return location.pathname === '/beading' ? <Navigate to="/projects" replace /> : null;
   if (!session || !project) return <PageSkeleton kind="editor" label="正在加载拼豆进度" />;

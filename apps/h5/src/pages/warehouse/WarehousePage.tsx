@@ -1,4 +1,5 @@
 import { ArrowLeft, Check, Minus, Package, PackageOpen, Plus, Search } from 'lucide-react';
+import { CompositionSafeInput } from '../../shared/CompositionSafeInput';
 type WarehousePageProps = Record<string, any>;
 
 export function WarehousePage(props: WarehousePageProps) {
@@ -47,12 +48,12 @@ return (
       <div className="wh-filter-bar">
         <div className="wh-search-wrap">
           <Search className="wh-search-icon" aria-hidden="true" />
-          <input
+          <CompositionSafeInput
             type="search"
             aria-label="搜索仓库色号"
             placeholder="搜索色号…"
             value={warehouseSearch}
-            onChange={(event) => setWarehouseSearch(event.target.value)}
+            onValueChange={setWarehouseSearch}
           />
         </div>
       </div>

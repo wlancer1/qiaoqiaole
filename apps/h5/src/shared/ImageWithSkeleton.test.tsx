@@ -1,5 +1,5 @@
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { ImageWithSkeleton } from './ImageWithSkeleton';
 
 beforeAll(() => {
@@ -12,6 +12,8 @@ describe('ImageWithSkeleton', () => {
   afterEach(() => {
     if (renderer) act(() => renderer?.unmount());
     renderer = undefined;
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it('shows an image skeleton until the image has loaded', () => {
@@ -36,13 +38,20 @@ describe('ImageWithSkeleton', () => {
     expect(renderer!.root.findByType('img').props.className).toContain('is-loaded');
   });
 
-  it('renders fallback after an image error and does not keep the broken image visible', () => {
+  it('retries a transient image error with a cache-busting URL before showing fallback', () => {
     act(() => {
       renderer = create(<ImageWithSkeleton src="/missing.png" alt="作品预览" fallback={<span data-fallback="true">暂无预览图</span>} />);
     });
 
     act(() => renderer!.root.findByType('img').props.onError());
 
+    expect(renderer!.root.findByType('img').props.src).toContain('imageRetry=1');
+    expect(renderer!.root.findAllByProps({ 'data-fallback': 'true' })).toHaveLength(0);
+
+    act(() => renderer!.root.findByType('img').props.onError());
+    expect(renderer!.root.findByType('img').props.src).toContain('imageRetry=2');
+
+    act(() => renderer!.root.findByType('img').props.onError());
     expect(renderer!.root.findByProps({ 'data-fallback': 'true' })).toBeTruthy();
     expect(renderer!.root.findAllByType('img')).toHaveLength(0);
     expect(renderer!.root.findAllByProps({ 'data-image-skeleton': 'true' })).toHaveLength(0);
@@ -56,6 +65,41 @@ describe('ImageWithSkeleton', () => {
     expect(renderer!.root.findByProps({ 'data-fallback': 'true' })).toBeTruthy();
     expect(renderer!.root.findAllByType('img')).toHaveLength(0);
     expect(renderer!.root.findAllByProps({ 'data-image-skeleton': 'true' })).toHaveLength(0);
+  });
+
+  it('tries a failed image again when the mobile connection comes back online', () => {
+    const listeners = new Map<string, () => void>();
+    vi.stubGlobal('window', {
+      addEventListener: (name: string, listener: () => void) => listeners.set(name, listener),
+      removeEventListener: (name: string) => listeners.delete(name),
+    });
+    act(() => {
+      renderer = create(<ImageWithSkeleton src="/mobile.png" alt="作品预览" fallback={<span data-fallback="true">暂无预览图</span>} />);
+    });
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      act(() => renderer!.root.findByType('img').props.onError());
+    }
+    expect(renderer!.root.findAllByType('img')).toHaveLength(0);
+
+    act(() => listeners.get('online')?.());
+
+    expect(renderer!.root.findByType('img').props.src).toContain('imageRetry=1');
+  });
+
+  it('does not leave the skeleton stuck when the browser emits neither load nor error', () => {
+    vi.useFakeTimers();
+    act(() => {
+      renderer = create(<ImageWithSkeleton src="/stalled.png" alt="作品预览" loadTimeoutMs={10_000} fallback={<span data-fallback="true">暂无预览图</span>} />);
+    });
+
+    act(() => { vi.advanceTimersByTime(10_000); });
+    expect(renderer!.root.findByType('img').props.src).toContain('imageRetry=1');
+    act(() => { vi.advanceTimersByTime(10_000); });
+    expect(renderer!.root.findByType('img').props.src).toContain('imageRetry=2');
+    act(() => { vi.advanceTimersByTime(10_000); });
+
+    expect(renderer!.root.findAllByProps({ 'data-image-skeleton': 'true' })).toHaveLength(0);
+    expect(renderer!.root.findByProps({ 'data-fallback': 'true' })).toBeTruthy();
   });
 
   it('uses a block wrapper by default so legacy span artwork selectors do not match the loader', () => {

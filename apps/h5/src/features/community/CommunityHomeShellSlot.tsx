@@ -31,6 +31,7 @@ export function CommunityHomeShellSlot(homeProps: Record<string, any>) {
     showXhsImagePicker={split.showXhsImagePicker}
     closeXhsImagePicker={split.closeXhsImagePicker}
     isImportingXhsImage={split.isImportingXhsImage}
+    isImportingLocalImage={split.isImportingLocalImage}
     xhsExtractedTitle={split.xhsExtractedTitle}
     {...home}
     communityMessagesPage={<CommunityMessagesPage

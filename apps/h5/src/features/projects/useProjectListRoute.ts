@@ -33,6 +33,16 @@ export function useProjectListRoute({
     void loadPageRef.current(token, route, { preserveOnError: true });
   }, [enabled, route.folderId, route.page, token]);
 
+  useEffect(() => {
+    if (!enabled || !token || typeof window === 'undefined') return undefined;
+    const refreshRestoredPage = (event: PageTransitionEvent) => {
+      if (!event.persisted) return;
+      void loadPageRef.current(token, route, { preserveOnError: true });
+    };
+    window.addEventListener('pageshow', refreshRestoredPage);
+    return () => window.removeEventListener('pageshow', refreshRestoredPage);
+  }, [enabled, route.folderId, route.page, token]);
+
   const selectFolder = (folderId: string | null | 'all') => {
     navigate(projectListPath({ folderId: folderId || 'all', page: 1 }));
   };

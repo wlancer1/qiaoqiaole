@@ -3,7 +3,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { AppScreen } from '../shared/h5Types';
-import { H5RoutedContent } from './H5RoutedContent';
+import { H5RoutedContent, type H5RoutePages } from './H5RoutedContent';
 
 beforeAll(() => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -33,13 +33,24 @@ function pageFor(screen: AppScreen): ReactNode {
   return <main aria-label={`page:${screen}`}>{screen}</main>;
 }
 
-async function renderAt(pathname: string, renderPage: (screen: AppScreen) => ReactNode = pageFor, authStatus?: 'restoring' | 'authenticated' | 'anonymous') {
+function routePages(overrides: H5RoutePages = {}): H5RoutePages {
+  return {
+    home: pageFor('home'), following: pageFor('following'), followers: pageFor('followers'),
+    'pattern-detail': pageFor('pattern-detail'), 'author-profile': pageFor('author-profile'),
+    'my-works': pageFor('my-works'), canvas: pageFor('canvas'), beading: pageFor('beading'),
+    warehouse: pageFor('warehouse'), 'warehouse-detail': pageFor('warehouse-detail'),
+    split: pageFor('split'), 'split-crop': pageFor('split-crop'), 'split-preview': pageFor('split-preview'),
+    ...overrides,
+  };
+}
+
+async function renderAt(pathname: string, pages: H5RoutePages = routePages(), authStatus?: 'restoring' | 'authenticated' | 'anonymous') {
   let renderer!: ReactTestRenderer;
   await act(async () => {
     renderer = create(
       <MemoryRouter initialEntries={[pathname]}>
         <LocationProbe />
-        <H5RoutedContent renderPage={renderPage} authStatus={authStatus} />
+        <H5RoutedContent pages={pages} authStatus={authStatus} />
       </MemoryRouter>,
     );
   });
@@ -69,19 +80,16 @@ describe('H5RoutedContent', () => {
   });
 
   it('redirects anonymous users away from protected deep links before rendering the page', async () => {
-    const renderer = await renderAt('/projects/project-1/edit', pageFor, 'anonymous');
+    const renderer = await renderAt('/projects/project-1/edit', routePages(), 'anonymous');
 
     expect(renderer.root.findByProps({ 'data-location': '/' }).children).toEqual(['/']);
     expect(renderer.root.findByProps({ 'aria-label': 'page:home' }).children).toEqual(['home']);
   });
 
-  it('invokes only the matched route renderer', async () => {
-    const renderPage = vi.fn(pageFor);
+  it('renders the direct page node registered for the matched route', async () => {
+    const renderer = await renderAt('/projects/project-1/edit', routePages({ canvas: <main aria-label="editor-route-page">编辑器</main> }));
 
-    await renderAt('/projects/project-1/edit', renderPage);
-
-    expect(renderPage).toHaveBeenCalledTimes(1);
-    expect(renderPage).toHaveBeenCalledWith('canvas');
+    expect(renderer.root.findByProps({ 'aria-label': 'editor-route-page' }).children).toEqual(['编辑器']);
   });
 
   it('shows the accessible delayed fallback until a lazy route resolves', async () => {
@@ -90,7 +98,7 @@ describe('H5RoutedContent', () => {
     const LazyRoute = lazy(() => new Promise<{ default: () => ReactNode }>((resolve) => {
       resolveRoute = resolve;
     }));
-    const renderer = await renderAt('/canvas', () => <LazyRoute />);
+    const renderer = await renderAt('/canvas', routePages({ canvas: <LazyRoute /> }));
 
     expect(renderer.root.findByProps({ 'aria-hidden': 'true' }).props.className).toBe('route-loading-delay');
     act(() => { vi.advanceTimersByTime(300); });
@@ -107,9 +115,6 @@ describe('H5RoutedContent', () => {
   it('catches a rejected lazy route and clears the error after navigation', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const RejectedRoute = lazy(() => Promise.reject(new Error('chunk failed')));
-    const renderPage = (screen: AppScreen) => screen === 'canvas'
-      ? <RejectedRoute />
-      : pageFor(screen);
     let renderer!: ReactTestRenderer;
 
     await act(async () => {
@@ -117,7 +122,7 @@ describe('H5RoutedContent', () => {
         <MemoryRouter initialEntries={['/canvas']}>
           <LocationProbe />
           <NavigationProbe />
-          <H5RoutedContent renderPage={renderPage} onReload={vi.fn()} />
+          <H5RoutedContent pages={routePages({ canvas: <RejectedRoute /> })} onReload={vi.fn()} />
         </MemoryRouter>,
       );
       await Promise.resolve();

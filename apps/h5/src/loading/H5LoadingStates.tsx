@@ -41,6 +41,24 @@ export function PageSkeleton({ kind, label }: { kind: PageSkeletonKind; label: s
   </main>;
 }
 
+export type PageLoadBoundaryProps = {
+  loading: boolean;
+  loadingLabel: string;
+  loadingDescription?: string;
+  visual?: 'pixel' | 'skeleton';
+  skeleton?: PageSkeletonKind;
+  children: ReactNode;
+};
+
+/** Keeps page-data loading behavior consistent: delayed pixel loading, then a minimum visible duration. */
+export function PageLoadBoundary({ loading, loadingLabel, loadingDescription = '正在读取数据，请稍候', visual = 'pixel', skeleton = 'home', children }: PageLoadBoundaryProps) {
+  const showLoading = useDelayedLoading(loading);
+  if (!showLoading) return children;
+  return visual === 'skeleton'
+    ? <PageSkeleton kind={skeleton} label={loadingLabel} />
+    : <RouteLoadingFallback label={loadingLabel} description={loadingDescription} />;
+}
+
 type RouteLoadErrorBoundaryProps = {
   children: ReactNode;
   resetKey: string;

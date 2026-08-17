@@ -58,7 +58,19 @@ const projectSlice = createSlice({
       })
       .addCase(moveProjectToFolderThunk.fulfilled, (state, action) => {
         const project = state.projects.find((item) => item.id === action.payload.id);
-        if (project) Object.assign(project, action.payload);
+        if (!project) return;
+        const previousFolderId = project.folderId ?? null;
+        const nextFolderId = action.payload.folderId;
+        if (previousFolderId !== nextFolderId) {
+          const updateCount = (folderId: string | null, delta: number) => {
+            if (!folderId) return;
+            const folder = state.folders.find((item) => item.id === folderId);
+            if (folder && typeof folder.projectCount === 'number') folder.projectCount = Math.max(0, folder.projectCount + delta);
+          };
+          updateCount(previousFolderId, -1);
+          updateCount(nextFolderId, 1);
+        }
+        Object.assign(project, action.payload);
       })
       .addCase(deleteProjectFolderThunk.fulfilled, (state, action) => {
         state.folders = state.folders.filter((folder) => folder.id !== action.payload.folderId);

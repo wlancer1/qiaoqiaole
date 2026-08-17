@@ -58,22 +58,23 @@ export function FlowTopbar({ title, backLabel, onBack, action }: FlowTopbarProps
 export type SplitCanvasLoadingProps = {
   rows: number;
   cols: number;
+  title?: string;
   stage: string;
   progress: number;
 };
 
-export function SplitCanvasLoading({ rows, cols, stage, progress }: SplitCanvasLoadingProps) {
+export function SplitCanvasLoading({ rows, cols, title = '像素生成中', stage, progress }: SplitCanvasLoadingProps) {
   const pixels = Array.from({ length: 25 }, (_, index) => index);
   const safeProgress = Math.max(0, Math.min(100, Math.round(progress)));
 
   return (
-    <div className="split-canvas-loading" role="status" aria-busy="true" aria-label="画布生成中">
+    <div className="split-canvas-loading" role="status" aria-busy="true" aria-label={title}>
       <div className="split-canvas-loading-grid" aria-hidden="true">
         {pixels.map((pixel) => <i className="split-canvas-loading-pixel" key={pixel} />)}
       </div>
-      <strong>像素生成中</strong>
+      <strong>{title}</strong>
       <p>{stage}</p>
-      <span className="split-canvas-loading-size">正在生成 {cols} × {rows} 格画布</span>
+      {rows > 0 && cols > 0 ? <span className="split-canvas-loading-size">正在生成 {cols} × {rows} 格画布</span> : null}
       <div className="split-canvas-loading-progress" aria-label={`生成进度 ${safeProgress}%`}>
         <span style={{ width: `${safeProgress}%` }} />
       </div>

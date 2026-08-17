@@ -470,6 +470,10 @@ async function route(request, response) {
   if (request.method === 'GET' && url.pathname === '/api/project-assets') {
     return redirectProjectAsset(request, url, response);
   }
+  const projectThumbnailMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/thumbnail$/);
+  if (projectThumbnailMatch && request.method === 'GET') {
+    return serveLegacyProjectThumbnail(request, response, projectThumbnailMatch[1], url);
+  }
   const publicAvatarMatch = url.pathname.match(/^\/api\/community\/users\/([^/]+)\/avatar$/);
   if (publicAvatarMatch && request.method === 'GET') {
     return servePublicAvatar(publicAvatarMatch[1], response);
@@ -716,7 +720,7 @@ async function handlePhoneAuthRoute(request, response, url) {
     if (request.method === 'GET' && url.pathname === '/api/v1/auth/me') {
       const user = service.authenticate(request.headers.authorization || '');
       if (!user) return sendJson(response, 401, { code: 'AUTH_UNAUTHORIZED', message: '请先登录', requestId });
-      return sendJson(response, 200, { code: 'OK', message: 'success', data: { user: { id: user.id, nickname: user.nickname, avatarUrl: user.avatarUrl || null, status: user.status } }, requestId });
+      return sendJson(response, 200, { code: 'OK', message: 'success', data: { user: { id: user.id, nickname: user.nickname, avatarUrl: user.avatarUrl || null, status: user.status }, ...getFollowCounts(user.id) }, requestId });
     }
     return sendJson(response, 404, { code: 'NOT_FOUND', message: '接口不存在', requestId });
   } catch (error) {
@@ -1164,6 +1168,16 @@ function resolveProjectImage(value, accessUserId = '') {
   return `/api/project-assets?${params.toString()}`;
 }
 
+function resolveLegacyProjectThumbnail(projectId, accessUserId) {
+  const assetPath = `project-thumbnail:${projectId}`;
+  const expiresAt = Math.floor(Date.now() / 1000) + PROJECT_ASSET_ACCESS_SECONDS;
+  const params = new URLSearchParams({
+    expires: String(expiresAt),
+    access: signProjectAssetAccess(assetPath, accessUserId, expiresAt),
+  });
+  return `/api/projects/${encodeURIComponent(projectId)}/thumbnail?${params.toString()}`;
+}
+
 function signProjectAssetAccess(assetPath, userId, expiresAt) {
   return createHmac('sha256', AUTH_PASSWORD)
     .update(`${userId}\0${assetPath}\0${expiresAt}`)
@@ -1193,7 +1207,7 @@ function normalizeProjectImagePath(value, userId, kind) {
     if (kind !== 'thumbnail') {
       throw new Error('原图必须先通过项目图片上传接口上传');
     }
-    parseDataUrl(image, '缩略图');
+    parseProjectThumbnailDataUrl(image, false);
     return image;
   }
   if (!image.startsWith('cos://')) {
@@ -1232,6 +1246,37 @@ function redirectProjectAsset(request, url, response) {
   return sendJson(response, 404, { error: 'NOT_FOUND', message: '项目图片不存在' });
 }
 
+function serveLegacyProjectThumbnail(request, response, projectId, url) {
+  const project = getOne(
+    `SELECT id, user_id AS userId, thumbnail_image AS thumbnailImage
+     FROM projects
+     WHERE id = ?`,
+    [projectId],
+  );
+  if (!project || !String(project.thumbnailImage || '').startsWith('data:')) {
+    return sendJson(response, 404, { error: 'NOT_FOUND', message: '项目缩略图不存在' });
+  }
+  const assetPath = `project-thumbnail:${project.id}`;
+  const access = String(url.searchParams.get('access') || '');
+  const expires = String(url.searchParams.get('expires') || '');
+  const user = getUserFromRequest(request);
+  if (!verifyProjectAssetAccess(assetPath, project.userId, access, expires) && user?.id !== project.userId) {
+    return sendJson(response, user ? 404 : 401, { error: user ? 'NOT_FOUND' : 'UNAUTHORIZED', message: user ? '项目缩略图不存在' : '请先登录' });
+  }
+  try {
+    const { buffer, contentType } = parseProjectThumbnailDataUrl(project.thumbnailImage);
+    response.writeHead(200, {
+      'Content-Type': contentType,
+      'Content-Length': buffer.length,
+      'Cache-Control': 'private, max-age=0',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    response.end(buffer);
+  } catch {
+    sendJson(response, 404, { error: 'NOT_FOUND', message: '项目缩略图不可用' });
+  }
+}
+
 function redirectToCosAsset(response, assetPath) {
   try {
     response.writeHead(302, {
@@ -1252,6 +1297,21 @@ function parseDataUrl(value, kind) {
     throw new Error(`${kind} 图片大小无效，不能超过 20MB`);
   }
   return { buffer, contentType: match[1] };
+}
+
+function parseProjectThumbnailDataUrl(value, validateContents = true) {
+  const parsed = parseDataUrl(value, '缩略图');
+  const contentType = parsed.contentType.toLowerCase();
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(contentType)) {
+    throw new Error('缩略图图片格式无效');
+  }
+  const matchesContentType = contentType === 'image/png'
+    ? parsed.buffer.length >= 8 && parsed.buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+    : contentType === 'image/jpeg'
+      ? parsed.buffer.length >= 3 && parsed.buffer[0] === 0xff && parsed.buffer[1] === 0xd8 && parsed.buffer[2] === 0xff
+      : parsed.buffer.length >= 12 && parsed.buffer.toString('ascii', 0, 4) === 'RIFF' && parsed.buffer.toString('ascii', 8, 12) === 'WEBP';
+  if (validateContents && !matchesContentType) throw new Error('缩略图图片内容无效');
+  return { ...parsed, contentType };
 }
 
 async function uploadProjectImages(request, response, userId) {
@@ -1318,7 +1378,9 @@ function listProjects(response, userId, url) {
   sendJson(response, 200, {
     projects: projects.map((project) => ({
       ...project,
-      thumbnailImage: String(project.thumbnailImage || '').startsWith('data:') ? '' : resolveProjectImage(project.thumbnailImage, userId),
+      thumbnailImage: String(project.thumbnailImage || '').startsWith('data:')
+        ? resolveLegacyProjectThumbnail(project.id, userId)
+        : resolveProjectImage(project.thumbnailImage, userId),
     })),
     page: pagination.page,
     pageSize: pagination.pageSize,

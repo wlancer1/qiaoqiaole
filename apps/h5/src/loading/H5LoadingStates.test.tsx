@@ -2,7 +2,7 @@ import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { PageSkeleton, RouteLoadErrorBoundary, RouteLoadingFallback } from './H5LoadingStates';
+import { PageLoadBoundary, PageSkeleton, RouteLoadErrorBoundary, RouteLoadingFallback } from './H5LoadingStates';
 
 beforeAll(() => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -31,6 +31,28 @@ describe('H5 loading states', () => {
       expect(markup).toContain('aria-hidden="true"');
     },
   );
+
+  it('uses the matching skeleton only after the shared loading delay', () => {
+    vi.useFakeTimers();
+    let renderer!: ReactTestRenderer;
+    try {
+      act(() => {
+        renderer = create(<PageLoadBoundary loading loadingLabel="正在加载仓库"><button type="button">仓库内容</button></PageLoadBoundary>);
+      });
+      expect(renderer.root.findByType('button').children).toContain('仓库内容');
+
+      act(() => { vi.advanceTimersByTime(300); });
+      expect(renderer.root.findByProps({ 'aria-label': '正在加载仓库' }).props.role).toBe('status');
+      expect(renderer.root.findAllByProps({ className: 'route-loading-pixel' })).toHaveLength(9);
+
+      act(() => { renderer.update(<PageLoadBoundary loading={false} loadingLabel="正在加载仓库"><button type="button">仓库内容</button></PageLoadBoundary>); });
+      act(() => { vi.advanceTimersByTime(250); });
+      expect(renderer.root.findByType('button').children).toContain('仓库内容');
+    } finally {
+      if (renderer!) act(() => renderer.unmount());
+      vi.useRealTimers();
+    }
+  });
 
   it('offers one accessible page reload after a route chunk fails', async () => {
     const reload = vi.fn();

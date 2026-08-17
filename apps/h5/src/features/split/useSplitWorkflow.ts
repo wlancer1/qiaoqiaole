@@ -4,10 +4,13 @@ import {
   cellsFromAlignedGridAsync,
   cellsFromImageAsync,
   clampSplitImageScale,
+  centeredAlignmentOffset,
+  centeredGridControlOrigin,
   createBlankCells,
   fitSplitImageRect,
   getImageCrop,
   gridSizeFromAlignment,
+  initialAlignCellSize,
   scaleRectFromCenter,
   touchDistance,
 } from '../../canvas/H5CanvasPreview';
@@ -23,6 +26,15 @@ import type { AlignedGrid, GridHandle, GridHandlePosition, SplitMode, SplitPrevi
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 const GRID_CONTROL_CELLS = 3;
 
+function alignCellSizeForQuickGrid(crop: { width: number; height: number }, cols: number, rows: number): number {
+  const largestMatchingSize = Math.min(crop.width / Math.max(1, cols), crop.height / Math.max(1, rows));
+  const smallestMatchingSize = Math.max(1, crop.width / Math.max(1, cols + 1), crop.height / Math.max(1, rows + 1));
+  if (smallestMatchingSize < largestMatchingSize) {
+    return largestMatchingSize - Number.EPSILON * Math.max(1, largestMatchingSize);
+  }
+  return initialAlignCellSize(crop, cols, rows);
+}
+
 export function useSplitWorkflow({ screen, setStatus, onImport, onSourceChange }: {
   screen: string;
   setStatus: (message: string) => void;
@@ -30,7 +42,7 @@ export function useSplitWorkflow({ screen, setStatus, onImport, onSourceChange }
   onSourceChange: (dataUrl: string) => void;
 }) {
   const [uploadedSplitImage, setUploadedSplitImage] = useState<UploadedSplitImage | null>(null);
-  const [splitMode, setSplitMode] = useState<SplitMode>('quick');
+  const [splitMode, setSplitModeState] = useState<SplitMode>('quick');
   const [splitLongSide, setSplitLongSide] = useState(DEFAULT_SPLIT_LONG_SIDE);
   const [splitRows, setSplitRows] = useState(DEFAULT_SPLIT_LONG_SIDE);
   const [splitCols, setSplitCols] = useState(DEFAULT_SPLIT_LONG_SIDE);
@@ -145,7 +157,7 @@ export function useSplitWorkflow({ screen, setStatus, onImport, onSourceChange }
     liveAlignCellSizeRef.current = geometry.alignCellSize;
     liveAlignOffsetRef.current = geometry.alignOffset;
     liveGridFrameOriginRef.current = geometry.gridFrameOrigin;
-    setSplitMode('quick'); setSplitLongSide(geometry.longSide); setSplitRows(geometry.rows); setSplitCols(geometry.cols); setSplitMergeThreshold(0); setSplitPreviewCells([]); setIsSplitCropped(false); setSplitPreviewTab('settings'); setLockedAlignedGrid(null); setAlignCellSize(geometry.alignCellSize); setAlignOffsetX(geometry.alignOffset.x); setAlignOffsetY(geometry.alignOffset.y); setGridFrameOrigin(geometry.gridFrameOrigin); setSplitCropBounds({ top: 0, right: geometry.cols, bottom: geometry.rows, left: 0 });
+    setSplitModeState('quick'); setSplitLongSide(geometry.longSide); setSplitRows(geometry.rows); setSplitCols(geometry.cols); setSplitMergeThreshold(0); setSplitPreviewCells([]); setIsSplitCropped(false); setSplitPreviewTab('settings'); setLockedAlignedGrid(null); setAlignCellSize(geometry.alignCellSize); setAlignOffsetX(geometry.alignOffset.x); setAlignOffsetY(geometry.alignOffset.y); setGridFrameOrigin(geometry.gridFrameOrigin); setSplitCropBounds({ top: 0, right: geometry.cols, bottom: geometry.rows, left: 0 });
   };
   const upload = async (file: File | undefined) => {
     if (!file) return false;
@@ -163,7 +175,28 @@ export function useSplitWorkflow({ screen, setStatus, onImport, onSourceChange }
   const confirmCrop = () => { if (!uploadedSplitImage) return; setIsSplitCropped(true); setSplitPreviewLoading(true); };
   const returnToCrop = () => { setIsSplitCropped(false); setSplitPreviewLoading(false); };
   const resetCrop = () => setSplitCropBounds(getAutoCropBounds(splitPreviewCells, activeSplitCols, activeSplitRows));
-  const updateLongSide = (value: number) => { if (!uploadedSplitImage) return; const side = Math.min(maxSplitLongSideFromBounds(uploadedSplitImage.crop.width, uploadedSplitImage.crop.height), Math.max(2, Math.round(value))); const size = gridSizeFromSplitBounds(uploadedSplitImage.crop.width, uploadedSplitImage.crop.height, side); setSplitLongSide(side); setSplitRows(size.rows); setSplitCols(size.cols); };
+  const updateLongSide = (value: number) => {
+    if (!uploadedSplitImage) return;
+    const side = Math.min(maxSplitLongSideFromBounds(uploadedSplitImage.crop.width, uploadedSplitImage.crop.height), Math.max(2, Math.round(value)));
+    const size = gridSizeFromSplitBounds(uploadedSplitImage.crop.width, uploadedSplitImage.crop.height, side);
+    const cellSize = alignCellSizeForQuickGrid(uploadedSplitImage.crop, size.cols, size.rows);
+    const offset = centeredAlignmentOffset(uploadedSplitImage.crop, cellSize);
+    const origin = centeredGridControlOrigin(uploadedSplitImage.crop, cellSize, offset);
+    liveAlignCellSizeRef.current = cellSize;
+    liveAlignOffsetRef.current = offset;
+    liveGridFrameOriginRef.current = origin;
+    setSplitLongSide(side); setSplitRows(size.rows); setSplitCols(size.cols);
+    setAlignCellSize(cellSize); setAlignOffsetX(offset.x); setAlignOffsetY(offset.y); setGridFrameOrigin(origin);
+  };
+  const setSplitMode = (mode: SplitMode) => {
+    const image = imageRef.current;
+    if (mode === 'quick' && splitMode === 'align' && image) {
+      const grid = gridSizeFromAlignment(image.crop, liveAlignCellSizeRef.current, liveAlignOffsetRef.current.x, liveAlignOffsetRef.current.y);
+      setSplitRows(grid.rows); setSplitCols(grid.cols);
+      setSplitLongSide(Math.min(maxSplitLongSideFromBounds(image.crop.width, image.crop.height), Math.max(2, Math.max(grid.rows, grid.cols))));
+    }
+    setSplitModeState(mode);
+  };
   const importToCanvas = () => { if (splitPreviewCells.length) onImport({ cells: splitPreviewCells, rows: cropSize(splitCropBounds).rows, cols: cropSize(splitCropBounds).cols }); };
   const clear = () => { scopeRef.current.leave('cleared'); imageRef.current = null; setUploadedSplitImage(null); setSplitPreviewCells([]); setIsSplitCropped(false); onSourceChange(''); };
   const toggleBackground = async () => {

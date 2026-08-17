@@ -505,13 +505,13 @@ export function drawAttachedGridLines(
   majorEvery = 1,
 ) {
   if (stepX <= 0 || stepY <= 0) return;
-  let column = Math.floor((imageRect.x - startX) / stepX);
+  let column = Math.ceil((imageRect.x - startX) / stepX);
   for (let x = startX + column * stepX; x <= imageRect.x + imageRect.width; x += stepX, column += 1) {
     if (column % majorEvery !== 0) continue;
     context.moveTo(x, imageRect.y);
     context.lineTo(x, imageRect.y + imageRect.height);
   }
-  let row = Math.floor((imageRect.y - startY) / stepY);
+  let row = Math.ceil((imageRect.y - startY) / stepY);
   for (let y = startY + row * stepY; y <= imageRect.y + imageRect.height; y += stepY, row += 1) {
     if (row % majorEvery !== 0) continue;
     context.moveTo(imageRect.x, y);

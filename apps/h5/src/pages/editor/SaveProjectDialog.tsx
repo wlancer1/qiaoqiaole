@@ -2,6 +2,7 @@ import { Save, X } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { ProjectFolderPicker } from '../../projects/ProjectFolderPicker';
 import type { ProjectFolder } from '../../projects/projectFolders';
+import { CompositionSafeInput } from '../../shared/CompositionSafeInput';
 
 export type SaveProjectIntent = { startBeading: boolean };
 
@@ -41,7 +42,7 @@ export function SaveProjectDialog({ saveProjectName, setSaveProjectName, shareTo
         <label className="save-project-field">
           <span>作品名称</span>
           <div className="save-project-input-wrap">
-            <input autoFocus type="text" aria-label="作品名称" maxLength={30} value={saveProjectName} disabled={covered} onChange={(event) => { if (!covered) setSaveProjectName(event.target.value); }} />
+            <CompositionSafeInput autoFocus type="text" aria-label="作品名称" maxLength={30} value={saveProjectName} disabled={covered} onValueChange={(nextValue) => { if (!covered) setSaveProjectName(nextValue); }} />
             {saveProjectName ? <button type="button" aria-label="清空作品名称" onClick={() => { if (!covered) setSaveProjectName(''); }} disabled={isSaving || covered}>×</button> : null}
           </div>
           <output>{saveProjectName.length}/30</output>

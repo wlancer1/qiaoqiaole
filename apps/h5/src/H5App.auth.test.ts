@@ -95,7 +95,8 @@ describe('H5App canvas authentication fallback', () => {
     const communityContent = fs.readFileSync(path.resolve('apps/h5/src/features/community/CommunityFeatureContent.tsx'), 'utf8');
     const communityRoutes = fs.readFileSync(path.resolve('apps/h5/src/features/community/CommunityRoutePages.tsx'), 'utf8');
 
-    expect(source).toContain('<H5RoutedContent renderPage={renderPage} />');
+    expect(source).toContain('<H5RoutedContent pages={routePages} authStatus={authStatus} />');
+    expect(source).not.toContain('renderPage={');
     expect(source).toContain('<EditorFeatureContent');
     expect(fs.readFileSync(path.resolve('apps/h5/src/features/editor/EditorFeatureContent.tsx'), 'utf8')).toContain('<PageSkeleton kind="editor" label="正在加载作品" />');
     expect(source).toContain('<WarehouseFeatureContent');

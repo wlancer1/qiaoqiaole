@@ -43,7 +43,6 @@ import { useAppOverlay } from './overlays/AppOverlayContext';
 import { projectsLoaded, selectProjectFolders, selectProjects, selectSortedProjects } from '../store/projects/projectSlice';
 import { selectActiveWarehouseId, selectWarehouses, selectWarehouseInventory } from '../store/warehouses/warehouseSlice';
 import type {
-  AppScreen,
   HomeTab,
   RecentProject,
 } from '../shared/h5Types';
@@ -139,14 +138,6 @@ function H5Application() {
     navigate(appPathForScreen('home', tab));
   };
 
-  const setScreen = (nextScreen: AppScreen) => {
-    if (nextScreen === 'warehouse-detail' && activeWarehouseId) {
-      navigate(`/warehouses/${encodeURIComponent(activeWarehouseId)}`);
-      return;
-    }
-    navigate(appPathForScreen(nextScreen, activeTab));
-  };
-
   const hasBlockingModal = Boolean(
     profileEditor.isOpen
       || isLoginModalOpen
@@ -181,7 +172,7 @@ function H5Application() {
 
   const openMyWorks = (backTarget: 'home' | 'profile' = 'profile') => {
     myWorksBackTargetRef.current = backTarget;
-    setScreen('my-works');
+    navigate('/projects');
   };
 
   useEffect(() => {
@@ -382,7 +373,7 @@ function H5Application() {
   const toggleCanvasBackground = async () => {
     const snapshot = editorCommandsRef.current?.snapshot();
     if (!snapshot || screen !== 'canvas') return;
-    editorCommandsRef.current?.replaceCanvas({ ...snapshot, cells: removeGridEdgeBackground(snapshot.cells, snapshot.rows, snapshot.cols) });
+    editorCommandsRef.current?.commitCells(removeGridEdgeBackground(snapshot.cells, snapshot.rows, snapshot.cols));
   };
 
   const loginModalFallback = useMemo(() => isLoginModalOpen ? (
@@ -471,44 +462,7 @@ function H5Application() {
     setOverlaySlot('profile', profileEditOverlay);
   }, [loginModalFallback, profileEditOverlay, setOverlaySlot]);
 
-  const renderPage = (requestedScreen: AppScreen) => {
-  if (['split', 'split-crop', 'split-preview'].includes(requestedScreen)) return withAppOverlays(<SplitFeatureContent />);
-
-  if (requestedScreen === 'canvas') {
-    return withAppOverlays(<EditorFeatureContent requestApi={requestApi} token={authToken} authStatus={authStatus} requireLogin={requireLogin} setStatus={setStatus} onCommands={(commands) => { editorCommandsRef.current = commands; const pending = pendingEditorCanvasRef.current; if (pending) { pendingEditorCanvasRef.current = null; commands.replaceCanvas(pending); } }} onImportFile={async (file) => { await splitCommandsRef.current?.upload(file); }} sourceImagePresent={Boolean(splitCommandsRef.current?.getSourceImage())} backgroundProcessing={splitCommandsRef.current?.isBackgroundProcessing() ?? false} onToggleBackground={toggleCanvasBackground} onSave={() => projectSaveOverlay.open()} onStartBeading={(projectId, nextToken) => { void beadingCommandsRef.current?.start(projectId, nextToken); }} />);
-  }
-
-  if (requestedScreen === 'beading') {
-    return null;
-  }
-
-  if (requestedScreen === 'warehouse' || requestedScreen === 'warehouse-detail') {
-    return null;
-  }
-
-  if (requestedScreen === 'my-works') {
-    return withAppOverlays(
-      <MyWorksPage
-        projects={sortedRecentProjects}
-          onBack={() => navigate(myWorksBackTargetRef.current === 'profile' ? '/profile' : '/')}
-        onOpen={projectActionOverlay.open}
-        folders={projectFolders}
-        activeFolderId={projectListRoute.route.folderId}
-        onFolderChange={projectListRoute.selectFolder}
-        onCreateFolder={() => openProjectFolderCreate('my-works')}
-        onDeleteFolder={deleteProjectFolder}
-        hasMore={projectListDomain.hasMore}
-        loadingMore={projectListDomain.loading}
-        onLoadMore={projectListRoute.loadMore}
-        page={projectListRoute.route.page}
-        total={projectListDomain.total}
-        onLoadPrevious={projectListRoute.loadPrevious}
-        actionSheet={null}
-      />,
-    );
-  }
-
-  return withAppOverlays(<CommunityFeatureContent fallback={<CommunityHomeShellSlot
+  const createCommunityPage = () => withAppOverlays(<CommunityFeatureContent fallback={<CommunityHomeShellSlot
     status={status} activeTab={activeTab}
     recentProjects={sortedRecentProjects} onOpenRecentProject={projectActionOverlay.open} actionSheet={null}
     isLoggedIn={isLoggedIn}
@@ -519,10 +473,12 @@ function H5Application() {
     openBlankCanvasCreation={openBlankCanvasCreation}
     cfgCols={cfgCols} setCfgCols={setCfgCols} cfgRows={cfgRows} setCfgRows={setCfgRows}
     normalizeGridSize={normalizeGridSize} parseGridSizeInput={parseGridSizeInput} createBlankCanvas={createBlankCanvas} requireLogin={requireLogin}
-    setStatus={setStatus} setScreen={setScreen}
+    setStatus={setStatus}
     warehouses={warehouses} stockedColorCount={stockedColorCount} totalWarehouseStock={totalWarehouseStock}
     activeWarehouse={activeWarehouse} mardColors={MARD_221_COLORS} openWarehouse={openWarehouse}
     setActiveTab={setActiveTab}
+    openFollowing={() => navigate('/following')}
+    openFollowers={() => navigate('/followers')}
     phoneNumber={authDialog.phoneNumber} setPhoneNumber={authDialog.setPhoneNumber} phoneCode={authDialog.code} setPhoneCode={authDialog.setCode}
     phonePassword={authDialog.password} setPhonePassword={authDialog.setPassword}
     rememberPassword={authDialog.rememberPassword} setRememberPassword={authDialog.setRememberPassword}
@@ -538,6 +494,40 @@ function H5Application() {
     profileEditModal={null}
     showLogoutConfirm={showLogoutConfirm} setShowLogoutConfirm={setShowLogoutConfirm}
   />}/>);
+  const splitPage = () => withAppOverlays(<SplitFeatureContent />);
+  const editorPage = withAppOverlays(<EditorFeatureContent requestApi={requestApi} token={authToken} authStatus={authStatus} requireLogin={requireLogin} setStatus={setStatus} onCommands={(commands) => { editorCommandsRef.current = commands; const pending = pendingEditorCanvasRef.current; if (pending) { pendingEditorCanvasRef.current = null; commands.replaceCanvas(pending); } }} onImportFile={async (file) => { await splitCommandsRef.current?.upload(file); }} sourceImagePresent={Boolean(splitCommandsRef.current?.getSourceImage())} backgroundProcessing={splitCommandsRef.current?.isBackgroundProcessing() ?? false} onToggleBackground={toggleCanvasBackground} onSave={() => projectSaveOverlay.open()} onStartBeading={(projectId, nextToken) => { void beadingCommandsRef.current?.start(projectId, nextToken); }} />);
+  const myWorksPage = withAppOverlays(<MyWorksPage
+    projects={sortedRecentProjects}
+    onBack={() => navigate(myWorksBackTargetRef.current === 'profile' ? '/profile' : '/')}
+    onOpen={projectActionOverlay.open}
+    folders={projectFolders}
+    activeFolderId={projectListRoute.route.folderId}
+    onFolderChange={projectListRoute.selectFolder}
+    onCreateFolder={() => openProjectFolderCreate('my-works')}
+    onDeleteFolder={deleteProjectFolder}
+    hasMore={projectListDomain.hasMore}
+    loading={projectListDomain.loading}
+    loadingMore={projectListDomain.loading}
+    onLoadMore={projectListRoute.loadMore}
+    page={projectListRoute.route.page}
+    total={projectListDomain.total}
+    onLoadPrevious={projectListRoute.loadPrevious}
+    actionSheet={null}
+  />);
+  const routePages = {
+    home: createCommunityPage(),
+    following: createCommunityPage(),
+    followers: createCommunityPage(),
+    'pattern-detail': createCommunityPage(),
+    'author-profile': createCommunityPage(),
+    'my-works': myWorksPage,
+    canvas: editorPage,
+    beading: null,
+    warehouse: null,
+    'warehouse-detail': null,
+    split: splitPage(),
+    'split-crop': splitPage(),
+    'split-preview': splitPage(),
   };
 
   return <SplitFeatureProvider setStatus={setStatus} onImport={importSplitToCanvas} onCommands={(commands) => { splitCommandsRef.current = commands; }} requestApi={requestApi} isLoggedIn={isLoggedIn} token={authToken} requireLogin={requireLogin}>
@@ -549,7 +539,7 @@ function H5Application() {
   >
     <WarehouseFeatureContent requireLogin={requireLogin} onCommands={(commands) => { warehouseCommandsRef.current = commands; }} />
     <BeadingFeatureContent requestApi={requestApi} requireLogin={requireLogin} onCommands={(commands) => { beadingCommandsRef.current = commands; }} />
-    <H5RoutedContent renderPage={renderPage} authStatus={authStatus} />
+    <H5RoutedContent pages={routePages} authStatus={authStatus} />
   </CommunityFeatureProvider>
   </SplitFeatureProvider>;
 }

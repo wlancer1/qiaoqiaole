@@ -46,15 +46,15 @@ export function useProjectActionOverlay({ actions, hasSession, onStart, onEdit, 
       onDelete={() => { actions.requestDelete(target); close(); }}
     /> : null;
     setOverlaySlot('projectAction', slot);
-    return () => setOverlaySlot('projectAction', null);
   }, [actions, hasSession, onEdit, onMove, onStart, setOverlaySlot, target]);
+  useEffect(() => () => setOverlaySlot('projectAction', null), [setOverlaySlot]);
 
   useEffect(() => {
     const project = actions.shareProject;
     const slot = project ? <ShareCommunityDialog project={project} tags={actions.shareTags} onTagsChange={actions.setShareTags} onConfirm={(tags) => { void actions.confirmShare(tags).then((shared) => shared ? onShareCommitted() : undefined).catch(() => undefined); }} onClose={actions.closeShare} isSaving={actions.sharingProjectId === project.id} isShared={Boolean(project.sharedToCommunity)} /> : null;
     setOverlaySlot('share', slot);
-    return () => setOverlaySlot('share', null);
   }, [actions, onShareCommitted, setOverlaySlot]);
+  useEffect(() => () => setOverlaySlot('share', null), [setOverlaySlot]);
 
   return { open, close };
 }

@@ -4,6 +4,7 @@ import {
   cellsFromAlignedGridAsync,
   cellsFromImage,
   cellsFromImageAsync,
+  drawAttachedGridLines,
   fitSplitImageRect,
   getViewportRulerGeometry,
   isCanvasRulerOverflowing,
@@ -34,6 +35,23 @@ describe('fitSplitImageRect', () => {
       width: 300,
       height: 400,
     });
+  });
+});
+
+describe('drawAttachedGridLines', () => {
+  it('does not draw the preceding alignment line outside the image bounds', () => {
+    const moves: Array<[number, number]> = [];
+    const lines: Array<[number, number]> = [];
+    const context = {
+      moveTo: (x: number, y: number) => moves.push([x, y]),
+      lineTo: (x: number, y: number) => lines.push([x, y]),
+    } as unknown as CanvasRenderingContext2D;
+
+    drawAttachedGridLines(context, { x: 20, y: 30, width: 100, height: 80 }, 24, 34, 20, 20);
+
+    expect(moves).toEqual(expect.arrayContaining([[24, 30], [20, 34]]));
+    expect(moves.every(([x, y]) => x >= 20 && y >= 30)).toBe(true);
+    expect(lines.every(([x, y]) => x <= 120 && y <= 110)).toBe(true);
   });
 });
 

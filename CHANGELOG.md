@@ -2,6 +2,9 @@
 
 ### Added / Changed / Fixed
 
+- Stabilized H5 mobile image loading and interaction: legacy project thumbnails use protected resource URLs, image failures retry with network/restore recovery and bounded loading timeouts, and My Works defers thumbnails after the first six to reduce mobile request contention. Added IME-safe controlled text inputs and route/overlay regressions for mobile forms.
+- Affected modules: `apps/api/src/server.mjs`, `apps/h5/src/shared/ImageWithSkeleton.tsx`, H5 home/My Works/project route/input and overlay modules, and related tests.
+
 - Decomposed the H5 application coordinator into application overlays and feature boundaries for auth, projects, community, warehouse, beading, editor, and split workflows; removed the obsolete `H5App.tsx` compatibility entry and made `app/H5Application.tsx` the sole H5 composition root.
 - Added route-scoped async guards, deep-link loaders, modal/overlay regressions, and feature-level behavior coverage across the migrated workflows.
 - Affected modules: `apps/h5/src/app`, `apps/h5/src/features`, H5 route/page tests, and related community API projection tests.

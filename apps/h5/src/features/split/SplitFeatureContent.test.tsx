@@ -31,4 +31,12 @@ describe('SplitFeatureContent', () => {
     const source = await import('node:fs').then(({ readFileSync }) => readFileSync(new URL('./SplitFeatureContent.tsx', import.meta.url), 'utf8'));
     expect(source).toContain('importSplitToCanvas: workflow.importToCanvas');
   });
+
+  it('adapts the quick-split slider to the workflow update command and image-specific range', async () => {
+    const source = await import('node:fs').then(({ readFileSync }) => readFileSync(new URL('./SplitFeatureContent.tsx', import.meta.url), 'utf8'));
+    expect(source).toContain('updateSplitLongSide: workflow.updateLongSide');
+    expect(source).toContain('minSplitLongSide: MIN_SPLIT_LONG_SIDE');
+    expect(source).toContain('maxSplitLongSide,');
+    expect(source).toContain('maxSplitLongSideFromBounds(uploadedSplitImage.crop.width, uploadedSplitImage.crop.height)');
+  });
 });

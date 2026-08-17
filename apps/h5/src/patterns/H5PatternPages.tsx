@@ -10,6 +10,8 @@ import { UserAvatar } from '../shared/UserAvatar';
 import { CommentAvatar } from './CommentAvatar';
 import { CommunityPatternCard } from '../community/CommunityPatternCard';
 import type { ProjectFolder } from '../projects/projectFolders';
+import { CompositionSafeInput } from '../shared/CompositionSafeInput';
+import { PageLoadBoundary } from '../loading/H5LoadingStates';
 
 function LoadMoreSentinel({ hasMore, loadingMore, onLoadMore }: { hasMore: boolean; loadingMore: boolean; onLoadMore?: () => void }) {
   const sentinelRef = useRef<HTMLButtonElement | null>(null);
@@ -84,6 +86,7 @@ export function MyWorksPage({
   onCreateFolder,
   onDeleteFolder,
   hasMore = false,
+  loading = false,
   loadingMore = false,
   onLoadMore,
   page = 1,
@@ -100,6 +103,7 @@ export function MyWorksPage({
   onCreateFolder?: () => void;
   onDeleteFolder?: (folder: ProjectFolder) => void;
   hasMore?: boolean;
+  loading?: boolean;
   loadingMore?: boolean;
   onLoadMore?: () => void;
   page?: number;
@@ -128,6 +132,7 @@ export function MyWorksPage({
   useEffect(() => () => clearFolderLongPress(), []);
 
   return (
+    <PageLoadBoundary loading={loading} loadingLabel="正在加载作品" loadingDescription="正在读取你的作品和文件夹">
     <main className="author-profile-page my-works-page" aria-label="我的作品">
       <header className="author-profile-header">
         <button type="button" aria-label="返回首页" onClick={onBack}><ArrowLeft aria-hidden="true" /></button>
@@ -164,7 +169,7 @@ export function MyWorksPage({
       </section> : null}
       {activeContentTab === 'works' && visibleProjects.length > 0 ? (
         <section className="author-work-grid" aria-label="我的作品列表">
-          {visibleProjects.map((project) => (
+          {visibleProjects.map((project, projectIndex) => (
             <article
               className="author-work-card my-work-card"
               key={project.id}
@@ -180,7 +185,15 @@ export function MyWorksPage({
               }}
             >
               {(project.thumbnailImage || project.sourceImage) ? (
-                <ImageWithSkeleton className="author-work-art" imageClassName="my-work-thumb-image" src={project.thumbnailImage || project.sourceImage} alt="" fallback={<div className="my-work-thumb-placeholder" aria-hidden="true" />} />
+                <ImageWithSkeleton
+                  className="author-work-art"
+                  imageClassName="my-work-thumb-image"
+                  src={project.thumbnailImage || project.sourceImage}
+                  alt=""
+                  loading={projectIndex < 6 ? 'eager' : 'lazy'}
+                  loadTimeoutMs={projectIndex < 6 ? 10_000 : 0}
+                  fallback={<div className="my-work-thumb-placeholder" aria-hidden="true" />}
+                />
               ) : (
                 <div className="author-work-art my-work-thumb-placeholder" aria-hidden="true" />
               )}
@@ -201,6 +214,7 @@ export function MyWorksPage({
       </div> : null}
       {actionSheet}
     </main>
+    </PageLoadBoundary>
   );
 }
 
@@ -264,7 +278,7 @@ export function PatternDiscoverPage({ patterns, activeSort = 'hot', query = '', 
         <header className="pattern-list-head" aria-label="稿件列表页">
           <label className="pattern-search">
             <Search aria-hidden="true" />
-            <input type="search" value={query} onChange={(event) => onQueryChange?.(event.target.value)} placeholder="搜索图纸、作者、标签" aria-label="搜索图纸、作者、标签" />
+            <CompositionSafeInput type="search" value={query} onValueChange={(nextValue) => onQueryChange?.(nextValue)} placeholder="搜索图纸、作者、标签" aria-label="搜索图纸、作者、标签" />
           </label>
           <div className="pattern-tag-filter" aria-label="标签筛选">
             <button type="button" className={selectedTags.length === 0 ? 'active' : ''} onClick={() => onTagsChange?.([])}>全部</button>
@@ -526,7 +540,7 @@ export function PatternDetailPage({ pattern, currentUserId = '', onBack, onOpenA
             })}
           </div>
           <div className="detail-comment-compose">
-            <input value={commentDraft} onChange={(event) => setCommentDraft(limitCommentContent(event.target.value))} onFocus={() => { if (!isLoggedIn) onLogin(); }} placeholder={replyTarget ? `回复 @${replyTarget.author}…` : isLoggedIn ? '写下你的评论…' : '登录后参与评论'} aria-label="评论内容" />
+            <CompositionSafeInput value={commentDraft} onValueChange={(nextValue) => setCommentDraft(limitCommentContent(nextValue))} onFocus={() => { if (!isLoggedIn) onLogin(); }} placeholder={replyTarget ? `回复 @${replyTarget.author}…` : isLoggedIn ? '写下你的评论…' : '登录后参与评论'} aria-label="评论内容" />
             <button type="button" onClick={submitComment} disabled={!commentDraft.trim() || commentSubmitting || Boolean(commentReplyPendingId)}>{commentSubmitting ? '发布中…' : '发布'}</button>
           </div>
           {replyTarget ? <button className="detail-comment-cancel-reply" type="button" onClick={() => setReplyTarget(null)}>取消回复</button> : null}

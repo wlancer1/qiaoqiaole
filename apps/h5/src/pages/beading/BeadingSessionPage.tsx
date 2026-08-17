@@ -80,6 +80,18 @@ function isTerminalStatus(status: string): boolean {
   return status === 'pending_completion' || status.startsWith('completed');
 }
 
+function firstDefaultVisibleColor(session: BeadingSession, cells: Cell[], getCode: (color: string) => string): string | null {
+  const defaultSortMode = createBeadingToolState().sortMode;
+  const requirements = sortBeadingRequirements(
+    session.requirements,
+    cells,
+    getCode,
+    session.completedColorCodes,
+    defaultSortMode,
+  );
+  return nextIncompleteColor(requirements, session.completedColorCodes);
+}
+
 export function BeadingSessionPage({
   session,
   cells,
@@ -115,7 +127,7 @@ export function BeadingSessionPage({
   const [showExit, setShowExit] = useState(false);
   const [showCompletion, setShowCompletion] = useState(session.status === 'pending_completion');
   const [current, setCurrent] = useState<string | null>(() => (
-    nextIncompleteColor(session.requirements, session.completedColorCodes)
+    firstDefaultVisibleColor(session, cells, getCode)
   ));
   const cellCount = Math.max(0, rows * cols);
   const askForConfirmation = requestConfirm ?? ((request: { onConfirm: () => void | Promise<void> }) => { void request.onConfirm(); });
@@ -171,7 +183,7 @@ export function BeadingSessionPage({
       dispatch({ type: 'reset' });
       setPaused(pausedFromSession(session));
       setPauseRequested(false);
-      setCurrent(nextIncompleteColor(session.requirements, session.completedColorCodes));
+      setCurrent(firstDefaultVisibleColor(session, cells, getCode));
       setSearchQuery('');
       setShowExit(false);
       setShowCompletion(session.status === 'pending_completion');
@@ -192,7 +204,7 @@ export function BeadingSessionPage({
       if (selected && session.requirements.some(({ colorCode }) => colorCode === selected)) return selected;
       return nextIncompleteColor(session.requirements, session.completedColorCodes);
     });
-  }, [session.id, session.version, session.elapsedSeconds, session.status, session.requirements, session.completedColorCodes]);
+  }, [cells, getCode, session.id, session.version, session.elapsedSeconds, session.status, session.requirements, session.completedColorCodes]);
 
   useEffect(() => {
     setCurrent((selected) => {

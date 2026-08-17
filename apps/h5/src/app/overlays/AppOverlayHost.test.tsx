@@ -1,17 +1,23 @@
 import { type ReactNode } from 'react';
+import { readFileSync } from 'node:fs';
 import { Provider } from 'react-redux';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createH5Store } from '../../store/store';
 import { AuthGateProvider } from '../../store/ui/AuthGateContext';
-import { statusRequested } from '../../store/ui/uiSlice';
+import { statusCleared, statusRequested } from '../../store/ui/uiSlice';
 import { appOverlaySlotNames, AppOverlayProvider, useAppOverlay } from './AppOverlayContext';
 import { AppOverlayHost } from './AppOverlayHost';
 import { RouteScopeBridge } from '../RouteScopeBridge';
 import { InventoryCheckSheet } from '../../pages/beading/InventoryCheckSheet';
 import { PhoneLoginModal, ProfileEditModal } from '../../pages/home/HomeShellPage';
 import { CreateProjectFolderSheet } from '../../projects/ProjectFolderSheets';
+
+vi.mock('react-hot-toast', () => ({
+  Toaster: () => <div data-testid="third-party-toast-host" />,
+  toast: Object.assign(vi.fn(), { dismiss: vi.fn() }),
+}));
 
 beforeAll(() => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -116,14 +122,28 @@ function FolderControls() {
 }
 
 describe('AppOverlayHost', () => {
-  it('renders a route-scoped status in the persistent host and clears it independently', () => {
+  it('delegates route-scoped light status presentation to react-hot-toast', () => {
+    const source = readFileSync(new URL('./AppOverlayHost.tsx', import.meta.url), 'utf8');
+
+    expect(source).toContain("from 'react-hot-toast'");
+    expect(source).toContain('<Toaster');
+    expect(source).toContain('toast(');
+    expect(source).toContain('position="bottom-center"');
+    expect(source).toContain('env(safe-area-inset-bottom)');
+    expect(source).not.toContain('className="app-status"');
+  });
+
+  it('renders a route-scoped status through the persistent toast host and clears it independently', () => {
     const { renderer, store } = renderOverlay();
     act(() => {
       store.dispatch(statusRequested({ scopeId: store.getState().ui.currentRouteScope, message: '保存成功' }));
     });
 
-    expect(renderer.root.findByProps({ role: 'status' }).children.join('')).toContain('保存成功');
-    act(() => renderer.root.findByProps({ 'aria-label': '关闭提示' }).props.onClick());
+    expect(renderer.root.findAllByProps({ 'data-testid': 'third-party-toast-host' })).toHaveLength(1);
+    expect(renderer.root.findAllByProps({ className: 'app-status' })).toHaveLength(0);
+    act(() => {
+      store.dispatch(statusCleared({ scopeId: store.getState().ui.currentRouteScope }));
+    });
     expect(store.getState().ui.status).toBeNull();
   });
 

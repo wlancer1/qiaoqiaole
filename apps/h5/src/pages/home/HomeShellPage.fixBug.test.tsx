@@ -73,6 +73,22 @@ function collectElements(node: ReactNode): TestElement[] {
 }
 
 describe('home recent project actions', () => {
+  it('renders a local image loading status while the selected drawing is being read', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/pages/home/HomeShellPage.tsx'), 'utf8');
+
+    expect(source).toContain('isImportingLocalImage');
+    expect(source).toContain('<SplitCanvasLoading');
+    expect(source).toContain('title="正在读取图片"');
+  });
+
+  it('uses independent columns for the popular template masonry layout', () => {
+    const source = fs.readFileSync(path.resolve('apps/h5/src/pages/home/HomeShellPage.tsx'), 'utf8');
+    const styles = fs.readFileSync(path.resolve('apps/h5/src/styles.css'), 'utf8');
+
+    expect(source).toContain('home-template-masonry-column');
+    expect(styles).toContain('.home-template-masonry-column');
+  });
+
   it('does not retain the old colored recent-project artwork styles', () => {
     const styles = fs.readFileSync(path.resolve('apps/h5/src/styles.css'), 'utf8');
     expect(styles).not.toContain('.recent-flower .home-recent-thumb');
@@ -86,6 +102,7 @@ describe('home recent project actions', () => {
       rows: 32,
       cols: 32,
       tone: 'recent-bear',
+      thumbnailImage: '/api/projects/recent-1/thumbnail',
       createdAt: '2026-08-01T00:00:00.000Z',
       updatedAt: '2026-08-01T00:00:00.000Z',
     };
@@ -165,7 +182,8 @@ describe('home recent project actions', () => {
 
     const markup = renderToStaticMarkup(shell);
     expect(markup).toContain('data-testid="recent-project-action-sheet"');
-    expect(markup).toContain('home-recent-thumb-placeholder');
+    expect(markup).toContain('src="/api/projects/recent-1/thumbnail"');
+    expect(markup).toContain('loading="eager"');
 
     const recentCard = collectElements(shell).find((element) => element.props.className?.includes('home-recent-card'));
     expect(recentCard).toBeDefined();
@@ -221,7 +239,7 @@ describe('Xiaohongshu link input guidance', () => {
       notifications: [],
       setActiveTab: vi.fn(),
     });
-    const xhsInput = collectElements(shell).find((element) => element.type === 'input' && element.props['aria-label'] === '小红书链接');
+    const xhsInput = collectElements(shell).find((element) => element.props['aria-label'] === '小红书链接');
     const markup = renderToStaticMarkup(shell);
 
     expect(xhsInput).toBeDefined();

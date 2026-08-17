@@ -118,6 +118,15 @@ describe('phone SMS authentication', () => {
     expect(login.response.status).toBe(200);
     expect(login.body.data.isNewUser).toBe(false);
 
+    const me = await request('/api/v1/auth/me', {
+      headers: { authorization: `Bearer ${login.body.data.accessToken}` },
+    });
+    expect(me.response.status).toBe(200);
+    expect(me.body.data).toMatchObject({
+      user: { id: login.body.data.user.id, nickname: '用户8000', status: 'ACTIVE' },
+      likesCount: 0, followingCount: 0, followersCount: 0,
+    });
+
     const warehouse = await request('/api/warehouses', {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${login.body.data.accessToken}` },

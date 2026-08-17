@@ -1,6 +1,7 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import { SplitRoutePages } from './SplitRoutePages';
 import { useSplitFeature } from './SplitFeatureProvider';
+import { MAX_SPLIT_LONG_SIDE, MIN_SPLIT_LONG_SIDE, maxSplitLongSideFromBounds } from '../../utils/splitConfig';
 
 /**
  * Route-facing split boundary.  The app only supplies the one deliberate
@@ -15,10 +16,15 @@ export function SplitFeatureContent() {
       ? 'split-preview'
       : 'split';
   const workflow = useSplitFeature();
+  const uploadedSplitImage = workflow.uploadedSplitImage;
+  const maxSplitLongSide = uploadedSplitImage
+    ? maxSplitLongSideFromBounds(uploadedSplitImage.crop.width, uploadedSplitImage.crop.height)
+    : MAX_SPLIT_LONG_SIDE;
   return <SplitRoutePages screen={screen} workflow={{
     ...workflow,
     setScreen: (next: string) => navigate(next === 'home' ? '/' : next === 'split-crop' ? '/split/crop' : next === 'split-preview' ? '/split/preview' : '/split'),
-    minSplitLongSide: 2, maxSplitLongSide: 120, alignCellSize: workflow.alignCellSize, moveGridControlFrame: workflow.moveGridControlFrame, updateAlignCellSize: workflow.updateAlignCellSize,
+    updateSplitLongSide: workflow.updateLongSide,
+    minSplitLongSide: MIN_SPLIT_LONG_SIDE, maxSplitLongSide, alignCellSize: workflow.alignCellSize, moveGridControlFrame: workflow.moveGridControlFrame, updateAlignCellSize: workflow.updateAlignCellSize,
     onNext: () => { workflow.openPreview(); navigate('/split/crop'); },
     zoomSplitCropImage: (factor: number) => workflow.setSplitImageScale(Math.max(.6, Math.min(8, workflow.splitImageScale * factor))),
     resetSplitCropImage: () => workflow.setSplitImageScale(1),

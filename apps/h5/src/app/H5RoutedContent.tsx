@@ -5,38 +5,34 @@ import { resolveAuthRoute } from '../features/auth/authRouteGuard';
 import type { AppScreen } from '../shared/h5Types';
 import { H5_ROUTE_PATHS } from './h5Routes';
 
-export type H5RoutePageRenderer = (screen: AppScreen) => ReactNode;
+export type H5RoutePages = Partial<Record<AppScreen, ReactNode>>;
 
-function MatchedRoutePage({ screen, renderPage }: { screen: AppScreen; renderPage: H5RoutePageRenderer }) {
-  return <>{renderPage(screen)}</>;
-}
-
-export function H5RouteSwitch({ renderPage }: { renderPage: H5RoutePageRenderer }) {
+export function H5RouteSwitch({ pages }: { pages: H5RoutePages }) {
   return <Routes>
-    <Route path={H5_ROUTE_PATHS.home} element={<MatchedRoutePage screen="home" renderPage={renderPage} />} />
-    <Route path={H5_ROUTE_PATHS.discover} element={<MatchedRoutePage screen="home" renderPage={renderPage} />} />
-    <Route path={H5_ROUTE_PATHS.messages} element={<MatchedRoutePage screen="home" renderPage={renderPage} />} />
-    <Route path={H5_ROUTE_PATHS.profile} element={<MatchedRoutePage screen="home" renderPage={renderPage} />} />
-    <Route path={H5_ROUTE_PATHS.following} element={<MatchedRoutePage screen="following" renderPage={renderPage} />} />
-    <Route path={H5_ROUTE_PATHS.followers} element={<MatchedRoutePage screen="followers" renderPage={renderPage} />} />
-    <Route path={H5_ROUTE_PATHS.communityPost} element={<MatchedRoutePage screen="pattern-detail" renderPage={renderPage} />} />
-    <Route path={H5_ROUTE_PATHS.authorProfile} element={<MatchedRoutePage screen="author-profile" renderPage={renderPage} />} />
-    <Route path={H5_ROUTE_PATHS.projects} element={<MatchedRoutePage screen="my-works" renderPage={renderPage} />} />
-    <Route path={H5_ROUTE_PATHS.projectEdit} element={<MatchedRoutePage screen="canvas" renderPage={renderPage} />} />
-    <Route path={H5_ROUTE_PATHS.projectBeading} element={<MatchedRoutePage screen="beading" renderPage={renderPage} />} />
-    <Route path={H5_ROUTE_PATHS.warehouses} element={<MatchedRoutePage screen="warehouse" renderPage={renderPage} />} />
-    <Route path={H5_ROUTE_PATHS.warehouseDetail} element={<MatchedRoutePage screen="warehouse-detail" renderPage={renderPage} />} />
-    <Route path={H5_ROUTE_PATHS.split} element={<MatchedRoutePage screen="split" renderPage={renderPage} />} />
-    <Route path={H5_ROUTE_PATHS.splitCrop} element={<MatchedRoutePage screen="split-crop" renderPage={renderPage} />} />
-    <Route path={H5_ROUTE_PATHS.splitPreview} element={<MatchedRoutePage screen="split-preview" renderPage={renderPage} />} />
-    <Route path={H5_ROUTE_PATHS.canvas} element={<MatchedRoutePage screen="canvas" renderPage={renderPage} />} />
-    <Route path={H5_ROUTE_PATHS.beading} element={<MatchedRoutePage screen="beading" renderPage={renderPage} />} />
+    <Route path={H5_ROUTE_PATHS.home} element={pages.home} />
+    <Route path={H5_ROUTE_PATHS.discover} element={pages.home} />
+    <Route path={H5_ROUTE_PATHS.messages} element={pages.home} />
+    <Route path={H5_ROUTE_PATHS.profile} element={pages.home} />
+    <Route path={H5_ROUTE_PATHS.following} element={pages.following} />
+    <Route path={H5_ROUTE_PATHS.followers} element={pages.followers} />
+    <Route path={H5_ROUTE_PATHS.communityPost} element={pages['pattern-detail']} />
+    <Route path={H5_ROUTE_PATHS.authorProfile} element={pages['author-profile']} />
+    <Route path={H5_ROUTE_PATHS.projects} element={pages['my-works']} />
+    <Route path={H5_ROUTE_PATHS.projectEdit} element={pages.canvas} />
+    <Route path={H5_ROUTE_PATHS.projectBeading} element={pages.beading} />
+    <Route path={H5_ROUTE_PATHS.warehouses} element={pages.warehouse} />
+    <Route path={H5_ROUTE_PATHS.warehouseDetail} element={pages['warehouse-detail']} />
+    <Route path={H5_ROUTE_PATHS.split} element={pages.split} />
+    <Route path={H5_ROUTE_PATHS.splitCrop} element={pages['split-crop']} />
+    <Route path={H5_ROUTE_PATHS.splitPreview} element={pages['split-preview']} />
+    <Route path={H5_ROUTE_PATHS.canvas} element={pages.canvas} />
+    <Route path={H5_ROUTE_PATHS.beading} element={pages.beading} />
     <Route path="*" element={<Navigate to={H5_ROUTE_PATHS.home} replace />} />
   </Routes>;
 }
 
-export function H5RoutedContent({ renderPage, onReload, authStatus }: {
-  renderPage: H5RoutePageRenderer;
+export function H5RoutedContent({ pages, onReload, authStatus }: {
+  pages: H5RoutePages;
   onReload?: () => void;
   authStatus?: 'restoring' | 'authenticated' | 'anonymous';
 }) {
@@ -50,7 +46,7 @@ export function H5RoutedContent({ renderPage, onReload, authStatus }: {
 
   return <RouteLoadErrorBoundary resetKey={resetKey} onReload={onReload}>
     <Suspense fallback={<DelayedRouteLoadingFallback />}>
-      <H5RouteSwitch renderPage={renderPage} />
+      <H5RouteSwitch pages={pages} />
     </Suspense>
   </RouteLoadErrorBoundary>;
 }

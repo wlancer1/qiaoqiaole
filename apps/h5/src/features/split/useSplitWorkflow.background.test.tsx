@@ -21,13 +21,13 @@ class TestImageData {
   constructor(public data: Uint8ClampedArray, public width: number, public height: number) {}
 }
 
-function opaqueImage() {
-  return new TestImageData(new Uint8ClampedArray([
-    255, 255, 255, 255,
-    0, 0, 0, 255,
-    255, 0, 0, 255,
-    0, 255, 0, 255,
-  ]), 2, 2) as unknown as ImageData;
+function opaqueImage(width = 2, height = 2) {
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let pixel = 0; pixel < width * height; pixel += 1) {
+    data[pixel * 4] = 255;
+    data[pixel * 4 + 3] = 255;
+  }
+  return new TestImageData(data, width, height) as unknown as ImageData;
 }
 
 describe('useSplitWorkflow background operations', () => {
@@ -42,7 +42,7 @@ describe('useSplitWorkflow background operations', () => {
     vi.restoreAllMocks();
   });
 
-  function setup(screen = 'split-preview') {
+  function setup(screen = 'split-preview', image = opaqueImage()) {
     const status = vi.fn(); const sourceChange = vi.fn();
     const control = { current: null as ReturnType<typeof useSplitWorkflow> | null };
     function Probe({ route }: { route: string }) {
@@ -52,7 +52,7 @@ describe('useSplitWorkflow background operations', () => {
     let renderer!: ReactTestRenderer;
     act(() => { renderer = create(<Probe route={screen} />); });
     renderers.push(renderer);
-    act(() => { control.current!.loadImage('source.png', opaqueImage()); });
+    act(() => { control.current!.loadImage('source.png', image); });
     return { control, renderer, status, sourceChange, rerender: (route: string) => act(() => renderer.update(<Probe route={route} />)) };
   }
 
@@ -64,6 +64,41 @@ describe('useSplitWorkflow background operations', () => {
     await act(async () => { asyncControl.resolveNext(); await toggle; });
     expect(view.control.current!.uploadedSplitImage).toMatchObject({ backgroundRemoved: true, crop });
     expect(view.control.current!.uploadedSplitImage!.crop).toEqual(crop);
+  });
+
+  it('synchronizes a changed quick-split grid when switching to alignment', () => {
+    const view = setup('split', opaqueImage(100, 75));
+
+    act(() => { view.control.current!.updateLongSide(10); });
+    const quickGrid = {
+      rows: view.control.current!.activeSplitRows,
+      cols: view.control.current!.activeSplitCols,
+    };
+
+    act(() => { view.control.current!.setSplitMode('align'); });
+
+    expect({
+      rows: view.control.current!.activeSplitRows,
+      cols: view.control.current!.activeSplitCols,
+    }).toEqual(quickGrid);
+  });
+
+  it('synchronizes an adjusted alignment grid when switching back to quick split', () => {
+    const view = setup('split', opaqueImage(100, 75));
+
+    act(() => { view.control.current!.setSplitMode('align'); });
+    act(() => { view.control.current!.updateAlignCellSize(10); });
+    const alignedGrid = {
+      rows: view.control.current!.activeSplitRows,
+      cols: view.control.current!.activeSplitCols,
+    };
+
+    act(() => { view.control.current!.setSplitMode('quick'); });
+
+    expect({
+      rows: view.control.current!.activeSplitRows,
+      cols: view.control.current!.activeSplitCols,
+    }).toEqual(alignedGrid);
   });
 
   it('discards a deferred background toggle after the route leaves the split flow', async () => {

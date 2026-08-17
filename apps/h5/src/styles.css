@@ -3312,8 +3312,16 @@ input:focus-visible {
 .home-template-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
   gap: 0.381rem;
   margin-top: 0.29rem;
+}
+
+.home-template-masonry-column {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.508rem;
 }
 
 .home-template-card.pattern-card {
@@ -3321,6 +3329,16 @@ input:focus-visible {
   width: 100%;
   padding: 0;
   text-align: left;
+}
+
+.upload-local-loading {
+  position: relative;
+  min-height: 5.7143rem;
+  margin: .3175rem 0 0;
+}
+
+.upload-local-loading .split-canvas-loading {
+  background: transparent;
 }
 
 .template-corgi > div {

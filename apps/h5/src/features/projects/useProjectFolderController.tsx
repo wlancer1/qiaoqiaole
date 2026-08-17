@@ -149,8 +149,8 @@ export function useProjectFolderController({ token, activeFolderId, onActiveFold
       {createOpen ? <CreateProjectFolderSheet name={createName} onNameChange={setCreateName} onCreate={createFolder} onClose={closeCreate} pending={createPending} error={createError} returnFocusRef={createFocusRef} /> : null}
     </> : null;
     setOverlaySlot('folder', overlay);
-    return () => setOverlaySlot('folder', null);
   }, [createError, createName, createOpen, createPending, folders, moveError, moveFolderId, movePending, moveTarget, setOverlaySlot]);
+  useEffect(() => () => setOverlaySlot('folder', null), [setOverlaySlot]);
 
   return { saveFolderId, setSaveFolderId, openCreate, openMove, deleteFolder };
 }

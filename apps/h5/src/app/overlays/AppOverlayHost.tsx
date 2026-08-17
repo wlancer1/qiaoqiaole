@@ -1,34 +1,56 @@
-import { useLocation } from 'react-router-dom';
+import { useEffect, useRef } from 'react';
+import { Toaster, toast } from 'react-hot-toast';
 import { ConfirmDialog } from '../../shared/ConfirmDialog';
-import { useAppDispatch } from '../../store/hooks';
-import { globalStatusCleared, statusCleared } from '../../store/ui/uiSlice';
 import { useStatusAutoDismiss } from '../../store/ui/useStatusAutoDismiss';
-import { routeScopeId } from '../RouteScopeBridge';
 import { useRouteScopedStatus } from '../useRouteScopedStatus';
 import { appOverlaySlotNames, useAppOverlay, useAppOverlayState } from './AppOverlayContext';
 import { useBodyScrollLock } from './useBodyScrollLock';
 
 export function AppOverlayHost() {
-  const dispatch = useAppDispatch();
-  const location = useLocation();
   const status = useRouteScopedStatus();
+  const statusToastIdRef = useRef<string | null>(null);
   const { confirmRequest, slots } = useAppOverlayState();
   const { closeConfirm } = useAppOverlay();
   useStatusAutoDismiss();
   useBodyScrollLock(Boolean(confirmRequest || appOverlaySlotNames.some((name) => slots[name])));
 
-  const clearStatus = () => {
-    if (!status) return;
-    if (status.scopeId === 'global') {
-      dispatch(globalStatusCleared());
+  useEffect(() => {
+    if (!status) {
+      if (statusToastIdRef.current !== null) toast.dismiss(statusToastIdRef.current);
+      statusToastIdRef.current = null;
       return;
     }
-    dispatch(statusCleared({ scopeId: routeScopeId(location) }));
-  };
+    const id = `h5-status:${status.scopeId}`;
+    statusToastIdRef.current = toast(status.message, {
+      id,
+      duration: 2800,
+      ariaProps: { role: 'status', 'aria-live': 'polite' },
+    });
+  }, [status]);
 
   return (
     <div className="h5-app-overlays" data-testid="h5-app-overlay-host">
-      {status ? <p className="app-status" role="status" aria-live="polite">{status.message}<button className="app-status-close" type="button" aria-label="关闭提示" onClick={clearStatus}>×</button></p> : null}
+      <Toaster
+        position="bottom-center"
+        containerStyle={{ bottom: 'max(2.6032rem, calc(1.8413rem + env(safe-area-inset-bottom)))' }}
+        toastOptions={{
+          duration: 2800,
+          style: {
+            width: 'min(calc(100% - 1.5238rem), 8.9524rem)',
+            maxWidth: 'calc(100% - 1.5238rem)',
+            padding: '.3175rem .4444rem',
+            borderRadius: '.4444rem',
+            background: 'var(--ink)',
+            color: '#fff',
+            fontFamily: 'PingFangSC, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+            fontSize: '.381rem',
+            fontWeight: 600,
+            lineHeight: 1.35,
+            textAlign: 'center',
+            boxShadow: '0 .254rem .5714rem rgba(14, 26, 44, .22)',
+          },
+        }}
+      />
       {confirmRequest ? <ConfirmDialog
         {...confirmRequest.request}
         onCancel={() => closeConfirm(confirmRequest.id)}

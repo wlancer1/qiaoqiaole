@@ -5,7 +5,7 @@ describe('auth login flows', () => {
   it('executes username and phone login with injectable requests', async () => {
     const submit = vi.fn()
       .mockResolvedValueOnce({ token: 'u', user: { id: '1', username: 'alice' } })
-      .mockResolvedValueOnce({ accessToken: 'p', user: { id: '2', username: '13800000000' } });
+      .mockResolvedValueOnce({ code: 'OK', message: 'success', data: { accessToken: 'p', user: { id: '2', nickname: '用户8000' } } });
     const refresh = vi.fn().mockResolvedValue(undefined);
     const flows = createAuthLoginFlows({ request: submit, refreshFeatures: refresh });
 

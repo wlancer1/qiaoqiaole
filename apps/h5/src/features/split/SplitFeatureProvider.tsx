@@ -13,7 +13,7 @@ type SplitFeatureValue = ReturnType<typeof useSplitWorkflow> & {
   showXhsInput: boolean; setShowXhsInput: (value: boolean) => void; xhsLink: string; setXhsLink: (value: string) => void;
   xhsExtractedImages: XhsExtractedImage[]; isExtractingXhs: boolean; extractXiaohongshuImage: () => Promise<void>;
   importXhsImage: (image: XhsExtractedImage) => Promise<void>; showXhsImagePicker: boolean; closeXhsImagePicker: () => void;
-  isImportingXhsImage: boolean; xhsExtractedTitle: string;
+  isImportingXhsImage: boolean; isImportingLocalImage: boolean; xhsExtractedTitle: string;
 };
 const SplitFeatureContext = createContext<SplitFeatureValue | null>(null);
 
@@ -46,6 +46,7 @@ export function SplitFeatureProvider({ children, onImport, setStatus, onCommands
   const [showXhsImagePicker, setShowXhsImagePicker] = useState(false);
   const [isExtractingXhs, setIsExtractingXhs] = useState(false);
   const [isImportingXhsImage, setIsImportingXhsImage] = useState(false);
+  const [isImportingLocalImage, setIsImportingLocalImage] = useState(false);
   const xhsRequest = useRef(0); const xhsImport = useRef(0);
   const xhsScopeRef = useRef({ routeScope, token: token ?? '' });
   if (xhsScopeRef.current.routeScope !== routeScope || xhsScopeRef.current.token !== (token ?? '')) {
@@ -61,20 +62,27 @@ export function SplitFeatureProvider({ children, onImport, setStatus, onCommands
     xhsRequest.current += 1;
     xhsImport.current += 1;
     setShowUploadModal(false); setShowXhsInput(false); setShowXhsImagePicker(false);
-    setXhsExtractedImages([]); setXhsExtractedTitle(''); setIsExtractingXhs(false); setIsImportingXhsImage(false);
+    setXhsExtractedImages([]); setXhsExtractedTitle(''); setIsExtractingXhs(false); setIsImportingXhsImage(false); setIsImportingLocalImage(false);
   }, [routeScope, token]);
-  const closeUploadModal = () => { xhsRequest.current += 1; xhsImport.current += 1; setShowUploadModal(false); setShowXhsInput(false); setShowXhsImagePicker(false); setXhsExtractedImages([]); setXhsExtractedTitle(''); setXhsLink(''); setIsExtractingXhs(false); setIsImportingXhsImage(false); };
-  const openUpload = () => { setShowUploadModal(true); setShowXhsInput(false); setShowXhsImagePicker(false); setXhsExtractedImages([]); setXhsExtractedTitle(''); setXhsLink(''); };
+  const closeUploadModal = () => { if (isImportingLocalImage) return; xhsRequest.current += 1; xhsImport.current += 1; setShowUploadModal(false); setShowXhsInput(false); setShowXhsImagePicker(false); setXhsExtractedImages([]); setXhsExtractedTitle(''); setXhsLink(''); setIsExtractingXhs(false); setIsImportingXhsImage(false); setIsImportingLocalImage(false); };
+  const openUpload = () => { setShowUploadModal(true); setShowXhsInput(false); setShowXhsImagePicker(false); setXhsExtractedImages([]); setXhsExtractedTitle(''); setXhsLink(''); setIsImportingLocalImage(false); };
   const value = useMemo(() => ({
     ...workflow,
     openFromUpload: async (file: File | undefined) => {
-      const loaded = await workflow.upload(file);
-      // Only enter the flow after a valid image actually loaded.
-      if (loaded) navigate('/split');
+      if (!file) return;
+      setIsImportingLocalImage(true);
+      try {
+        const loaded = await workflow.upload(file);
+        // Only enter the flow after a valid image actually loaded.
+        if (loaded) navigate('/split');
+      } finally {
+        setIsImportingLocalImage(false);
+      }
     },
     fileInputRef, showUploadModal, closeUploadModal, openUpload,
-    chooseLocalDrawing: () => { closeUploadModal(); fileInputRef.current?.click(); },
+    chooseLocalDrawing: () => { fileInputRef.current?.click(); },
     showXhsInput, setShowXhsInput, xhsLink, setXhsLink, xhsExtractedImages, isExtractingXhs, showXhsImagePicker, isImportingXhsImage, xhsExtractedTitle,
+    isImportingLocalImage,
     closeXhsImagePicker: () => { if (!isImportingXhsImage) { xhsImport.current += 1; setShowXhsImagePicker(false); setXhsExtractedImages([]); } },
     extractXiaohongshuImage: async () => {
       if (!isLoggedIn) { requireLogin?.(() => setShowXhsInput(true)); return; }
@@ -109,7 +117,7 @@ export function SplitFeatureProvider({ children, onImport, setStatus, onCommands
       } catch { if (isCurrent()) setStatus('小红书图片读取失败，请换一张图片。'); }
       finally { if (isCurrent()) setIsImportingXhsImage(false); }
     },
-  }), [closeUploadModal, isImportingXhsImage, isLoggedIn, navigate, requestApi, requireLogin, showUploadModal, showXhsImagePicker, workflow, xhsExtractedImages, xhsExtractedTitle, xhsLink, isExtractingXhs]);
+  }), [closeUploadModal, isImportingLocalImage, isImportingXhsImage, isLoggedIn, navigate, requestApi, requireLogin, showUploadModal, showXhsImagePicker, workflow, xhsExtractedImages, xhsExtractedTitle, xhsLink, isExtractingXhs]);
   onCommands?.({
     upload: value.openFromUpload,
     getSourceImage: () => value.uploadedSplitImage

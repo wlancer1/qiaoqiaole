@@ -25,7 +25,12 @@ function numberOrZero(value: unknown): number {
 
 function normalizeUser(raw: RawUser, legacyDraftOwnerId?: string): AuthUser {
   const id = typeof raw.id === 'string' ? raw.id.trim() : '';
-  const username = typeof raw.username === 'string' ? raw.username.trim() : '';
+  // Phone auth's production response exposes nickname rather than the legacy
+  // username field. Keep AuthUser's stable username-shaped identity by using
+  // nickname as the compatibility fallback.
+  const username = typeof raw.username === 'string' && raw.username.trim()
+    ? raw.username.trim()
+    : typeof raw.nickname === 'string' ? raw.nickname.trim() : '';
   if (!id || !username) throw new Error('登录响应无效');
   const displayName = typeof raw.nickname === 'string' && raw.nickname.trim() ? raw.nickname.trim() : username;
   return {

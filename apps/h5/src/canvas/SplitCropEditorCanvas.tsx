@@ -63,7 +63,7 @@ export function hitCropHandle(point: Point, selection: Rect, radius: number): Cr
 }
 
 function fitImageRect(viewport: { width: number; height: number }, crop: { width: number; height: number }, zoom: number): Rect {
-  const padding = 0;
+  const padding = Math.min(24, Math.max(12, Math.min(viewport.width, viewport.height) * 0.05));
   const fit = Math.min(
     Math.max(1, viewport.width - padding * 2) / Math.max(1, crop.width),
     Math.max(1, viewport.height - padding * 2) / Math.max(1, crop.height),

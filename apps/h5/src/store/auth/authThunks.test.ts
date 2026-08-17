@@ -30,11 +30,15 @@ function response(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
 
+function authMeResponse(data: unknown, status = 200): Response {
+  return response({ code: 'OK', message: 'success', data }, status);
+}
+
 beforeEach(() => vi.stubGlobal('fetch', vi.fn()));
 afterEach(() => vi.unstubAllGlobals());
 
 describe('restoreSession', () => {
-  it('does not request /api/me without a token', async () => {
+  it('does not request the current-user endpoint without a token', async () => {
     const fetchMock = vi.mocked(fetch);
     const store = createH5Store({ storage: new MemoryStorage() });
 
@@ -44,8 +48,8 @@ describe('restoreSession', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('normalizes a valid /api/me response and consumes the initialized hint', async () => {
-    const fetchMock = vi.mocked(fetch).mockResolvedValue(response({ user: restoredUser }));
+  it('normalizes a valid phone-auth current-user response and consumes the initialized hint', async () => {
+    const fetchMock = vi.mocked(fetch).mockResolvedValue(authMeResponse({ user: restoredUser }));
     const storage = storageWith({ token: 'token-a', username: 'legacy-name', userId: 'user-a' });
     const store = createH5Store({ storage });
 
@@ -53,7 +57,7 @@ describe('restoreSession', () => {
 
     expect(result.meta.requestStatus).toBe('fulfilled');
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0][0]).toBe('/api/me');
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/auth/me');
     expect(store.getState().auth).toMatchObject({
       status: 'authenticated', token: 'token-a', restoreIdentityHint: null, restoreRequestId: null,
       user: {
@@ -63,8 +67,48 @@ describe('restoreSession', () => {
     });
   });
 
+  it('restores the standardized phone-auth me envelope using nickname as the compatibility identity', async () => {
+    const fetchMock = vi.mocked(fetch).mockResolvedValue(response({
+      code: 'OK', message: 'success', data: {
+        user: { id: 'user-phone', nickname: '用户8000', avatarUrl: null, status: 'ACTIVE' },
+        likesCount: 3, followingCount: 4, followersCount: 5,
+      },
+    }));
+    const store = createH5Store({ storage: storageWith({ token: 'phone-token', username: '旧昵称' }) });
+
+    const result = await store.dispatch(restoreSession({ sessionVersion: 0 }));
+
+    expect(result.meta.requestStatus).toBe('fulfilled');
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/auth/me', expect.objectContaining({
+      headers: { authorization: 'Bearer phone-token' },
+    }));
+    expect(store.getState().auth.user).toMatchObject({
+      id: 'user-phone', username: '用户8000', displayName: '用户8000',
+      likesCount: 3, followingCount: 4, followersCount: 5,
+    });
+  });
+
+  it('refreshes an expired access token once before restoring the phone-auth session', async () => {
+    const fetchMock = vi.mocked(fetch)
+      .mockResolvedValueOnce(response({ code: 'AUTH_UNAUTHORIZED', message: '请先登录' }, 401))
+      .mockResolvedValueOnce(response({ code: 'OK', message: 'success', data: { accessToken: 'fresh-token' } }))
+      .mockResolvedValueOnce(authMeResponse({ user: restoredUser }));
+    const store = createH5Store({ storage: storageWith({ token: 'expired-token', username: 'legacy-name' }) });
+
+    const result = await store.dispatch(restoreSession({ sessionVersion: 0 }));
+
+    expect(result.meta.requestStatus).toBe('fulfilled');
+    expect(store.getState().auth.token).toBe('fresh-token');
+    expect(fetchMock.mock.calls).toEqual(expect.arrayContaining([
+      ['/api/v1/auth/token/refresh', expect.objectContaining({
+        method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: '{}',
+      })],
+      ['/api/v1/auth/me', expect.objectContaining({ headers: { authorization: 'Bearer fresh-token' } })],
+    ]));
+  });
+
   it('clears malformed responses and persisted auth', async () => {
-    vi.mocked(fetch).mockResolvedValue(response({ user: { nickname: 'missing id' } }));
+    vi.mocked(fetch).mockResolvedValue(authMeResponse({ user: { nickname: 'missing id' } }));
     const storage = storageWith({ token: 'token-a', username: 'alice' });
     const store = createH5Store({ storage });
 
@@ -75,7 +119,7 @@ describe('restoreSession', () => {
   });
 
   it('uses the explicit generation while reading token and hint from initialized state', async () => {
-    vi.mocked(fetch).mockResolvedValue(response({ user: restoredUser }));
+    vi.mocked(fetch).mockResolvedValue(authMeResponse({ user: restoredUser }));
     const storage = storageWith({ token: 'token-a', username: 'legacy-name' });
     const store = createH5Store({ storage });
 
@@ -94,7 +138,7 @@ describe('restoreSession', () => {
 
     const first = store.dispatch(restoreSession({ sessionVersion: 0 }));
     const second = store.dispatch(restoreSession({ sessionVersion: 0 }));
-    resolveFetch(response({ user: restoredUser }));
+    resolveFetch(authMeResponse({ user: restoredUser }));
     const results = await Promise.all([first, second]);
 
     expect(results.filter((item) => item.meta.requestStatus === 'fulfilled')).toHaveLength(1);
@@ -111,7 +155,7 @@ describe('restoreSession', () => {
       token: 'new-token',
       user: { id: 'new-user', username: 'new', displayName: 'New', avatarUrl: '', legacyDraftOwnerId: 'new', likesCount: 0, followingCount: 0, followersCount: 0 },
     }));
-    resolveFetch(response({ user: { ...restoredUser, id: 'old-user' } }));
+    resolveFetch(authMeResponse({ user: { ...restoredUser, id: 'old-user' } }));
     await restore;
 
     expect(store.getState().auth.user?.id).toBe('new-user');
@@ -155,6 +199,8 @@ describe('logout', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/auth/logout', expect.objectContaining({
       method: 'POST',
       credentials: 'include',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer token-a' },
+      body: '{}',
     }));
     expect(store.getState().auth.status).toBe('anonymous');
   });

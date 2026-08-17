@@ -15,7 +15,8 @@ export function createAuthLoginFlows({ request, refreshFeatures }: Dependencies)
       return response;
     },
     phone: async (input: { phone: string; password: string; [key: string]: unknown }) => {
-      const response = await request('/v1/auth/sms/login', input);
+      const envelope = await request('/v1/auth/sms/login', input);
+      const response = envelope?.data;
       const token = response?.accessToken;
       if (typeof token !== 'string' || !token) throw new Error('登录响应无效');
       await refreshFeatures(token);

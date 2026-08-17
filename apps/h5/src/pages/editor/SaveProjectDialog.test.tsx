@@ -71,7 +71,7 @@ describe('SaveProjectDialog', () => {
       dialog.props.onClick();
       renderer.root.findByProps({ 'aria-label': '关闭保存作品' }).props.onClick();
       renderer.root.findByProps({ 'aria-label': '保存到作品' }).props.onClick({ preventDefault: vi.fn() });
-      renderer.root.findByProps({ 'aria-label': '作品名称' }).props.onChange({ target: { value: '改名' } });
+      renderer.root.findByProps({ 'aria-label': '作品名称' }).findByType('input').props.onChange({ target: { value: '改名' } });
       renderer.root.findByProps({ 'aria-label': '保存位置' }).props.onChange({ target: { value: 'folder-1' } });
     });
     expect(onClose).not.toHaveBeenCalled();

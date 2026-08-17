@@ -418,7 +418,7 @@ describe('community API', () => {
     const created = await request('/api/projects', {
       method: 'POST',
       headers: { ...headers, 'content-type': 'application/json' },
-      body: JSON.stringify({ name: '延迟加载作品', rows: 1, cols: 1, canvasData, thumbnailImagePath: 'data:image/png;base64,AA==' }),
+      body: JSON.stringify({ name: '延迟加载作品', rows: 1, cols: 1, canvasData, thumbnailImagePath: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=' }),
     });
 
     const listed = await request('/api/projects', { headers });
@@ -430,10 +430,58 @@ describe('community API', () => {
     expect(summary).not.toHaveProperty('beadList');
     expect(summary).not.toHaveProperty('sourceImage');
     expect(JSON.stringify(summary)).not.toContain('base64,');
-    expect(summary.thumbnailImage).toBe('');
+    expect(summary.thumbnailImage).toMatch(new RegExp(`^/api/projects/${created.body.project.id}/thumbnail\\?`));
+    expect(summary.thumbnailImage).not.toMatch(/^data:/);
+    const thumbnailUrl = new URL(summary.thumbnailImage, `http://127.0.0.1:${port}`);
+    expect(thumbnailUrl.searchParams.get('access')).toBeTruthy();
+    const thumbnail = await fetch(thumbnailUrl.href);
+    expect(thumbnail.status).toBe(200);
+    expect(thumbnail.headers.get('content-type')).toBe('image/png');
+    expect(thumbnail.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(Buffer.from(await thumbnail.arrayBuffer()).subarray(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    const unsignedThumbnail = await fetch(`${thumbnailUrl.origin}${thumbnailUrl.pathname}`);
+    expect(unsignedThumbnail.status).toBe(401);
     expect(detail.status).toBe(200);
     expect(detail.body.project.canvasData).toBe(canvasData);
     expect(detail.body.project.thumbnailImage).toContain('base64,');
+  });
+
+  it('rejects non-raster Base64 project thumbnails', async () => {
+    const created = await request('/api/projects', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: '非图片缩略图',
+        rows: 1,
+        cols: 1,
+        canvasData: '[]',
+        thumbnailImagePath: 'data:text/html;base64,PGgxPm5vdC1hbi1pbWFnZTwvaDE+',
+      }),
+    });
+
+    expect(created.status).toBe(400);
+    expect(created.body.message).toContain('缩略图图片格式无效');
+  });
+
+  it('refuses to serve project thumbnails whose bytes do not match the declared raster type', async () => {
+    const created = await request('/api/projects', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: '伪造图片缩略图',
+        rows: 1,
+        cols: 1,
+        canvasData: '[]',
+        thumbnailImagePath: 'data:image/png;base64,AA==',
+      }),
+    });
+
+    expect(created.status).toBe(201);
+    const listed = await request('/api/projects', { headers: { authorization: `Bearer ${token}` } });
+    const summary = listed.body.projects.find((project) => project.id === created.body.project.id);
+    const thumbnail = await fetch(new URL(summary.thumbnailImage, `http://127.0.0.1:${port}`));
+    expect(thumbnail.status).toBe(404);
+    expect((await thumbnail.json()).message).toContain('项目缩略图不可用');
   });
 
   it('keeps heavy project fields out of author profile post summaries', async () => {

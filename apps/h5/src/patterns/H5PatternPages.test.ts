@@ -27,6 +27,28 @@ describe('PatternDiscoverPage', () => {
 });
 
 describe('MyWorksPage thumbnails', () => {
+  it('eagerly loads only the first six thumbnails and defers the rest to avoid mobile request queue congestion', () => {
+    const projects = Array.from({ length: 7 }, (_, index) => ({
+      id: `project-${index + 1}`,
+      name: `作品${index + 1}`,
+      rows: 16,
+      cols: 16,
+      tone: 'recent-flower',
+      thumbnailImage: `/api/projects/project-${index + 1}/thumbnail`,
+      createdAt: '',
+      updatedAt: '',
+    }));
+    const markup = renderToStaticMarkup(createElement(MyWorksPage, {
+      projects,
+      onBack: vi.fn(),
+      onOpen: vi.fn(),
+    }));
+
+    expect(markup.match(/loading="eager"/g)).toHaveLength(6);
+    expect(markup.match(/loading="lazy"/g)).toHaveLength(1);
+    expect(markup).toContain('src="/api/projects/project-7/thumbnail"');
+  });
+
   it('uses a neutral placeholder instead of generated artwork when a project has no image', () => {
     const markup = renderToStaticMarkup(createElement(MyWorksPage, {
       projects: [{ id: 'project-without-image', name: '无图作品', rows: 16, cols: 16, tone: 'recent-flower', createdAt: '', updatedAt: '' }],
@@ -74,6 +96,34 @@ describe('PatternDetailPage layout contract', () => {
 });
 
 describe('MyWorksPage', () => {
+  it('shows a loading state instead of the empty works state while the first page is pending', () => {
+    vi.useFakeTimers();
+    let renderer!: ReturnType<typeof create>;
+    try {
+      act(() => { renderer = create(createElement(MyWorksPage, { projects: [], onBack: vi.fn(), onOpen: vi.fn(), loading: true })); });
+      act(() => { vi.advanceTimersByTime(300); });
+      expect(renderer.root.findByProps({ 'aria-label': '正在加载作品' }).props.role).toBe('status');
+      expect(renderer.root.findAllByProps({ 'aria-label': '暂无作品' })).toHaveLength(0);
+    } finally {
+      if (renderer!) act(() => renderer.unmount());
+      vi.useRealTimers();
+    }
+  });
+
+  it('shows the established page skeleton while another works page is pending', () => {
+    vi.useFakeTimers();
+    let renderer!: ReturnType<typeof create>;
+    try {
+      act(() => { renderer = create(createElement(MyWorksPage, { projects: [{ id: 'loaded-work', name: '已加载作品', rows: 1, cols: 1, tone: 'recent', createdAt: '', updatedAt: '' }], onBack: vi.fn(), onOpen: vi.fn(), loading: true })); });
+      act(() => { vi.advanceTimersByTime(300); });
+      expect(renderer.root.findByProps({ 'aria-label': '正在加载作品' }).props.role).toBe('status');
+      expect(renderer.root.findAllByProps({ 'data-project-card-id': 'loaded-work' })).toHaveLength(0);
+    } finally {
+      if (renderer!) act(() => renderer.unmount());
+      vi.useRealTimers();
+    }
+  });
+
   it('uses the server total for the profile counts instead of the current page size', () => {
     const markup = renderToStaticMarkup(createElement(MyWorksPage, {
       projects: [{ id: 'page-one-project', name: '当前页作品', rows: 1, cols: 1, tone: 'recent', createdAt: '', updatedAt: '' }],
