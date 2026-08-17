@@ -10,6 +10,10 @@ beforeAll(() => {
 describe('ImageWithSkeleton', () => {
   let renderer: ReactTestRenderer | undefined;
 
+  type FlushableTestRenderer = ReactTestRenderer & {
+    unstable_flushSync: (callback: () => void) => void;
+  };
+
   const installIntersectionObserver = () => {
     const observers: Array<{
       callback: IntersectionObserverCallback;
@@ -315,6 +319,40 @@ describe('ImageWithSkeleton', () => {
     act(() => renderer!.root.findByType('img').props.onLoad());
     expect(renderer!.root.findByType('img').props.src).toBe('/third.webp');
     expect(renderer!.root.findByType('img').props.className).toContain('is-loaded');
+  });
+
+  it('does not commit a changed deferred source with the previous activation or retry count', () => {
+    const { observers } = installIntersectionObserver();
+    act(() => {
+      renderer = createDeferredImage({ src: '/first.webp', maxRetries: 2 });
+    });
+    act(() => {
+      observers[0].callback([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver);
+    });
+    act(() => renderer!.root.findByType('img').props.onError());
+    expect(renderer!.root.findByType('img').props.src).toBe('/first.webp?imageRetry=1');
+
+    act(() => {
+      (renderer as FlushableTestRenderer).unstable_flushSync(() => {
+        renderer!.update(
+          <ImageWithSkeleton
+            src="/second.webp"
+            alt="热门图纸"
+            loading="lazy"
+            fetchPriority="low"
+            deferUntilVisible
+            loadTimeoutMs={2_500}
+            maxRetries={2}
+            fallback={<span data-fallback="true">暂无预览图</span>}
+          />,
+        );
+      });
+
+      expect(renderer!.root.findAllByType('img')).toHaveLength(0);
+      expect(renderer!.root.findByProps({ 'data-image-skeleton': 'true' })).toBeTruthy();
+    });
+
+    expect(observers).toHaveLength(2);
   });
 
   it('uses a block wrapper by default so legacy span artwork selectors do not match the loader', () => {

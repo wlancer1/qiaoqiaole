@@ -32,6 +32,7 @@ export function ImageWithSkeleton({ src, alt, fallback, className = '', imageCla
   const imageRef = useRef<HTMLImageElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | HTMLSpanElement | null>(null);
   const currentSourceRef = useRef(normalizedSrc);
+  const stateSourceRef = useRef(normalizedSrc);
   const terminalFailureRef = useRef(false);
   const setWrapperRef: RefCallback<HTMLDivElement | HTMLSpanElement> = (node) => {
     wrapperRef.current = node;
@@ -42,8 +43,14 @@ export function ImageWithSkeleton({ src, alt, fallback, className = '', imageCla
     terminalFailureRef.current = false;
   }
 
+  const hasCurrentSourceState = stateSourceRef.current === normalizedSrc;
+  const renderedState = hasCurrentSourceState ? state : normalizedSrc ? 'loading' : 'failed';
+  const renderedRetryCount = hasCurrentSourceState ? retryCount : 0;
+  const renderedActivation = hasCurrentSourceState ? activation : getInitialActivation(deferUntilVisible);
+
   useEffect(() => {
     terminalFailureRef.current = false;
+    stateSourceRef.current = normalizedSrc;
     setState(normalizedSrc ? 'loading' : 'failed');
     setRetryCount(0);
     setActivation(getInitialActivation(deferUntilVisible));
@@ -104,7 +111,7 @@ export function ImageWithSkeleton({ src, alt, fallback, className = '', imageCla
   }, [maxRetries, normalizedSrc, state]);
 
   useEffect(() => {
-    if (!normalizedSrc || state !== 'loading' || activation !== 'active' || loadTimeoutMs <= 0) return undefined;
+    if (!hasCurrentSourceState || !normalizedSrc || state !== 'loading' || activation !== 'active' || loadTimeoutMs <= 0) return undefined;
     const sourceAtStart = normalizedSrc;
     const timeout = setTimeout(() => {
       if (currentSourceRef.current !== sourceAtStart || terminalFailureRef.current) return;
@@ -116,28 +123,28 @@ export function ImageWithSkeleton({ src, alt, fallback, className = '', imageCla
       setState('failed');
     }, loadTimeoutMs || IMAGE_LOAD_TIMEOUT_MS);
     return () => clearTimeout(timeout);
-  }, [activation, loadTimeoutMs, maxRetries, normalizedSrc, retryCount, state]);
+  }, [activation, hasCurrentSourceState, loadTimeoutMs, maxRetries, normalizedSrc, retryCount, state]);
 
   const Wrapper = as;
-  const wrapperClassName = `image-with-skeleton${state === 'loading' ? ' is-loading' : ''}${state === 'failed' ? ' is-failed' : ''}${className ? ` ${className}` : ''}`;
-  const retrySrc = retryCount > 0 ? (() => {
+  const wrapperClassName = `image-with-skeleton${renderedState === 'loading' ? ' is-loading' : ''}${renderedState === 'failed' ? ' is-failed' : ''}${className ? ` ${className}` : ''}`;
+  const retrySrc = renderedRetryCount > 0 ? (() => {
     const hashIndex = normalizedSrc.indexOf('#');
     const base = hashIndex >= 0 ? normalizedSrc.slice(0, hashIndex) : normalizedSrc;
     const hash = hashIndex >= 0 ? normalizedSrc.slice(hashIndex) : '';
-    return `${base}${base.includes('?') ? '&' : '?'}imageRetry=${retryCount}${hash}`;
+    return `${base}${base.includes('?') ? '&' : '?'}imageRetry=${renderedRetryCount}${hash}`;
   })() : normalizedSrc;
 
-  if (!normalizedSrc || state === 'failed') {
+  if (!normalizedSrc || renderedState === 'failed') {
     return <Wrapper ref={setWrapperRef} className={wrapperClassName}>{fallback}</Wrapper>;
   }
 
   return (
     <Wrapper ref={setWrapperRef} className={wrapperClassName}>
-      {state === 'loading' ? <div className="image-with-skeleton-placeholder" data-image-skeleton="true" aria-hidden="true" /> : null}
-      {activation !== 'waiting' ? (
+      {renderedState === 'loading' ? <div className="image-with-skeleton-placeholder" data-image-skeleton="true" aria-hidden="true" /> : null}
+      {renderedActivation !== 'waiting' ? (
         <img
           ref={imageRef}
-          className={`${imageClassName || 'image-with-skeleton-image'}${state === 'loaded' ? ' is-loaded' : ''}`}
+          className={`${imageClassName || 'image-with-skeleton-image'}${renderedState === 'loaded' ? ' is-loaded' : ''}`}
           src={retrySrc}
           alt={alt}
           loading={loading}
@@ -149,7 +156,7 @@ export function ImageWithSkeleton({ src, alt, fallback, className = '', imageCla
           }}
           onError={() => {
             if (terminalFailureRef.current || currentSourceRef.current !== normalizedSrc) return;
-            if (retryCount < maxRetries) {
+            if (renderedRetryCount < maxRetries) {
               setState('loading');
               setRetryCount((current) => current + 1);
               return;
