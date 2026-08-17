@@ -112,6 +112,38 @@ describe('home recent project actions', () => {
     expect(styles).not.toContain('.recent-bear .home-recent-thumb');
   });
 
+  it('uses the placeholder instead of loading a recent project source image', () => {
+    const sourceImage = '/api/projects/recent-source-only/source';
+    const shell = HomeShellPage({
+      fileInputRef: { current: null },
+      handleUpload: vi.fn(),
+      status: '',
+      activeTab: 'home',
+      recentProjects: [{
+        id: 'recent-source-only',
+        name: '只有原图的项目',
+        rows: 32,
+        cols: 32,
+        sourceImage,
+      }],
+      onOpenRecentProject: vi.fn(),
+      openUpload: vi.fn(),
+      isLoggedIn: true,
+      homeTemplateCards: [],
+      notifications: [],
+      setActiveTab: vi.fn(),
+    });
+
+    const sourceImageLoader = collectElements(shell).find((element) => (
+      element.type === ImageWithSkeleton && element.props.src === sourceImage
+    ));
+    const markup = renderToStaticMarkup(shell);
+
+    expect(sourceImageLoader).toBeUndefined();
+    expect(markup).toContain('home-recent-thumb-placeholder');
+    expect(markup).not.toContain(`src="${sourceImage}"`);
+  });
+
   it('opens the supplied action sheet when a recent project card is selected', () => {
     const project = {
       id: 'recent-1',

@@ -221,8 +221,8 @@ export function HomeShellPage(props: HomeShellPageProps) {
                 <div className="home-recent-row" aria-label="最近项目列表">
                   {recentProjects.slice(0, 4).map((project: any) => (
                     <button className={`home-recent-card ${project.tone || 'recent-flower'}`} key={project.id} data-project-card-id={project.id} type="button" onClick={() => onOpenRecentProject(project)}>
-                      {(project.thumbnailImage || project.sourceImage) ? (
-                        <ImageWithSkeleton className="home-recent-thumb" imageClassName="home-recent-thumb-image" src={project.thumbnailImage || project.sourceImage} alt="" loading="eager" fetchPriority="high" loadTimeoutMs={2_500} maxRetries={0} fallback={<RecentProjectThumbnailPlaceholder />} />
+                      {project.thumbnailImage ? (
+                        <ImageWithSkeleton className="home-recent-thumb" imageClassName="home-recent-thumb-image" src={project.thumbnailImage} alt="" loading="eager" fetchPriority="high" loadTimeoutMs={2_500} maxRetries={0} fallback={<RecentProjectThumbnailPlaceholder />} />
                       ) : (
                         <RecentProjectThumbnailPlaceholder />
                       )}
