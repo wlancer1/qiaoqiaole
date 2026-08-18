@@ -318,6 +318,25 @@ describe('community API', () => {
     expect(new URL(copied.body.project.sourceImage, 'http://127.0.0.1').searchParams.get('path')).toBe(thumbnailPath);
   });
 
+  it('preserves the thumbnail asset for copied shared projects that store both source and thumbnail images in COS', async () => {
+    const headers = { authorization: `Bearer ${token}` };
+    const sourcePath = `cos://qiaoqiaole-test/uploads/images/projects/${userId}/copy-source-source.png`;
+    const thumbnailPath = `cos://qiaoqiaole-test/uploads/images/projects/${userId}/copy-thumbnail-thumbnail.webp`;
+    const created = await request('/api/projects', {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'COS 双图副本', rows: 2, cols: 2, sourceImagePath: sourcePath, thumbnailImagePath: thumbnailPath, canvasData: '[]' }),
+    });
+    await shareProject(created.body.project.id, headers);
+
+    const copied = await request(`/api/projects/${created.body.project.id}/copy`, { method: 'POST', headers });
+    expect(copied.status).toBe(201);
+    expect(copied.body.project.sourceImage).toContain('project-assets');
+    expect(copied.body.project.thumbnailImage).toContain('project-assets');
+    expect(new URL(copied.body.project.sourceImage, 'http://127.0.0.1').searchParams.get('path')).toBe(sourcePath);
+    expect(new URL(copied.body.project.thumbnailImage, 'http://127.0.0.1').searchParams.get('path')).toBe(thumbnailPath);
+  });
+
   it('requires ownership or community sharing before signing project asset URLs', async () => {
     const headers = { authorization: `Bearer ${token}` };
     const assetPath = `cos://qiaoqiaole-test/uploads/images/projects/${userId}/private-source-source.png`;

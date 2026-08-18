@@ -1641,12 +1641,18 @@ async function copyCommunityProject(response, userId, projectId) {
   if (!source) return sendJson(response, 404, { error: 'NOT_FOUND', message: '社区稿件不存在或不可复制' });
   const now = new Date().toISOString();
   const copyId = randomUUID();
-  // Preserve one renderable COS asset for the copy. Asset access is checked
-  // against the copied project owner when the image is requested.
-  const sourceCosImage = String(source.sourceImage || '').startsWith('cos://') ? source.sourceImage : '';
-  const thumbnailCosImage = String(source.thumbnailImage || '').startsWith('cos://') ? source.thumbnailImage : '';
-  const copiedSourceImage = sourceCosImage || thumbnailCosImage;
-  const copiedThumbnailImage = String(source.thumbnailImage || '').startsWith('data:') ? source.thumbnailImage : '';
+
+  // Copy the original image assets so the new project keeps a valid preview.
+  // COS-backed previews must remain retrievable through the signed project-assets route.
+  const copiedSourceImage = String(source.sourceImage || '').startsWith('cos://') ? source.sourceImage : (
+    String(source.thumbnailImage || '').startsWith('cos://') ? source.thumbnailImage : ''
+  );
+  const copiedThumbnailImage = String(source.thumbnailImage || '').startsWith('cos://') ? source.thumbnailImage : (
+    String(source.sourceImage || '').startsWith('cos://') ? source.sourceImage : (
+      String(source.thumbnailImage || '').startsWith('data:') ? source.thumbnailImage : ''
+    )
+  );
+
   db.run(`INSERT INTO projects (id, user_id, name, rows, cols, tone, source_image, thumbnail_image, canvas_data, bead_list, revision, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`, [copyId, userId, `${source.name}（副本）`, source.rows, source.cols, source.tone, copiedSourceImage, copiedThumbnailImage, source.canvasData || '', source.beadList || '', now, now]);
   await persist();
