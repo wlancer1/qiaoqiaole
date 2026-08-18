@@ -1749,13 +1749,19 @@ function getCommunityPost(userId, projectId) {
 function formatCommunityPost(post) {
   const storedBeadList = parseStoredBeadList(post.beadList);
   return {
-    ...post,
+    id: post.id,
+    name: post.name,
+    rows: Number(post.rows),
+    cols: Number(post.cols),
+    tone: post.tone,
+    sharedAt: post.sharedAt,
+    authorId: post.authorId,
+    author: post.author,
     authorAvatar: publicAvatarUrl(post.authorId, post.authorAvatar),
+    isFollowing: Boolean(post.isFollowing),
     sourceImage: resolveProjectImage(post.sourceImage),
     thumbnailImage: resolveProjectImage(post.thumbnailImage),
     beadList: storedBeadList.length > 0 ? storedBeadList : buildBeadList(post.canvasData),
-    rows: Number(post.rows),
-    cols: Number(post.cols),
     likesCount: Number(post.likesCount || 0),
     commentsCount: Number(post.commentsCount || 0),
     likedByMe: Boolean(post.likedByMe),

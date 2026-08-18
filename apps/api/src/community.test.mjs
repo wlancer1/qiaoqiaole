@@ -138,6 +138,7 @@ describe('community API', () => {
     expect(post.thumbnailImage || '').not.toMatch(/^data:/);
     const detail = await request(`/api/community/posts/${projectId}`);
     expect(detail.body.post.beadList).toEqual(firstShare.body.beadList);
+    expect(detail.body.post).not.toHaveProperty('canvasData');
 
     const unlike = await request(`/api/community/posts/${projectId}/like`, { method: 'DELETE', headers });
     expect(unlike.body).toMatchObject({ liked: false, likesCount: 0 });

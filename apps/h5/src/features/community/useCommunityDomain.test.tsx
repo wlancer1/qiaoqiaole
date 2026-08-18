@@ -184,6 +184,23 @@ describe('useCommunityDomain', () => {
     expect(harness.control.current!.isCommunityLoadingMore).toBe(false);
   });
 
+  it('does not let an old render load more after a route-only scope change', async () => {
+    const firstPage = Array.from({ length: 12 }, (_, index) => post(`hot-${index}`, 12 - index));
+    const requestApiMock = vi.fn().mockResolvedValue({ posts: firstPage });
+    const harness = createHarness(requestApiMock as unknown as CommunityRequestApi, { authToken: 'token-1', screen: 'home' });
+    await harness.mount();
+
+    await act(async () => { await harness.control.current!.loadCommunityPosts('hot'); });
+    const staleLoadMore = harness.control.current!.loadMoreCommunityPosts;
+    await harness.update({ screen: 'warehouse' });
+    await act(async () => { await staleLoadMore('hot'); });
+
+    expect(requestApiMock).toHaveBeenCalledTimes(1);
+    expect(harness.control.current!.communityPosts.map(({ id }) => id)).toEqual(firstPage.map(({ id }) => id));
+    expect(harness.control.current!.communityHasMore).toBe(true);
+    expect(harness.control.current!.isCommunityLoadingMore).toBe(false);
+  });
+
   it('preserves the committed list and retries the same page after an append failure', async () => {
     const firstPage = Array.from({ length: 12 }, (_, index) => post(`hot-${index}`, 12 - index));
     const requestApiMock = vi.fn()
