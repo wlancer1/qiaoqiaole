@@ -297,6 +297,11 @@ describe('recent project stale action handling', () => {
 });
 
 describe('Xiaohongshu link input guidance', () => {
+  it('wires a preview src resolver from the community slot into the home shell', () => {
+    const slotSource = fs.readFileSync(path.resolve('apps/h5/src/features/community/CommunityHomeShellSlot.tsx'), 'utf8');
+    expect(slotSource).toContain('xhsPreviewSrc={xhsPreviewSrc}');
+  });
+
   it('accepts links and share text without listing stale domains', () => {
     const shell = HomeShellPage({
       fileInputRef: { current: null },

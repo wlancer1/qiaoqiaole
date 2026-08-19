@@ -6,6 +6,7 @@ import { useCommunityHomeAdapter } from './useCommunityHomeAdapter';
 import { useSplitFeature } from '../split/SplitFeatureProvider';
 import { useAppSelector } from '../../store/hooks';
 import { selectAuthUserId } from '../../store/auth/authSlice';
+import { xhsPreviewSrc } from '../../utils/h5AppUtils';
 
 /** Feature-owned adapter for the community portions of the shared home shell. */
 export function CommunityHomeShellSlot(homeProps: Record<string, any>) {
@@ -36,6 +37,7 @@ export function CommunityHomeShellSlot(homeProps: Record<string, any>) {
     isImportingXhsImage={split.isImportingXhsImage}
     isImportingLocalImage={split.isImportingLocalImage}
     xhsExtractedTitle={split.xhsExtractedTitle}
+    xhsPreviewSrc={xhsPreviewSrc}
     {...home}
     openBlankCanvasCreation={() => { split.closeUploadModal(); homeProps.openBlankCanvasCreation(); }}
     communityMessagesPage={<CommunityMessagesPage
