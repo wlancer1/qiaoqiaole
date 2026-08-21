@@ -62,10 +62,11 @@ export function CanvasRulers({ rows, cols }: { rows: number; cols: number }) {
   );
 }
 
-export function rulerTicks(size: number): number[] {
+export function rulerTicks(size: number, interval = 5): number[] {
   const safeSize = Math.max(1, size);
+  const safeInterval = Math.max(1, Math.floor(interval));
   const ticks: number[] = [];
-  for (let tick = 1; tick <= safeSize; tick += 5) {
+  for (let tick = 1; tick <= safeSize; tick += safeInterval) {
     ticks.push(tick);
   }
   return ticks;
@@ -90,6 +91,12 @@ export type ViewportRulerGeometry = {
 };
 
 const RULER_OVERFLOW_TOLERANCE = 1;
+const VIEWPORT_RULER_LABEL_MIN_SPACING = 24;
+
+export function getRulerTickInterval(cellSize: number): number {
+  const safeCellSize = Math.max(1, cellSize);
+  return Math.max(1, Math.ceil(VIEWPORT_RULER_LABEL_MIN_SPACING / safeCellSize));
+}
 
 export function isCanvasRulerOverflowing(
   stageRect: CanvasRulerRect,
@@ -114,7 +121,7 @@ function visibleRulerTicks(
   artboardOffset: number,
   viewportSize: number,
 ): ViewportRulerTick[] {
-  return rulerTicks(size)
+  return rulerTicks(size, getRulerTickInterval(cellSize))
     .map((tick) => ({ tick, offset: artboardOffset + (tick - 0.5) * cellSize }))
     .filter(({ offset }) => offset >= 0 && offset <= viewportSize);
 }

@@ -5,6 +5,7 @@ import {
   cellsFromImage,
   cellsFromImageAsync,
   drawAttachedGridLines,
+  getRulerTickInterval,
   fitSplitImageRect,
   getViewportRulerGeometry,
   isCanvasRulerOverflowing,
@@ -70,6 +71,13 @@ describe('viewport ruler geometry', () => {
     expect(isCanvasRulerOverflowing(stage, { left: -240, top: -120, width: 900, height: 900 }, 1)).toBe(false);
   });
 
+  it('raises ruler label density as transformed cells grow without allowing labels to overlap', () => {
+    expect(getRulerTickInterval(6)).toBe(4);
+    expect(getRulerTickInterval(12)).toBe(2);
+    expect(getRulerTickInterval(24)).toBe(1);
+    expect(getRulerTickInterval(48)).toBe(1);
+  });
+
   it('places visible labels at the exact centers of their transformed cells', () => {
     expect(getViewportRulerGeometry(
       stage,
@@ -80,19 +88,71 @@ describe('viewport ruler geometry', () => {
     )).toEqual({
       sticky: true,
       columns: [
+        { tick: 7, offset: 10 },
+        { tick: 9, offset: 50 },
         { tick: 11, offset: 90 },
-        { tick: 16, offset: 190 },
+        { tick: 13, offset: 130 },
+        { tick: 15, offset: 170 },
+        { tick: 17, offset: 210 },
+        { tick: 19, offset: 250 },
         { tick: 21, offset: 290 },
-        { tick: 26, offset: 390 },
+        { tick: 23, offset: 330 },
+        { tick: 25, offset: 370 },
       ],
       rows: [
-        { tick: 6, offset: 30 },
+        { tick: 5, offset: 10 },
+        { tick: 7, offset: 50 },
+        { tick: 9, offset: 90 },
         { tick: 11, offset: 130 },
-        { tick: 16, offset: 230 },
+        { tick: 13, offset: 170 },
+        { tick: 15, offset: 210 },
+        { tick: 17, offset: 250 },
+        { tick: 19, offset: 290 },
         { tick: 21, offset: 330 },
-        { tick: 26, offset: 430 },
+        { tick: 23, offset: 370 },
+        { tick: 25, offset: 410 },
+        { tick: 27, offset: 450 },
+        { tick: 29, offset: 490 },
         { tick: 31, offset: 530 },
       ],
     });
+  });
+
+  it('chooses row and column intervals independently while preserving transformed cell centers', () => {
+    const geometry = getViewportRulerGeometry(
+      stage,
+      { left: -160, top: -75, width: 960, height: 400 },
+      40,
+      30,
+      2,
+    );
+
+    expect(geometry.columns).toEqual([
+      { tick: 6, offset: 16 },
+      { tick: 7, offset: 48 },
+      { tick: 8, offset: 80 },
+      { tick: 9, offset: 112 },
+      { tick: 10, offset: 144 },
+      { tick: 11, offset: 176 },
+      { tick: 12, offset: 208 },
+      { tick: 13, offset: 240 },
+      { tick: 14, offset: 272 },
+      { tick: 15, offset: 304 },
+      { tick: 16, offset: 336 },
+      { tick: 17, offset: 368 },
+    ]);
+    expect(geometry.rows).toEqual([
+      { tick: 10, offset: 20 },
+      { tick: 13, offset: 50 },
+      { tick: 16, offset: 80 },
+      { tick: 19, offset: 110 },
+      { tick: 22, offset: 140 },
+      { tick: 25, offset: 170 },
+      { tick: 28, offset: 200 },
+      { tick: 31, offset: 230 },
+      { tick: 34, offset: 260 },
+      { tick: 37, offset: 290 },
+      { tick: 40, offset: 320 },
+    ]);
   });
 });
