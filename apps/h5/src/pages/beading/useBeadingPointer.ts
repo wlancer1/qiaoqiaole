@@ -77,6 +77,22 @@ export function useBeadingPointer<T extends HTMLElement = HTMLDivElement>(
   useEffect(() => {
     if (options.locked || options.interactionMode === 'pan') reset();
   }, [options.locked, options.interactionMode, reset]);
+  useEffect(() => {
+    if (options.interactionMode !== 'pan' || typeof window === 'undefined') return;
+
+    const clearPanGestureOutsideArtboard = (event: PointerEvent) => {
+      const gesture = gestureRef.current;
+      if (!gesture.captureTarget && gesture.activePointerIds.has(event.pointerId)) reset();
+    };
+
+    window.addEventListener('pointerup', clearPanGestureOutsideArtboard);
+    window.addEventListener('pointercancel', clearPanGestureOutsideArtboard);
+    return () => {
+      window.removeEventListener('pointerup', clearPanGestureOutsideArtboard);
+      window.removeEventListener('pointercancel', clearPanGestureOutsideArtboard);
+      reset();
+    };
+  }, [options.interactionMode, reset]);
 
   const onPointerDown = useCallback<PointerEventHandler<T>>((event) => {
     const { interactionMode } = optionsRef.current;

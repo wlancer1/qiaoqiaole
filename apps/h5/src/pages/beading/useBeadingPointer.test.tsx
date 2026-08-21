@@ -167,6 +167,33 @@ describe('useBeadingPointer', () => {
     expect(artboard.releasePointerCapture).not.toHaveBeenCalled();
   });
 
+  it('clears a pan gesture released outside the artboard before the next tap', () => {
+    const addEventListener = vi.fn();
+    const removeEventListener = vi.fn();
+    vi.stubGlobal('window', { addEventListener, removeEventListener });
+    const onPickCell = vi.fn();
+    const artboard = makeArtboard();
+    const renderer = renderHarness({ artboard, onCell: vi.fn(), onPickCell, interactionMode: 'pan' });
+    const events = handlers(renderer);
+
+    events.onPointerDown(pointer(1, 20, 30, artboard));
+    events.onPointerMove(pointer(1, 25, 30, artboard));
+    const outsidePointerUp = addEventListener.mock.calls.find(([type]) => type === 'pointerup')?.[1] as
+      | ((event: PointerEvent) => void)
+      | undefined;
+    outsidePointerUp?.({ pointerId: 1 } as PointerEvent);
+    events.onPointerDown(pointer(2, 85, 95, artboard));
+    events.onPointerUp(pointer(2, 85, 95, artboard));
+
+    expect(addEventListener).toHaveBeenCalledWith('pointerup', expect.any(Function));
+    expect(onPickCell).toHaveBeenCalledWith(5);
+    expect(artboard.setPointerCapture).not.toHaveBeenCalled();
+
+    act(() => renderer.unmount());
+    expect(removeEventListener).toHaveBeenCalledWith('pointerup', expect.any(Function));
+    vi.unstubAllGlobals();
+  });
+
   it('does not pick from pan after movement, multitouch, cancellation, or while locked', () => {
     const onPickCell = vi.fn();
     const artboard = makeArtboard();
