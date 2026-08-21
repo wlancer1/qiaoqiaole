@@ -288,6 +288,20 @@ describe('BeadingSessionPage integration', () => {
     expect(canvasSpy.props).toMatchObject({ codesVisible: true, gridVisible: true });
   });
 
+  it('picks an opaque pan cell to select and highlight its color without changing for transparent cells', async () => {
+    const { renderer } = await renderPage();
+
+    await click(renderer, '高亮');
+    expect(canvasSpy.props?.overlay).toMatchObject({ currentColorCode: 'A1', highlightEnabled: false });
+
+    pointerTap(renderer, 125, 25);
+    expect(canvasSpy.props?.overlay).toMatchObject({ currentColorCode: 'B2', highlightEnabled: true });
+    expect(button(renderer, '选择色号 B2，当前')).toBeDefined();
+
+    pointerTap(renderer, 125, 125);
+    expect(canvasSpy.props?.overlay).toMatchObject({ currentColorCode: 'B2', highlightEnabled: true });
+  });
+
   it('marks only the current opaque color and blocks pointer writes while the tool is unavailable', async () => {
     const { renderer } = await renderPage();
     await click(renderer, '标记');

@@ -256,6 +256,12 @@ export function BeadingSessionPage({
     dispatch({ type: 'set-marks', indexes, cellCount });
   }, [cellCount, cells, current, getCode, toolState.interactionMode, toolState.locked, toolState.markedCellIndexes]);
 
+  const pickColorAtCell = useCallback((index: number) => {
+    const cell = cells[index];
+    if (!cell || cell.transparent) return;
+    selectColor(getCode(cell.color));
+  }, [cells, getCode, selectColor]);
+
   const pointerHandlers = useBeadingPointer({
     artboardRef,
     rows,
@@ -263,6 +269,7 @@ export function BeadingSessionPage({
     locked: toolState.locked,
     interactionMode: toolState.interactionMode,
     onCell,
+    onPickCell: pickColorAtCell,
   });
 
   const allCompleted = nextIncompleteColor(session.requirements, session.completedColorCodes) === null;
