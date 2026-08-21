@@ -8,6 +8,7 @@ type BeadingPointerOptions = {
   locked: boolean;
   interactionMode: InteractionMode;
   onCell: (index: number) => void;
+  onPickCell?: (index: number) => void;
 };
 
 type PointerGesture = {
@@ -79,12 +80,14 @@ export function useBeadingPointer<T extends HTMLElement = HTMLDivElement>(
 
   const onPointerDown = useCallback<PointerEventHandler<T>>((event) => {
     const { interactionMode } = optionsRef.current;
-    if (interactionMode !== 'mark' && interactionMode !== 'revise') return;
+    if (interactionMode !== 'mark' && interactionMode !== 'revise' && interactionMode !== 'pan') return;
 
     const gesture = gestureRef.current;
     gesture.activePointerIds.add(event.pointerId);
-    gesture.captureTarget ??= event.currentTarget;
-    safelyCapture(event.currentTarget, event.pointerId);
+    if (interactionMode === 'mark' || interactionMode === 'revise') {
+      gesture.captureTarget ??= event.currentTarget;
+      safelyCapture(event.currentTarget, event.pointerId);
+    }
     if (gesture.primaryPointerId === null) {
       gesture.primaryPointerId = event.pointerId;
       gesture.startX = event.clientX;
@@ -104,7 +107,7 @@ export function useBeadingPointer<T extends HTMLElement = HTMLDivElement>(
 
   const onPointerUp = useCallback<PointerEventHandler<T>>((event) => {
     const gesture = gestureRef.current;
-    const { artboardRef, rows, cols, locked, interactionMode, onCell } = optionsRef.current;
+    const { artboardRef, rows, cols, locked, interactionMode, onCell, onPickCell } = optionsRef.current;
     const isPrimary = event.pointerId === gesture.primaryPointerId;
 
     if (
@@ -112,17 +115,20 @@ export function useBeadingPointer<T extends HTMLElement = HTMLDivElement>(
       && !gesture.hadMultiTouch
       && !gesture.moved
       && !locked
-      && (interactionMode === 'mark' || interactionMode === 'revise')
+      && (interactionMode === 'mark' || interactionMode === 'revise' || interactionMode === 'pan')
     ) {
       const artboard = artboardRef.current;
       if (artboard) {
         const index = cellIndexFromPoint(artboard.getBoundingClientRect(), event.clientX, event.clientY, rows, cols);
-        if (index !== null) onCell(index);
+        if (index !== null) {
+          if (interactionMode === 'pan') onPickCell?.(index);
+          else onCell(index);
+        }
       }
     }
 
     gesture.activePointerIds.delete(event.pointerId);
-    safelyRelease(gesture.captureTarget ?? event.currentTarget, event.pointerId);
+    if (gesture.captureTarget) safelyRelease(gesture.captureTarget, event.pointerId);
     if (isPrimary || gesture.hadMultiTouch && gesture.activePointerIds.size < 2) {
       reset();
     }

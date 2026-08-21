@@ -15,6 +15,7 @@ type HarnessProps = {
   locked?: boolean;
   interactionMode?: InteractionMode;
   onCell: (index: number) => void;
+  onPickCell?: (index: number) => void;
 };
 
 function Harness({
@@ -24,10 +25,11 @@ function Harness({
   locked = false,
   interactionMode = 'mark',
   onCell,
+  onPickCell,
 }: HarnessProps) {
   const artboardRef = createRef<HTMLDivElement>();
   artboardRef.current = artboard;
-  return <div {...useBeadingPointer({ artboardRef, rows, cols, locked, interactionMode, onCell })} />;
+  return <div {...useBeadingPointer({ artboardRef, rows, cols, locked, interactionMode, onCell, onPickCell })} />;
 }
 
 function pointer(pointerId: number, clientX: number, clientY: number, currentTarget: HTMLDivElement) {
@@ -147,6 +149,49 @@ describe('useBeadingPointer', () => {
 
     expect(onCell).not.toHaveBeenCalled();
     expect(artboard.setPointerCapture).toHaveBeenCalledTimes(interactionMode === 'pan' ? 0 : 1);
+  });
+
+  it('picks a stationary single-pointer pan tap without taking pointer capture', () => {
+    const onCell = vi.fn();
+    const onPickCell = vi.fn();
+    const artboard = makeArtboard();
+    const renderer = renderHarness({ artboard, onCell, onPickCell, interactionMode: 'pan' });
+    const events = handlers(renderer);
+
+    events.onPointerDown(pointer(1, 85, 95, artboard));
+    events.onPointerUp(pointer(1, 85, 95, artboard));
+
+    expect(onPickCell).toHaveBeenCalledWith(5);
+    expect(onCell).not.toHaveBeenCalled();
+    expect(artboard.setPointerCapture).not.toHaveBeenCalled();
+    expect(artboard.releasePointerCapture).not.toHaveBeenCalled();
+  });
+
+  it('does not pick from pan after movement, multitouch, cancellation, or while locked', () => {
+    const onPickCell = vi.fn();
+    const artboard = makeArtboard();
+    const renderer = renderHarness({ artboard, onCell: vi.fn(), onPickCell, interactionMode: 'pan' });
+    const events = handlers(renderer);
+
+    events.onPointerDown(pointer(1, 20, 30, artboard));
+    events.onPointerMove(pointer(1, 25, 30, artboard));
+    events.onPointerUp(pointer(1, 20, 30, artboard));
+    events.onPointerDown(pointer(2, 20, 30, artboard));
+    events.onPointerDown(pointer(3, 25, 35, artboard));
+    events.onPointerUp(pointer(2, 20, 30, artboard));
+    events.onPointerUp(pointer(3, 25, 35, artboard));
+    events.onPointerDown(pointer(4, 20, 30, artboard));
+    events.onPointerCancel(pointer(4, 20, 30, artboard));
+    events.onPointerUp(pointer(4, 20, 30, artboard));
+
+    act(() => {
+      renderer.update(<Harness artboard={artboard} onCell={vi.fn()} onPickCell={onPickCell} interactionMode="pan" locked />);
+    });
+    events.onPointerDown(pointer(5, 20, 30, artboard));
+    events.onPointerUp(pointer(5, 20, 30, artboard));
+
+    expect(onPickCell).not.toHaveBeenCalled();
+    expect(artboard.setPointerCapture).not.toHaveBeenCalled();
   });
 
   it.each([
