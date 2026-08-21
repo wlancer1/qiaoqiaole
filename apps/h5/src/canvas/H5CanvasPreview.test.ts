@@ -72,6 +72,7 @@ describe('viewport ruler geometry', () => {
   });
 
   it('raises ruler label density as transformed cells grow without allowing labels to overlap', () => {
+    expect(getRulerTickInterval(1)).toBe(5);
     expect(getRulerTickInterval(6)).toBe(4);
     expect(getRulerTickInterval(12)).toBe(2);
     expect(getRulerTickInterval(24)).toBe(1);

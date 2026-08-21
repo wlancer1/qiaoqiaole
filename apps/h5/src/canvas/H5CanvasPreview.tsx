@@ -95,7 +95,7 @@ const VIEWPORT_RULER_LABEL_MIN_SPACING = 24;
 
 export function getRulerTickInterval(cellSize: number): number {
   const safeCellSize = Math.max(1, cellSize);
-  return Math.max(1, Math.ceil(VIEWPORT_RULER_LABEL_MIN_SPACING / safeCellSize));
+  return Math.min(5, Math.max(1, Math.ceil(VIEWPORT_RULER_LABEL_MIN_SPACING / safeCellSize)));
 }
 
 export function isCanvasRulerOverflowing(
