@@ -21,6 +21,7 @@ type CommunityFeatureContextValue = {
 };
 
 const CommunityFeatureContext = createContext<CommunityFeatureContextValue | null>(null);
+const UNREAD_NOTIFICATION_POLL_INTERVAL = 60_000;
 
 export type CommunityFeatureCommands = {
   refreshDiscovery: (token?: string, preserveOnError?: boolean) => Promise<void>;
@@ -57,6 +58,8 @@ export function CommunityFeatureProvider({ children, requestApi, requireLogin, l
   const discovery = useCommunityDiscoveryRoute();
   const detail = useCommunityPostDetail({ postId: screen === 'pattern-detail' ? postId : '', requestApi, setStatus });
   const [copyingPostId, setCopyingPostId] = useState('');
+  const notificationCountLoaderRef = useRef(domain.loadUnreadNotificationCount);
+  notificationCountLoaderRef.current = domain.loadUnreadNotificationCount;
   const sessionRef = useRef({ token, generation: 0 });
   if (sessionRef.current.token !== token) sessionRef.current = { token, generation: sessionRef.current.generation + 1 };
   const routeScope = `${location.key}:${location.pathname}${location.search}`;
@@ -126,6 +129,23 @@ export function CommunityFeatureProvider({ children, requestApi, requireLogin, l
     if (activeTab !== 'messages' || !token) return;
     void domain.loadNotifications(token, { preserveOnError: true });
   }, [activeTab, domain.loadNotifications, token]);
+  useEffect(() => {
+    if (screen !== 'home' || !token) return undefined;
+    const refresh = () => { void notificationCountLoaderRef.current(token); };
+    refresh();
+    if (typeof window === 'undefined' || typeof document === 'undefined') return undefined;
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    const timer = window.setInterval(refreshWhenVisible, UNREAD_NOTIFICATION_POLL_INTERVAL);
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  }, [screen, token]);
   useEffect(() => {
     onCommands?.({
       refreshDiscovery: async (nextToken = token, preserveOnError = false) => {

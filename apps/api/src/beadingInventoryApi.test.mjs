@@ -149,4 +149,21 @@ describe('beading inventory API', () => {
     expect(afterEdit.body.session.id).not.toBe(beforeEdit.body.session.id);
     expect(afterEdit.body.session.requirements).toEqual([{ colorCode: 'C5', required: 1 }]);
   });
+
+  it('lists only paginated inventory transaction summaries for the owning warehouse', async () => {
+    await request(`/api/warehouses/${warehouseId}/inventory`, {
+      method: 'POST',
+      body: JSON.stringify({ codes: ['C5'], type: 'in', quantity: 4, inputUnit: 'gram', inputValue: 0.27 }),
+    });
+    const result = await request(`/api/warehouses/${warehouseId}/transactions?page=1&pageSize=1`);
+    expect(result.response.status, JSON.stringify(result.body)).toBe(200);
+    expect(result.body).toMatchObject({ page: 1, pageSize: 1, total: expect.any(Number), hasMore: expect.any(Boolean) });
+    expect(result.body.transactions).toHaveLength(1);
+    expect(result.body.transactions[0]).toEqual(expect.objectContaining({
+      id: expect.any(String), colorCode: expect.any(String), type: expect.stringMatching(/^(in|out)$/),
+      quantity: expect.any(Number), inputUnit: expect.any(String), inputValue: expect.any(Number), createdAt: expect.any(String),
+    }));
+    expect(result.body.transactions[0]).not.toHaveProperty('canvasData');
+    expect(result.body.transactions[0]).not.toHaveProperty('beadList');
+  });
 });

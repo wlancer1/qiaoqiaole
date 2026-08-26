@@ -105,6 +105,19 @@ describe('useCommunityDomain', () => {
     expect(harness.control.current!.communityHasMore).toBe(false);
   });
 
+  it('loads only the unread count for background message polling', async () => {
+    const requestApi = vi.fn().mockResolvedValue({ unreadCount: 3 }) as unknown as CommunityRequestApi;
+    const harness = createHarness(requestApi);
+    await harness.mount();
+    renderers.push(harness.renderer);
+
+    await act(async () => { await harness.control.current!.loadUnreadNotificationCount(); });
+
+    expect(requestApi).toHaveBeenCalledWith('/notifications/unread-count', { headers: { authorization: 'Bearer token-1' } }, 'token-1');
+    expect(harness.control.current!.unreadNotificationCount).toBe(3);
+    expect(harness.control.current!.notifications).toEqual([]);
+  });
+
   it('loads only the URL-selected discovery page instead of accumulating earlier pages', async () => {
     const requestApi = vi.fn().mockResolvedValue({ posts: [post('page-three', 2)] }) as unknown as CommunityRequestApi;
     const harness = createHarness(requestApi);

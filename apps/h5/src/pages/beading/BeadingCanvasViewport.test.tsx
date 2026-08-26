@@ -180,6 +180,8 @@ describe('BeadingCanvasViewport', () => {
     expect(source).toContain('artboardRef={viewportArtboardRef}');
     expect(source).toContain('stageRef={stageRef}');
     expect(source).toContain('scale={canvasScale}');
+    expect(source).toContain('rulerBaselineScaleRef.current = next.scale');
+    expect(source).toContain('minimumStickyScale={rulerBaselineScaleRef.current}');
     expect(source).toContain('is-viewport-ruler-sticky');
     expect(source).toContain('onStickyChange={setViewportRulerSticky}');
   });

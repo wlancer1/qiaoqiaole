@@ -63,6 +63,9 @@ describe('fix bug API foundations', () => {
     const notifications = await request('/api/notifications', { headers: { authorization: `Bearer ${token}` } });
     expect(notifications.status).toBe(200);
     expect(Array.isArray(notifications.body.notifications)).toBe(true);
+    const unreadCount = await request('/api/notifications/unread-count', { headers: { authorization: `Bearer ${token}` } });
+    expect(unreadCount.status).toBe(200);
+    expect(unreadCount.body).toEqual({ unreadCount: expect.any(Number) });
   });
 
   it('creates a comment notification for another user and skips self notification', async () => {

@@ -167,10 +167,12 @@ export function HomeShellPage(props: HomeShellPageProps) {
     setStatus, patternListCards, homeTemplateCards, openCommunityPost, openAuthorProfile, stockedColorCount, totalWarehouseStock,
     communityHasMore = false, isCommunityLoadingMore = false, loadMoreHomeTemplates,
     activeWarehouse, mardColors, openWarehouse, setActiveTab, communitySort, setCommunitySort,
-    logoutPhone, notifications, loadNotifications, openNotification,
+    logoutPhone, notifications, notificationUnreadCount, loadNotifications, openNotification,
     profileAvatarUrl, receivedLikesCount = 0, followingCount = 0, followersCount = 0, showProfileEditModal, openProfileEdit, profileEditModal, confirmDialog, requestConfirm, openMyWorks, openFollowing, openFollowers,
   } = props;
-  const unreadNotificationCount = (notifications ?? []).filter((item: { isRead?: boolean }) => !item.isRead).length;
+  const unreadNotificationCount = Number.isFinite(notificationUnreadCount)
+    ? Math.max(0, Number(notificationUnreadCount))
+    : (notifications ?? []).filter((item: { isRead?: boolean }) => !item.isRead).length;
   return (
     <main className="h5-home-shell">
       {confirmDialog}

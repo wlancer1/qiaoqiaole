@@ -89,6 +89,7 @@ export function BeadingCanvasViewport({
   const resizeFrameRef = useRef<number | null>(null);
   const lastObservedSizeRef = useRef<{ width: number; height: number } | null>(null);
   const viewportArtboardRef = useRef<HTMLDivElement | null>(null);
+  const rulerBaselineScaleRef = useRef(1);
   const [canvasScale, setCanvasScale] = useState(1);
   const [viewportRulerSticky, setViewportRulerSticky] = useState(false);
   const dimensions = { width: cols * CELL_SIZE, height: rows * CELL_SIZE };
@@ -111,6 +112,7 @@ export function BeadingCanvasViewport({
     const next = calculateViewportFit(viewportWidth, viewportHeight, artboardWidth, artboardHeight);
     if (next && transformRef.current) {
       pendingFitRef.current = false;
+      rulerBaselineScaleRef.current = next.scale;
       transformRef.current.setTransform(next.x, next.y, next.scale, fitTransitionDuration());
     }
   }, []);
@@ -220,6 +222,7 @@ export function BeadingCanvasViewport({
           rows={rows}
           cols={cols}
           scale={canvasScale}
+          minimumStickyScale={rulerBaselineScaleRef.current}
           onStickyChange={setViewportRulerSticky}
         />
       </TransformWrapper>

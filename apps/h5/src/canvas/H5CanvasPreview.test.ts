@@ -67,8 +67,25 @@ describe('viewport ruler geometry', () => {
     expect(isCanvasRulerOverflowing(stage, { left: -240, top: -120, width: 900, height: 900 }, 2)).toBe(true);
   });
 
+  it('switches before the zoomed outer ruler gutters are clipped', () => {
+    expect(isCanvasRulerOverflowing(
+      stage,
+      { left: 30, top: 25, width: 340, height: 570 },
+      1.5,
+    )).toBe(true);
+  });
+
   it('does not switch to sticky rulers for an unzoomed oversized artboard', () => {
     expect(isCanvasRulerOverflowing(stage, { left: -240, top: -120, width: 900, height: 900 }, 1)).toBe(false);
+  });
+
+  it('switches after zooming beyond a fitted scale below one', () => {
+    expect(isCanvasRulerOverflowing(
+      stage,
+      { left: -40, top: -30, width: 480, height: 700 },
+      0.75,
+      0.5,
+    )).toBe(true);
   });
 
   it('raises ruler label density as transformed cells grow without allowing labels to overlap', () => {
@@ -117,6 +134,34 @@ describe('viewport ruler geometry', () => {
         { tick: 31, offset: 530 },
       ],
     });
+  });
+
+  it('keeps an edge label when the narrow visible range falls between regular ruler ticks', () => {
+    const geometry = getViewportRulerGeometry(
+      { left: 0, top: 0, width: 5, height: 5 },
+      { left: -19, top: -19, width: 100, height: 100 },
+      20,
+      20,
+      2,
+    );
+
+    expect(geometry.sticky).toBe(true);
+    expect(geometry.columns).toEqual([{ tick: 5, offset: 3.5 }]);
+    expect(geometry.rows).toEqual([{ tick: 5, offset: 3.5 }]);
+  });
+
+  it('keeps an edge label when only part of a zoomed cell intersects the viewport', () => {
+    const geometry = getViewportRulerGeometry(
+      { left: 0, top: 0, width: 100, height: 100 },
+      { left: -150, top: -150, width: 400, height: 400 },
+      2,
+      2,
+      4,
+    );
+
+    expect(geometry.sticky).toBe(true);
+    expect(geometry.columns).toEqual([{ tick: 1, offset: 7 }]);
+    expect(geometry.rows).toEqual([{ tick: 1, offset: 7 }]);
   });
 
   it('chooses row and column intervals independently while preserving transformed cell centers', () => {

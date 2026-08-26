@@ -343,6 +343,7 @@ function initSchema() {
   `);
   db.run('CREATE INDEX IF NOT EXISTS idx_follows_following ON follows(following_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_notifications_receiver_created ON notifications(receiver_id, created_at DESC)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_notifications_receiver_read ON notifications(receiver_id, read_at)');
   for (const column of ['source_image', 'thumbnail_image', 'canvas_data', 'bead_list']) {
     try {
       db.run(`ALTER TABLE projects ADD COLUMN ${column} TEXT`);
@@ -574,6 +575,9 @@ async function route(request, response) {
   if (request.method === 'GET' && url.pathname === '/api/notifications') {
     return listNotifications(response, user.id, url);
   }
+  if (request.method === 'GET' && url.pathname === '/api/notifications/unread-count') {
+    return getUnreadNotificationCount(response, user.id);
+  }
   const notificationReadMatch = url.pathname.match(/^\/api\/notifications\/([^/]+)\/read$/);
   if (notificationReadMatch && request.method === 'PATCH') {
     return markNotificationRead(response, user.id, notificationReadMatch[1]);
@@ -677,6 +681,10 @@ async function route(request, response) {
   }
   if (request.method === 'POST' && inventoryMatch) {
     return mutateInventory(request, response, user.id, inventoryMatch[1]);
+  }
+  const inventoryTransactionsMatch = url.pathname.match(/^\/api\/warehouses\/([^/]+)\/transactions$/);
+  if (request.method === 'GET' && inventoryTransactionsMatch) {
+    return listInventoryTransactions(response, user.id, inventoryTransactionsMatch[1], url);
   }
 
   sendJson(response, 404, { error: 'NOT_FOUND', message: '接口不存在' });
@@ -2186,6 +2194,14 @@ function listNotifications(response, userId, url) {
   sendJson(response, 200, { notifications, unreadCount: Number(unread?.count || 0), page, pageSize });
 }
 
+function getUnreadNotificationCount(response, userId) {
+  const unread = getOne(
+    'SELECT COUNT(*) AS count FROM notifications WHERE receiver_id = ? AND read_at IS NULL',
+    [userId],
+  );
+  sendJson(response, 200, { unreadCount: Number(unread?.count || 0) });
+}
+
 async function markNotificationRead(response, userId, notificationId) {
   const notification = getOne('SELECT id FROM notifications WHERE id = ? AND receiver_id = ?', [notificationId, userId]);
   if (!notification) return sendJson(response, 404, { error: 'NOT_FOUND', message: '消息不存在' });
@@ -2258,6 +2274,25 @@ function getInventory(response, userId, warehouseId) {
   const inventory = {};
   for (const row of rows) inventory[row.colorCode] = row.quantity;
   sendJson(response, 200, { inventory });
+}
+
+function listInventoryTransactions(response, userId, warehouseId, url) {
+  if (!assertWarehouseOwner(userId, warehouseId)) {
+    return sendJson(response, 404, { error: 'NOT_FOUND', message: '仓库不存在' });
+  }
+  const { page, pageSize, offset } = parsePagination(url.searchParams);
+  const total = Number(getOne('SELECT COUNT(*) AS count FROM inventory_transactions WHERE warehouse_id = ? AND user_id = ?', [warehouseId, userId])?.count || 0);
+  const transactions = getAll(
+    `SELECT id, color_code AS colorCode, type, quantity, input_unit AS inputUnit, input_value AS inputValue,
+            source, project_id AS projectId, beading_session_id AS beadingSessionId,
+            project_name_snapshot AS projectName, created_at AS createdAt
+     FROM inventory_transactions
+     WHERE warehouse_id = ? AND user_id = ?
+     ORDER BY created_at DESC, id DESC
+     LIMIT ? OFFSET ?`,
+    [warehouseId, userId, pageSize, offset],
+  );
+  sendJson(response, 200, { transactions, page, pageSize, hasMore: offset + transactions.length < total, total });
 }
 
 async function mutateInventory(request, response, userId, warehouseId) {

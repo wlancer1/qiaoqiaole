@@ -91,7 +91,10 @@ export type ViewportRulerGeometry = {
 };
 
 const RULER_OVERFLOW_TOLERANCE = 1;
+const CANVAS_RULER_LEFT_GUTTER = 22;
+const CANVAS_RULER_TOP_GUTTER = 20;
 const VIEWPORT_RULER_LABEL_MIN_SPACING = 24;
+const VIEWPORT_RULER_LABEL_EDGE_INSET = 7;
 
 export function getRulerTickInterval(cellSize: number): number {
   const safeCellSize = Math.max(1, cellSize);
@@ -102,15 +105,18 @@ export function isCanvasRulerOverflowing(
   stageRect: CanvasRulerRect,
   artboardRect: CanvasRulerRect,
   scale = 1,
+  minimumStickyScale = 1,
   tolerance = RULER_OVERFLOW_TOLERANCE,
 ): boolean {
-  if (scale <= 1) return false;
+  if (scale <= minimumStickyScale) return false;
   const stageRight = stageRect.left + stageRect.width;
   const stageBottom = stageRect.top + stageRect.height;
   const artboardRight = artboardRect.left + artboardRect.width;
   const artboardBottom = artboardRect.top + artboardRect.height;
-  return artboardRect.left < stageRect.left + tolerance
-    || artboardRect.top < stageRect.top + tolerance
+  const rulerLeft = artboardRect.left - CANVAS_RULER_LEFT_GUTTER * scale;
+  const rulerTop = artboardRect.top - CANVAS_RULER_TOP_GUTTER * scale;
+  return rulerLeft < stageRect.left + tolerance
+    || rulerTop < stageRect.top + tolerance
     || artboardRight > stageRight - tolerance
     || artboardBottom > stageBottom - tolerance;
 }
@@ -121,9 +127,36 @@ function visibleRulerTicks(
   artboardOffset: number,
   viewportSize: number,
 ): ViewportRulerTick[] {
-  return rulerTicks(size, getRulerTickInterval(cellSize))
+  if (!Number.isFinite(cellSize) || cellSize <= 0 || !Number.isFinite(viewportSize) || viewportSize <= 0) return [];
+  const regularTicks = rulerTicks(size, getRulerTickInterval(cellSize))
     .map((tick) => ({ tick, offset: artboardOffset + (tick - 0.5) * cellSize }))
     .filter(({ offset }) => offset >= 0 && offset <= viewportSize);
+  if (regularTicks.length > 0) return regularTicks;
+
+  // A narrow viewport can sit entirely between two regular ruler ticks. Keep
+  // the first actually visible cell labelled instead of leaving that edge
+  // without any coordinate marker.
+  const firstVisibleTick = Math.max(1, Math.ceil(0.5 - artboardOffset / cellSize));
+  const lastVisibleTick = Math.min(size, Math.floor(0.5 + (viewportSize - artboardOffset) / cellSize));
+  if (firstVisibleTick <= lastVisibleTick) {
+    return [{
+      tick: firstVisibleTick,
+      offset: artboardOffset + (firstVisibleTick - 0.5) * cellSize,
+    }];
+  }
+
+  // At high zoom the viewport may show only the edge of a cell while its
+  // center is already offscreen. Label that intersecting cell at the closest
+  // fully visible ruler position so the coordinate edge never becomes blank.
+  const firstIntersectingTick = Math.max(1, Math.floor(-artboardOffset / cellSize) + 1);
+  const lastIntersectingTick = Math.min(size, Math.ceil((viewportSize - artboardOffset) / cellSize));
+  if (firstIntersectingTick > lastIntersectingTick) return [];
+  const naturalOffset = artboardOffset + (firstIntersectingTick - 0.5) * cellSize;
+  const edgeInset = Math.min(VIEWPORT_RULER_LABEL_EDGE_INSET, viewportSize / 2);
+  return [{
+    tick: firstIntersectingTick,
+    offset: Math.max(edgeInset, Math.min(viewportSize - edgeInset, naturalOffset)),
+  }];
 }
 
 export function getViewportRulerGeometry(
@@ -132,6 +165,7 @@ export function getViewportRulerGeometry(
   rows: number,
   cols: number,
   scale = 1,
+  minimumStickyScale = 1,
 ): ViewportRulerGeometry {
   const safeRows = Math.max(1, rows);
   const safeCols = Math.max(1, cols);
@@ -139,11 +173,12 @@ export function getViewportRulerGeometry(
   const cellHeight = artboardRect.height / safeRows;
   const artboardLeft = artboardRect.left - stageRect.left;
   const artboardTop = artboardRect.top - stageRect.top;
+  const sticky = isCanvasRulerOverflowing(stageRect, artboardRect, scale, minimumStickyScale);
 
   return {
-    sticky: isCanvasRulerOverflowing(stageRect, artboardRect, scale),
-    columns: visibleRulerTicks(safeCols, cellWidth, artboardLeft, stageRect.width),
-    rows: visibleRulerTicks(safeRows, cellHeight, artboardTop, stageRect.height),
+    sticky,
+    columns: sticky ? visibleRulerTicks(safeCols, cellWidth, artboardLeft, stageRect.width) : [],
+    rows: sticky ? visibleRulerTicks(safeRows, cellHeight, artboardTop, stageRect.height) : [],
   };
 }
 
@@ -153,6 +188,7 @@ export function CanvasViewportRulers({
   rows,
   cols,
   scale,
+  minimumStickyScale = 1,
   onStickyChange,
 }: {
   stageRef: { current: HTMLElement | null };
@@ -160,6 +196,7 @@ export function CanvasViewportRulers({
   rows: number;
   cols: number;
   scale: number;
+  minimumStickyScale?: number;
   onStickyChange?: (sticky: boolean) => void;
 }) {
   const [geometry, setGeometry] = useState<ViewportRulerGeometry>({ sticky: false, columns: [], rows: [] });
@@ -189,9 +226,10 @@ export function CanvasViewportRulers({
         rows,
         cols,
         scale,
+        minimumStickyScale,
       ));
     });
-  }, [artboardRef, cols, rows, scale, stageRef]);
+  }, [artboardRef, cols, minimumStickyScale, rows, scale, stageRef]);
 
   useLayoutEffect(() => {
     measure();

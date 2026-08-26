@@ -22,6 +22,34 @@ describe('CommunityFeatureProvider message route', () => {
     });
 
     expect(requestApi).toHaveBeenCalledWith('/notifications', { headers: { authorization: 'Bearer token-1' } }, 'token-1');
+    expect(requestApi).toHaveBeenCalledWith('/notifications/unread-count', { headers: { authorization: 'Bearer token-1' } }, 'token-1');
     expect(notifications).toHaveLength(1);
+  });
+
+  it('polls the unread count on the home page without loading message details', async () => {
+    const store = createH5Store({ storage: undefined });
+    store.dispatch(sessionEstablished({ token: 'token-1', user: { id: 'user-1', username: 'u', displayName: '用户', avatarUrl: '', legacyDraftOwnerId: '', likesCount: 0, followingCount: 0, followersCount: 0 } }));
+    const requestApi = vi.fn().mockResolvedValue({ notifications: [], unreadCount: 0 });
+
+    await act(async () => {
+      create(<Provider store={store}><MemoryRouter initialEntries={['/']}><CommunityFeatureProvider requestApi={requestApi} requireLogin={vi.fn()} loadFollowingCount={vi.fn()}><div /></CommunityFeatureProvider></MemoryRouter></Provider>);
+      await Promise.resolve();
+    });
+
+    expect(requestApi).toHaveBeenCalledWith('/notifications/unread-count', { headers: { authorization: 'Bearer token-1' } }, 'token-1');
+    expect(requestApi).not.toHaveBeenCalledWith('/notifications', expect.anything(), 'token-1');
+  });
+
+  it('does not poll notifications outside the home shell', async () => {
+    const store = createH5Store({ storage: undefined });
+    store.dispatch(sessionEstablished({ token: 'token-1', user: { id: 'user-1', username: 'u', displayName: '用户', avatarUrl: '', legacyDraftOwnerId: '', likesCount: 0, followingCount: 0, followersCount: 0 } }));
+    const requestApi = vi.fn().mockResolvedValue({ notifications: [], unreadCount: 0 });
+
+    await act(async () => {
+      create(<Provider store={store}><MemoryRouter initialEntries={['/projects']}><CommunityFeatureProvider requestApi={requestApi} requireLogin={vi.fn()} loadFollowingCount={vi.fn()}><div /></CommunityFeatureProvider></MemoryRouter></Provider>);
+      await Promise.resolve();
+    });
+
+    expect(requestApi).not.toHaveBeenCalled();
   });
 });

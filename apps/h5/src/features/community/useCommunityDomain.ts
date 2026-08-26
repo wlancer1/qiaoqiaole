@@ -43,6 +43,7 @@ export type CommunityDomainResult = {
   communityComments: CommunityCommentsResponse['comments'];
   setCommunityComments: Dispatch<SetStateAction<CommunityCommentsResponse['comments']>>;
   notifications: CommunityNotification[];
+  unreadNotificationCount: number;
   setNotifications: Dispatch<SetStateAction<CommunityNotification[]>>;
   isCommunityCommentsLoading: boolean;
   commentSubmitting: boolean;
@@ -74,6 +75,7 @@ export type CommunityDomainResult = {
   resetAuthorProfile: () => void;
   loadCommunityComments: (projectId: string) => Promise<void>;
   loadNotifications: (token?: string, options?: { preserveOnError?: boolean }) => Promise<void>;
+  loadUnreadNotificationCount: (token?: string) => Promise<void>;
   openNotification: (notification: CommunityNotification) => Promise<void>;
   likeCommunityPost: (projectId: string, currentlyLiked: boolean, token?: string) => Promise<CommunityLikeResult | null>;
   toggleCommunityFollow: (authorId: string, currentlyFollowing: boolean, token?: string) => Promise<void>;
@@ -117,6 +119,7 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, routeScop
   const [followersError, setFollowersError] = useState('');
   const [communityComments, setCommunityComments] = useState<CommunityCommentsResponse['comments']>([]);
   const [notifications, setNotifications] = useState<CommunityNotification[]>([]);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const [isCommunityCommentsLoading, setIsCommunityCommentsLoading] = useState(false);
   const [commentSubmitting, setCommentSubmitting] = useState(false);
   const [commentReplyPendingId, setCommentReplyPendingId] = useState('');
@@ -130,6 +133,7 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, routeScop
   const authorProfileRequestSeqRef = useRef(0);
   const communityCommentsRequestSeqRef = useRef(0);
   const notificationsRequestSeqRef = useRef(0);
+  const unreadNotificationCountRequestSeqRef = useRef(0);
   const followingRequestSeqRef = useRef(0);
   const followersRequestSeqRef = useRef(0);
   const socialMutationSeqRef = useRef(0);
@@ -372,6 +376,7 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, routeScop
     authorProfileRequestSeqRef.current += 1;
     communityCommentsRequestSeqRef.current += 1;
     notificationsRequestSeqRef.current += 1;
+    unreadNotificationCountRequestSeqRef.current += 1;
     followingRequestSeqRef.current += 1;
     followersRequestSeqRef.current += 1;
     socialMutationSeqRef.current += 1;
@@ -386,6 +391,7 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, routeScop
     setCommunityHasMore(false);
     setCommunityComments([]);
     setNotifications([]);
+    setUnreadNotificationCount(0);
     setFollowingUsers([]);
     setFollowersUsers([]);
     setFollowingError('');
@@ -421,17 +427,41 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, routeScop
 
   const loadNotifications = async (token = authToken, { preserveOnError = false } = {}) => {
     if (!token) {
-      if (!preserveOnError) setNotifications([]);
+      if (!preserveOnError) {
+        setNotifications([]);
+        setUnreadNotificationCount(0);
+      }
       return;
     }
     const requestSeq = notificationsRequestSeqRef.current + 1;
     notificationsRequestSeqRef.current = requestSeq;
     const operation = captureOperationScope();
     try {
-      const payload = await requestApi<{ notifications: CommunityNotification[] }>('/notifications', { headers: { authorization: `Bearer ${token}` } }, token);
-      if (notificationsRequestSeqRef.current === requestSeq && isOperationCurrent(operation) && operation.authToken === token) setNotifications(payload.notifications || []);
+      const payload = await requestApi<{ notifications: CommunityNotification[]; unreadCount?: number }>('/notifications', { headers: { authorization: `Bearer ${token}` } }, token);
+      if (notificationsRequestSeqRef.current === requestSeq && isOperationCurrent(operation) && operation.authToken === token) {
+        setNotifications(payload.notifications || []);
+        setUnreadNotificationCount(Number.isFinite(payload.unreadCount) ? Math.max(0, Number(payload.unreadCount)) : (payload.notifications || []).filter((item) => !item.isRead).length);
+      }
     } catch (error) {
       if (notificationsRequestSeqRef.current === requestSeq && isOperationCurrent(operation) && operation.authToken === token) setStatus(error instanceof Error ? error.message : '消息读取失败');
+    }
+  };
+
+  const loadUnreadNotificationCount = async (token = authToken) => {
+    if (!token) {
+      setUnreadNotificationCount(0);
+      return;
+    }
+    const requestSeq = unreadNotificationCountRequestSeqRef.current + 1;
+    unreadNotificationCountRequestSeqRef.current = requestSeq;
+    const operation = captureOperationScope();
+    try {
+      const payload = await requestApi<{ unreadCount?: number }>('/notifications/unread-count', { headers: { authorization: `Bearer ${token}` } }, token);
+      if (unreadNotificationCountRequestSeqRef.current === requestSeq && isOperationCurrent(operation) && operation.authToken === token) {
+        setUnreadNotificationCount(Number.isFinite(payload.unreadCount) ? Math.max(0, Number(payload.unreadCount)) : 0);
+      }
+    } catch {
+      // Background badge polling is best-effort and must not surface stale route-level errors.
     }
   };
 
@@ -452,7 +482,10 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, routeScop
     if (opened && !notification.isRead && notificationOperationSeqRef.current === operationSeq && isOperationCurrent(operation)) {
       try {
         await requestApi(`/notifications/${notification.id}/read`, { method: 'PATCH' });
-        if (notificationOperationSeqRef.current === operationSeq && isOperationCurrent(operation)) setNotifications((items) => items.map((item) => item.id === notification.id ? { ...item, isRead: true, readAt: new Date().toISOString() } : item));
+        if (notificationOperationSeqRef.current === operationSeq && isOperationCurrent(operation)) {
+          setNotifications((items) => items.map((item) => item.id === notification.id ? { ...item, isRead: true, readAt: new Date().toISOString() } : item));
+          setUnreadNotificationCount((count) => notification.isRead ? count : Math.max(0, count - 1));
+        }
       } catch (error) {
         if (notificationOperationSeqRef.current === operationSeq && isOperationCurrent(operation)) setStatus(error instanceof Error ? error.message : '消息状态更新失败');
       }
@@ -583,6 +616,7 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, routeScop
     communityComments,
     setCommunityComments,
     notifications,
+    unreadNotificationCount,
     setNotifications,
     isCommunityCommentsLoading,
     commentSubmitting,
@@ -610,6 +644,7 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, routeScop
     resetAuthorProfile,
     loadCommunityComments,
     loadNotifications,
+    loadUnreadNotificationCount,
     openNotification,
     likeCommunityPost,
     toggleCommunityFollow,

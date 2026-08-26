@@ -10,8 +10,35 @@ import {
   mergeSimilarCells,
 } from './grid';
 import { MARD_221_COLORS, MARD_221_HEX } from './mard221';
+import backgroundRemovalFixtures from './fixtures/background-removal-fixtures.json';
 
 describe('grid domain', () => {
+  it('matches the shared native background-removal pixel fixtures', async () => {
+    const { prepareBackgroundRemoval, removeBackground } = await import('./grid');
+
+    for (const fixture of backgroundRemovalFixtures.fixtures) {
+      const data = new Uint8ClampedArray(fixture.width * fixture.height * 4);
+      for (let y = 0; y < fixture.height; y += 1) {
+        for (let x = 0; x < fixture.width; x += 1) {
+          data.set(fixture.background, (y * fixture.width + x) * 4);
+        }
+      }
+      for (const rectangle of fixture.rectangles) {
+        for (let y = rectangle.y; y < rectangle.y + rectangle.height; y += 1) {
+          for (let x = rectangle.x; x < rectangle.x + rectangle.width; x += 1) {
+            data.set(rectangle.rgba, (y * fixture.width + x) * 4);
+          }
+        }
+      }
+
+      const source = { data, width: fixture.width, height: fixture.height } as ImageData;
+      const result = removeBackground(source, { sensitivity: fixture.sensitivity }, prepareBackgroundRemoval(source));
+      for (const expected of fixture.expectedAlpha) {
+        expect(result.imageData.data[(expected.y * fixture.width + expected.x) * 4 + 3], fixture.id).toBe(expected.value);
+      }
+    }
+  });
+
   it('removes connected white background through the prepared ImageData API without mutating its source', async () => {
     const { prepareBackgroundRemoval, removeBackground } = await import('./grid');
     const width = 9;
