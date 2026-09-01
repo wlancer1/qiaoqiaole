@@ -98,4 +98,37 @@ describe('useProjectListDomain', () => {
     expect(control.current!.page).toBe(2);
     expect(store.getState().projects.projects.map((item) => item.id)).toEqual(['new']);
   });
+
+  it('does not reuse the previous account total when a new account opens a folder directly', async () => {
+    const requestApi = vi.fn().mockImplementation(async (path: string, _options: RequestInit, token: string) => {
+      if (token === 'token-a' && path === '/projects?page=1&pageSize=12') {
+        return { projects: [], page: 1, pageSize: 12, total: 7, hasMore: false };
+      }
+      if (token === 'token-b' && path === '/projects?folder=folder-1&page=1&pageSize=12') {
+        return { projects: [project('b-folder', '2026-08-03', 'folder-1')], page: 1, pageSize: 12, total: 1, hasMore: false };
+      }
+      if (token === 'token-b' && path === '/projects?page=1&pageSize=1') {
+        return { projects: [], page: 1, pageSize: 1, total: 11, hasMore: true };
+      }
+      return { folders: [{ id: 'folder-1', name: '收藏' }] };
+    }) as unknown as ProjectRequestApi;
+    const control = { current: null as ProjectListDomainResult | null };
+    const store = configureStore({ reducer: { projects: projectReducer } });
+    function Probe() {
+      control.current = useProjectListDomain({ requestApi, setStatus: vi.fn() });
+      return null;
+    }
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<Provider store={store}><Probe /></Provider>); });
+    renderers.push(renderer);
+
+    await act(async () => { await control.current!.loadPage('token-a', { page: 1, folderId: 'all' }); });
+    expect(control.current!.overallTotal).toBe(7);
+
+    await act(async () => { await control.current!.loadPage('token-b', { page: 1, folderId: 'folder-1' }); });
+    expect(control.current!.total).toBe(1);
+    expect(control.current!.overallTotal).toBe(11);
+    expect(requestApi).toHaveBeenCalledWith('/projects?page=1&pageSize=1', {}, 'token-b');
+  });
+
 });

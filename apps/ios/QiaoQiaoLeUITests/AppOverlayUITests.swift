@@ -12,7 +12,7 @@ final class AppOverlayUITests: XCTestCase {
         let creation = app.buttons["创建拼豆图纸"]
         XCTAssertTrue(creation.waitForExistence(timeout: 5))
         creation.tap()
-        XCTAssertTrue(app.navigationBars["分割设置"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["分割设置"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["选择参考图片"].exists)
     }
 
@@ -28,7 +28,25 @@ final class AppOverlayUITests: XCTestCase {
         }
 
         creation.tap()
-        XCTAssertTrue(app.navigationBars["分割设置"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["分割设置"].waitForExistence(timeout: 5))
+    }
+
+    func testSplitAlignmentWorkspaceExposesH5EquivalentControls() {
+        app.terminate()
+        app.launchArguments = ["-ui-testing-split-align-workspace"]
+        app.launch()
+
+        XCTAssertTrue(app.staticTexts["对格子"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["快速分割"].exists)
+        XCTAssertTrue(app.buttons["对格子"].exists)
+        XCTAssertTrue(app.staticTexts["微移"].exists)
+        XCTAssertTrue(app.staticTexts["调整格子大小"].exists)
+        XCTAssertTrue(app.buttons["上移网格"].exists)
+        XCTAssertTrue(app.buttons["左移网格"].exists)
+        XCTAssertTrue(app.buttons["右移网格"].exists)
+        XCTAssertTrue(app.buttons["下移网格"].exists)
+        XCTAssertTrue(app.buttons["减小格距"].exists)
+        XCTAssertTrue(app.buttons["增大格距"].exists)
     }
 
     func testSeededSplitImageFlowsFromSettingsToNativeEditor() {
@@ -189,7 +207,10 @@ final class AppOverlayUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["关注"].exists)
         XCTAssertTrue(app.staticTexts["粉丝"].exists)
         XCTAssertTrue(app.staticTexts["豆子仓库"].exists)
-        XCTAssertTrue(app.staticTexts["已入库 68 / 221 色 · 共 4,560 颗"].exists)
+        XCTAssertTrue(app.staticTexts["已入库 68 / 221 色"].exists)
+        XCTAssertTrue(app.staticTexts["共 4,560 颗"].exists)
+        XCTAssertTrue(app.staticTexts["设置"].exists)
+        XCTAssertFalse(app.staticTexts["用户协议"].exists)
     }
 
     func testProfileWorkspaceDoesNotPresentFailedSummariesAsZero() {
@@ -205,10 +226,9 @@ final class AppOverlayUITests: XCTestCase {
 
     func testUnauthenticatedProfileAndMessagesUseH5GuestStates() {
         app.terminate()
-        app.launchArguments = []
+        app.launchArguments = ["-ui-testing-profile-guest"]
         app.launch()
 
-        app.tabBars.buttons["我的"].tap()
         XCTAssertTrue(app.staticTexts["未登录"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["登录后同步项目与豆子库存"].exists)
         XCTAssertTrue(app.buttons["立即登录"].exists)
@@ -295,7 +315,7 @@ final class AppOverlayUITests: XCTestCase {
         app.launchArguments = ["-ui-testing-warehouses-workspace"]
         app.launch()
 
-        XCTAssertTrue(app.navigationBars["豆子仓库"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["豆子仓库"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["我的仓库"].exists)
         XCTAssertTrue(app.staticTexts["家用拼豆柜"].exists)
         XCTAssertTrue(app.staticTexts["68 色在库"].exists)
@@ -314,13 +334,23 @@ final class AppOverlayUITests: XCTestCase {
         XCTAssertTrue(app.buttons["全选"].exists)
         XCTAssertTrue(app.buttons["反选"].exists)
         XCTAssertTrue(app.buttons["A1 库存 120 颗"].exists)
+
+        let firstColor = app.buttons["A1 库存 120 颗"]
+        let sixthColor = app.buttons["A6 库存 0 颗"]
+        XCTAssertTrue(sixthColor.exists)
+        XCTAssertEqual(
+            firstColor.frame.midY,
+            sixthColor.frame.midY,
+            accuracy: 4,
+            "手机宽度下仓库色卡应保持 H5 的六列首行布局"
+        )
     }
 
     func testProjectsWorkspaceFixtureUsesNativeSummaryFoldersAndWorkGrid() {
         app.terminate()
         app.launchArguments = ["-ui-testing-projects-workspace"]
         app.launch()
-        XCTAssertTrue(app.navigationBars["我的作品"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["我的作品"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["我的创作"].exists)
         XCTAssertTrue(app.staticTexts["文件夹"].exists)
         XCTAssertTrue(app.buttons["新建文件夹"].exists)
@@ -336,7 +366,9 @@ final class AppOverlayUITests: XCTestCase {
         XCTAssertTrue(app.textFields["搜索图纸、作者、标签"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.tabBars.buttons["发现"].exists)
         XCTAssertTrue(app.buttons["筛选标签动物"].exists)
-        XCTAssertTrue(app.segmentedControls["稿件排序"].exists)
+        XCTAssertTrue(app.buttons["最新"].exists)
+        XCTAssertTrue(app.buttons["热门"].exists)
+        XCTAssertFalse(app.segmentedControls["稿件排序"].exists)
         XCTAssertTrue(app.staticTexts["草莓小熊"].exists)
         XCTAssertTrue(app.staticTexts["星空猫咪"].exists)
     }

@@ -25,11 +25,17 @@ enum EditorTool: String, CaseIterable, Identifiable {
     case pan = "手抓移动"
     case brush = "画笔"
     case eraser = "橡皮擦"
-    case picker = "吸管"
     case fill = "填充"
+    case picker = "吸管"
     var id: String { rawValue }
-    var symbol: String {
-        switch self { case .pan: "hand.draw.fill"; case .brush: "paintbrush.fill"; case .eraser: "eraser.fill"; case .picker: "eyedropper.full"; case .fill: "paintpalette.fill" }
+    var h5Icon: String {
+        switch self {
+        case .pan: "lucide-hand"
+        case .brush: "lucide-brush"
+        case .eraser: "lucide-eraser"
+        case .picker: "lucide-pipette"
+        case .fill: "lucide-paint-bucket"
+        }
     }
 }
 
@@ -135,6 +141,26 @@ final class PatternDocument: ObservableObject {
         commit {
             self.columns = safeColumns; self.rows = safeRows; cells = nextCells
         }
+    }
+
+    func startNewProject(columns: Int, rows: Int, colors: [ColorToken]) {
+        let safeColumns = min(max(columns, 2), 120)
+        let safeRows = min(max(rows, 2), 120)
+        let requiredCount = safeColumns * safeRows
+        guard colors.count >= requiredCount else { return }
+        self.columns = safeColumns
+        self.rows = safeRows
+        self.cells = colors.prefix(requiredCount).enumerated().map { BeadCell(id: $0.offset, color: $0.element) }
+        activeProjectID = nil
+        projectName = "未命名作品"
+        undoStack.removeAll()
+        redoStack.removeAll()
+    }
+
+    func startBlankProject(columns: Int, rows: Int) {
+        let safeColumns = min(max(columns, 2), 120)
+        let safeRows = min(max(rows, 2), 120)
+        startNewProject(columns: safeColumns, rows: safeRows, colors: Array(repeating: Palette.empty, count: safeColumns * safeRows))
     }
 
     /// Reads the H5 `serializeProjectCells` payload. Invalid or incomplete input
@@ -271,9 +297,9 @@ private func floodFill(_ cells: inout [BeadCell], start: Int, replacing source: 
 
 enum Palette {
     static let empty = ColorToken(hex: "F7F7F3", code: "空白")
-    static let `default` = [ColorToken(hex: "146CFF", code: "B01"), ColorToken(hex: "F04B4C", code: "R04"), ColorToken(hex: "F5B744", code: "Y07"), ColorToken(hex: "31A36A", code: "G09"), ColorToken(hex: "7D5CC6", code: "P03"), ColorToken(hex: "171819", code: "K01")]
+    static let `default` = Array(Mard221Palette.colors.prefix(6))
     static func token(for hex: String) -> ColorToken {
         let normalized = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#")).uppercased()
-        return `default`.first(where: { $0.hex.uppercased() == normalized }) ?? ColorToken(hex: normalized, code: "自定义")
+        return Mard221Palette.resolve(normalized) ?? ColorToken(hex: normalized, code: "自定义")
     }
 }

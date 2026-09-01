@@ -27,6 +27,7 @@ import { createBeadingSessionService, BeadingError } from './beadingSessionServi
 loadEnvFile();
 
 const PORT = Number(process.env.PORT || 3000);
+const HOST = String(process.env.HOST || '0.0.0.0').trim();
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const DEFAULT_DB_PATH = path.join(PROJECT_ROOT, 'data/qiaoqiaole.sqlite');
 const configuredDbPath = String(process.env.SQLITE_PATH || '').trim();
@@ -69,8 +70,8 @@ const server = http.createServer(async (request, response) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`qiaoqiaole api listening on :${PORT}`);
+server.listen(PORT, HOST, () => {
+  console.log(`qiaoqiaole api listening on ${HOST}:${PORT}`);
 });
 
 const shutdown = () => {

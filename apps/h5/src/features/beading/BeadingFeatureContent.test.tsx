@@ -5,12 +5,13 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { createH5Store } from '../../store/store';
 import { sessionCleared, sessionEstablished } from '../../store/auth/authEvents';
 import { AppOverlayProvider } from '../../app/overlays/AppOverlayContext';
+import { AppOverlayHost } from '../../app/overlays/AppOverlayHost';
 import { BeadingFeatureContent } from './BeadingFeatureContent';
 
 vi.mock('../../pages/beading/BeadingSessionPage', () => ({
   BeadingSessionPage: ({ session, onOpenInventory }: { session: { projectName: string }; onOpenInventory: () => Promise<void> }) => <><output>{session.projectName}</output><button aria-label="打开库存检测" onClick={() => { void onOpenInventory(); }} /></>,
 }));
-vi.mock('../../pages/beading/InventoryCheckSheet', () => ({ InventoryCheckSheet: ({ result }: { result: { warehouseName?: string } }) => <aside>{result.warehouseName}</aside> }));
+vi.mock('../../pages/beading/InventoryCheckSheet', () => ({ InventoryCheckSheet: ({ result, onStart, starting = false }: { result: { warehouseName?: string }; onStart: () => void; starting?: boolean }) => <aside>{result.warehouseName}<button aria-label="确认开始拼豆" disabled={starting} onClick={onStart}>开始</button></aside> }));
 
 function project(id: string) { return { id, name: `作品 ${id}`, rows: 2, cols: 2, canvasData: JSON.stringify([{ color: '#ffffff', transparent: false }, { color: '#ffffff', transparent: false }, { color: '#ffffff', transparent: false }, { color: '#ffffff', transparent: false }]) }; }
 function session(id: string) { return { id: `session-${id}`, projectId: id, projectName: `拼豆 ${id}`, requirements: [], warehouseId: null, warehouseName: null, status: 'in_progress', completedColorCodes: [], progress: { completed: 0, total: 0, percent: 0 }, elapsedSeconds: 0, timerStartedAt: null, inventoryDeducted: false, version: 1 }; }
@@ -95,4 +96,29 @@ describe('BeadingFeatureContent route lifecycle', () => {
     await act(async () => { resolveInventory({ warehouseName: '旧库存', warehouseId: 'w1', items: [], summary: { required: 0, available: 0, missing: 0, sufficient: true } }); await inventory; });
     expect(JSON.stringify(renderer.toJSON())).not.toContain('旧库存');
   });
+
+  it('deduplicates repeated confirmation while creating a new beading session', async () => {
+    let commands: import('./BeadingFeatureContent').BeadingFeatureCommands | null = null;
+    let resolveCreate!: (value: unknown) => void;
+    const createRequest = new Promise<unknown>((resolve) => { resolveCreate = resolve; });
+    const requestApi = vi.fn((path: string) => {
+      if (path === '/v1/projects/p1/inventory-check') {
+        return Promise.resolve({ warehouseName: '默认仓库', warehouseId: 'w1', items: [], summary: { required: 0, available: 0, missing: 0, sufficient: true } });
+      }
+      if (path === '/v1/projects/p1/beading-session') return createRequest;
+      throw new Error(`unexpected path ${path}`);
+    });
+    let renderer!: ReturnType<typeof create>;
+    await act(async () => {
+      renderer = create(<Provider store={authenticatedStore()}><MemoryRouter initialEntries={['/projects']}><AppOverlayProvider><BeadingFeatureContent requestApi={requestApi as never} requireLogin={vi.fn()} onCommands={(next) => { commands = next; }} /><AppOverlayHost /></AppOverlayProvider></MemoryRouter></Provider>);
+    });
+
+    await act(async () => { await commands!.start('p1'); });
+    const confirm = renderer.root.findByProps({ 'aria-label': '确认开始拼豆' });
+    act(() => { confirm.props.onClick(); confirm.props.onClick(); });
+    expect(requestApi.mock.calls.filter(([path]) => path === '/v1/projects/p1/beading-session')).toHaveLength(1);
+
+    await act(async () => { resolveCreate({ session: session('p1') }); await createRequest; });
+  });
+
 });

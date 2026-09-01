@@ -20,8 +20,10 @@ struct AlignedSplitGrid: Equatable {
 enum AlignedSplitGeometry {
     static func grid(cropWidth: CGFloat, cropHeight: CGFloat, cellSize: CGFloat, offsetX: CGFloat, offsetY: CGFloat) -> AlignedSplitGrid {
         let safeCellSize = max(1, cellSize)
-        let safeOffsetX = min(max(0, offsetX), max(0, cropWidth - safeCellSize))
-        let safeOffsetY = min(max(0, offsetY), max(0, cropHeight - safeCellSize))
+        let normalizedOffsetX = ((offsetX.truncatingRemainder(dividingBy: safeCellSize)) + safeCellSize).truncatingRemainder(dividingBy: safeCellSize)
+        let normalizedOffsetY = ((offsetY.truncatingRemainder(dividingBy: safeCellSize)) + safeCellSize).truncatingRemainder(dividingBy: safeCellSize)
+        let safeOffsetX = min(normalizedOffsetX, max(0, cropWidth - safeCellSize))
+        let safeOffsetY = min(normalizedOffsetY, max(0, cropHeight - safeCellSize))
         return AlignedSplitGrid(
             columns: max(1, Int(floor((cropWidth - safeOffsetX) / safeCellSize))),
             rows: max(1, Int(floor((cropHeight - safeOffsetY) / safeCellSize))),
@@ -37,11 +39,12 @@ final class SplitWorkflow: ObservableObject {
     @Published var image: UIImage?
     @Published private(set) var sourceImageData: Data?
     @Published var sourceName = ""
-    @Published var longSide = 32
+    @Published var longSide = 8
     @Published private(set) var columns = 32
     @Published private(set) var rows = 32
     @Published private(set) var previewColors: [ColorToken] = []
     @Published private(set) var isGenerating = false
+    @Published private(set) var previewRevision = UUID()
     @Published var mergeThreshold = 0
     @Published var backgroundRemoved = false
     @Published private(set) var isBackgroundProcessing = false
@@ -50,8 +53,11 @@ final class SplitWorkflow: ObservableObject {
     @Published var splitMode: SplitMode = .quick
     @Published private(set) var alignmentCellSize: CGFloat = 1
     @Published private(set) var alignmentOffset = CGPoint.zero
+    @Published private(set) var alignmentFrameOrigin = CGPoint.zero
     private var originalImage: UIImage?
     private var sourceRevision = UUID()
+    private var generationRevision = UUID()
+    private var rawPreviewColors: [ColorToken] = []
 
     /// Deterministic image used only when the app is launched by the UI test
     /// target. It makes the native settings → crop → preview → editor path
@@ -67,7 +73,11 @@ final class SplitWorkflow: ObservableObject {
         }
     }
 
-    var canContinue: Bool { image != nil && !previewColors.isEmpty && !isGenerating }
+    /// Settings and crop pages only need a valid source image. H5 deliberately
+    /// defers expensive colour sampling until the preview page.
+    var canContinue: Bool { image != nil && !isBackgroundProcessing }
+    var canImport: Bool { image != nil && !previewColors.isEmpty && !isGenerating }
+    var maximumLongSide: Int { maxLongSideForCurrentCrop }
     var beadList: [ProjectBeadCount] {
         previewColors.filter { $0 != Palette.empty }.reduce(into: [String: Int]()) { $0[$1.code, default: 0] += 1 }
             .map { ProjectBeadCount(color: $0.key, count: $0.value) }
@@ -76,6 +86,7 @@ final class SplitWorkflow: ObservableObject {
 
     func load(image: UIImage, data: Data? = nil, name: String) {
         sourceRevision = UUID()
+        generationRevision = UUID()
         let normalizedImage = image.normalizedForSplitWorkflow()
         self.image = normalizedImage
         originalImage = normalizedImage
@@ -85,28 +96,65 @@ final class SplitWorkflow: ObservableObject {
         splitMode = .quick
         backgroundRemoved = false
         backgroundSensitivity = 0
+        longSide = Self.defaultLongSide(for: normalizedImage.size)
         updateGridSize()
         resetAlignmentFromQuickGrid()
-        generatePreview()
+        invalidatePreview()
     }
 
     func updateLongSide(_ value: Int) {
-        longSide = min(max(value, 8), 120)
+        let maximum = maxLongSideForCurrentCrop
+        longSide = min(max(value, 8), maximum)
         updateGridSize()
-        generatePreview()
+        resetAlignmentFromQuickGrid()
+        invalidatePreview()
     }
 
+    /// Mirrors H5: colour generation starts only after crop confirmation and
+    /// runs off the main actor. Geometry changes merely invalidate the result.
     func generatePreview() {
-        guard let cgImage = image?.cgImage else { previewColors = []; return }
-        isGenerating = true
+        guard !isGenerating, let image, let cgImage = image.cgImage else {
+            if self.image == nil { previewColors = []; rawPreviewColors = [] }
+            return
+        }
+        let revision = generationRevision
+        let sourceRevision = self.sourceRevision
+        let sourceSize = image.size
+        let columns = self.columns
+        let rows = self.rows
+        let crop = cropRect
         let alignment = splitMode == .align ? alignedGrid : nil
-        let colors = ImageGridSampler.sample(cgImage: cgImage, sourceSize: image?.size, columns: columns, rows: rows, crop: cropRect, alignment: alignment, mergeThreshold: mergeThreshold)
-        previewColors = colors
-        isGenerating = false
+        isGenerating = true
+        Task { [weak self] in
+            let raw = await Task.detached(priority: .userInitiated) {
+                ImageGridSampler.sample(
+                    cgImage: cgImage,
+                    sourceSize: sourceSize,
+                    columns: columns,
+                    rows: rows,
+                    crop: crop,
+                    alignment: alignment,
+                    mergeThreshold: 0
+                )
+            }.value
+            guard let self else { return }
+            guard self.generationRevision == revision, self.sourceRevision == sourceRevision else { return }
+            self.rawPreviewColors = raw
+            self.previewColors = ImageGridSampler.mergeLowUsage(raw, threshold: self.mergeThreshold)
+            self.isGenerating = false
+            self.previewRevision = UUID()
+        }
+    }
+
+    func updateMergeThreshold(_ value: Int) {
+        mergeThreshold = min(max(value, 0), 20)
+        guard !rawPreviewColors.isEmpty else { return }
+        previewColors = ImageGridSampler.mergeLowUsage(rawPreviewColors, threshold: mergeThreshold)
+        previewRevision = UUID()
     }
 
     func importTo(document: PatternDocument) {
-        guard canContinue else { return }
+        guard canImport else { return }
         document.replaceGrid(columns: columns, rows: rows, colors: previewColors)
     }
 
@@ -117,28 +165,80 @@ final class SplitWorkflow: ObservableObject {
         cropRect = CGRect(x: min(max(rect.origin.x, 0), 1 - width), y: min(max(rect.origin.y, 0), 1 - height), width: width, height: height)
         updateGridSize()
         if splitMode == .align { clampAlignment() }
-        generatePreview()
+        invalidatePreview()
     }
 
     func setSplitMode(_ mode: SplitMode) {
+        guard splitMode != mode else { return }
+        if mode == .quick, splitMode == .align {
+            let grid = alignedGrid
+            splitMode = .quick
+            columns = grid.columns
+            rows = grid.rows
+            longSide = min(maxLongSideForCurrentCrop, max(8, max(grid.columns, grid.rows)))
+            invalidatePreview()
+            return
+        }
+        // Quick-grid changes continuously keep the alignment geometry in sync,
+        // so returning to align preserves the last manual alignment just like H5.
         splitMode = mode
-        if mode == .align { resetAlignmentFromQuickGrid() }
-        updateGridSize(); generatePreview()
+        updateGridSize()
+        invalidatePreview()
     }
 
     func updateAlignmentCellSize(_ value: CGFloat) {
-        alignmentCellSize = max(1, value)
-        clampAlignment(); updateGridSize(); generatePreview()
+        let size = croppedImageSize
+        guard size.width > 0, size.height > 0 else { return }
+        let maxCellSize = max(1, min(
+            (size.width - alignmentFrameOrigin.x) / 3,
+            (size.height - alignmentFrameOrigin.y) / 3
+        ))
+        alignmentCellSize = min(max(1, value), maxCellSize)
+        // H5 anchors grid scaling at the top-left of the visible 3×3 control frame.
+        alignmentOffset = alignmentFrameOrigin
+        updateGridSize(); invalidatePreview()
     }
 
     func moveAlignment(x: CGFloat, y: CGFloat) {
-        alignmentOffset = CGPoint(x: alignmentOffset.x + x, y: alignmentOffset.y + y)
-        clampAlignment(); updateGridSize(); generatePreview()
+        moveGridControlFrame(x: x, y: y)
     }
 
+    func moveGridControlFrame(x: CGFloat, y: CGFloat) {
+        let size = croppedImageSize
+        guard size.width > 0, size.height > 0 else { return }
+        let frameSize = alignmentCellSize * 3
+        let current = alignmentFrameOrigin
+        let next = CGPoint(
+            x: min(max(0, current.x + x), max(0, size.width - frameSize)),
+            y: min(max(0, current.y + y), max(0, size.height - frameSize))
+        )
+        alignmentFrameOrigin = next
+        alignmentOffset = CGPoint(
+            x: alignmentOffset.x + next.x - current.x,
+            y: alignmentOffset.y + next.y - current.y
+        )
+        updateGridSize(); invalidatePreview()
+    }
+
+    func setGridControlFrameOrigin(_ origin: CGPoint) {
+        moveGridControlFrame(
+            x: origin.x - alignmentFrameOrigin.x,
+            y: origin.y - alignmentFrameOrigin.y
+        )
+    }
+
+    /// Compatibility entry point used by tests and non-frame callers. Direct
+    /// offsets are normalized to the same effective aligned grid as H5.
     func setAlignmentOffset(_ offset: CGPoint) {
         alignmentOffset = offset
-        clampAlignment(); updateGridSize(); generatePreview()
+        let grid = alignedGrid
+        alignmentOffset = CGPoint(x: grid.offsetX, y: grid.offsetY)
+        alignmentFrameOrigin = Self.centeredGridControlOrigin(
+            size: croppedImageSize,
+            cellSize: grid.cellSize,
+            offset: alignmentOffset
+        )
+        updateGridSize(); invalidatePreview()
     }
 
     func toggleBackgroundRemoval() {
@@ -150,7 +250,7 @@ final class SplitWorkflow: ObservableObject {
         guard let originalImage else { return }
         image = originalImage
         backgroundRemoved = false
-        updateGridSize(); generatePreview()
+        updateGridSize(); invalidatePreview(); generatePreview()
     }
 
     func updateBackgroundSensitivity(_ value: Int) {
@@ -191,14 +291,76 @@ final class SplitWorkflow: ObservableObject {
     private func resetAlignmentFromQuickGrid() {
         let size = croppedImageSize
         guard size.width > 0, size.height > 0 else { return }
-        alignmentCellSize = max(1, min(size.width / CGFloat(max(1, columns)), size.height / CGFloat(max(1, rows))))
-        alignmentOffset = .zero
+        let largestMatchingSize = min(size.width / CGFloat(max(1, columns)), size.height / CGFloat(max(1, rows)))
+        let smallestMatchingSize = max(1, max(size.width / CGFloat(max(1, columns + 1)), size.height / CGFloat(max(1, rows + 1))))
+        if smallestMatchingSize < largestMatchingSize {
+            alignmentCellSize = max(1, largestMatchingSize.nextDown)
+        } else {
+            alignmentCellSize = max(1, largestMatchingSize)
+        }
+        alignmentOffset = Self.centeredAlignmentOffset(size: size, cellSize: alignmentCellSize)
+        alignmentFrameOrigin = Self.centeredGridControlOrigin(
+            size: size,
+            cellSize: alignmentCellSize,
+            offset: alignmentOffset
+        )
     }
 
     private func clampAlignment() {
         let grid = alignedGrid
         alignmentCellSize = grid.cellSize
         alignmentOffset = CGPoint(x: grid.offsetX, y: grid.offsetY)
+        let frameSize = alignmentCellSize * 3
+        alignmentFrameOrigin = CGPoint(
+            x: min(max(0, alignmentFrameOrigin.x), max(0, croppedImageSize.width - frameSize)),
+            y: min(max(0, alignmentFrameOrigin.y), max(0, croppedImageSize.height - frameSize))
+        )
+    }
+
+    private var maxLongSideForCurrentCrop: Int {
+        let size = croppedImageSize
+        return min(144, max(8, Int(max(size.width, size.height).rounded())))
+    }
+
+    private static func defaultLongSide(for size: CGSize) -> Int {
+        min(144, max(8, Int(max(size.width, size.height).rounded())))
+    }
+
+    private static func centeredAlignmentOffset(size: CGSize, cellSize: CGFloat) -> CGPoint {
+        let safeCellSize = max(1, cellSize)
+        let columns = max(1, Int(floor(size.width / safeCellSize)))
+        let rows = max(1, Int(floor(size.height / safeCellSize)))
+        return CGPoint(
+            x: max(0, (size.width - CGFloat(columns) * safeCellSize) / 2),
+            y: max(0, (size.height - CGFloat(rows) * safeCellSize) / 2)
+        )
+    }
+
+    private static func centeredGridControlOrigin(size: CGSize, cellSize: CGFloat, offset: CGPoint) -> CGPoint {
+        let safeCellSize = max(1, cellSize)
+        let frameSize = safeCellSize * 3
+        func centeredLine(size: CGFloat, gridOffset: CGFloat) -> CGFloat {
+            let maxStart = max(0, size - frameSize)
+            let minIndex = Int(ceil(-gridOffset / safeCellSize))
+            let maxIndex = Int(floor((maxStart - gridOffset) / safeCellSize))
+            guard maxIndex >= minIndex else { return maxStart / 2 }
+            let target = maxStart / 2
+            let targetIndex = Int(round((target - gridOffset) / safeCellSize))
+            let index = min(max(minIndex, targetIndex), maxIndex)
+            return gridOffset + CGFloat(index) * safeCellSize
+        }
+        return CGPoint(
+            x: centeredLine(size: size.width, gridOffset: offset.x),
+            y: centeredLine(size: size.height, gridOffset: offset.y)
+        )
+    }
+
+    private func invalidatePreview() {
+        generationRevision = UUID()
+        rawPreviewColors = []
+        previewColors = []
+        isGenerating = false
+        previewRevision = UUID()
     }
 
     private func applyBackgroundRemoval() {
@@ -215,7 +377,7 @@ final class SplitWorkflow: ObservableObject {
             self.image = processed.map { UIImage(cgImage: $0, scale: originalImage.scale, orientation: .up) } ?? originalImage
             self.backgroundRemoved = processed != nil
             self.isBackgroundProcessing = false
-            self.updateGridSize(); self.generatePreview()
+            self.updateGridSize(); self.invalidatePreview(); self.generatePreview()
         }
     }
 }
@@ -413,51 +575,71 @@ enum ImageGridSampler {
         context.interpolationQuality = .none
         context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
 
-        var colors = (0..<(columns * rows)).map { index in
-            let x = index % columns, y = index / columns
-            let minX: Int, maxX: Int, minY: Int, maxY: Int
-            if let alignment {
-                // Alignment values are expressed in UIImage points, whereas a CGImage
-                // may be retina-scaled. Convert them to raster pixels only here.
-                let fallbackSize = CGSize(width: max(1, alignment.offsetX + CGFloat(columns) * alignment.cellSize), height: max(1, alignment.offsetY + CGFloat(rows) * alignment.cellSize))
-                let logicalSize = sourceSize ?? fallbackSize
-                let rasterScaleX = CGFloat(width) / max(1, logicalSize.width)
-                let rasterScaleY = CGFloat(height) / max(1, logicalSize.height)
-                minX = max(0, min(width - 1, Int(floor((crop.minX * logicalSize.width + alignment.offsetX + CGFloat(x) * alignment.cellSize) * rasterScaleX))))
-                maxX = max(minX + 1, min(width, Int(ceil((crop.minX * logicalSize.width + alignment.offsetX + CGFloat(x + 1) * alignment.cellSize) * rasterScaleX))))
-                minY = max(0, min(height - 1, Int(floor((crop.minY * logicalSize.height + alignment.offsetY + CGFloat(y) * alignment.cellSize) * rasterScaleY))))
-                maxY = max(minY + 1, min(height, Int(ceil((crop.minY * logicalSize.height + alignment.offsetY + CGFloat(y + 1) * alignment.cellSize) * rasterScaleY))))
-            } else {
-                minX = max(0, min(width - 1, Int(floor((crop.minX + CGFloat(x) / CGFloat(columns) * crop.width) * CGFloat(width)))))
-                maxX = max(minX + 1, min(width, Int(ceil((crop.minX + CGFloat(x + 1) / CGFloat(columns) * crop.width) * CGFloat(width)))))
-                minY = max(0, min(height - 1, Int(floor((crop.minY + CGFloat(y) / CGFloat(rows) * crop.height) * CGFloat(height)))))
-                maxY = max(minY + 1, min(height, Int(ceil((crop.minY + CGFloat(y + 1) / CGFloat(rows) * crop.height) * CGFloat(height)))))
-            }
-            var counts: [ColorToken: Int] = [:]
-            var transparentPixels = 0
-            var sampledPixels = 0
-            for py in minY..<maxY where py < height {
-                for px in minX..<maxX where px < width {
-                    let offset = (py * width + px) * 4
-                    sampledPixels += 1
-                    guard bytes[offset + 3] >= 128 else {
-                        transparentPixels += 1
-                        continue
+        // H5 uses a fixed 5×5 vote grid per output cell. Do not iterate every
+        // source pixel inside every bead cell: on phone photos that turns a
+        // slider drag into millions of palette-distance calculations.
+        let samplesPerCell = 5
+        let logicalSize = sourceSize ?? CGSize(width: width, height: height)
+        let rasterScaleX = CGFloat(width) / max(1, logicalSize.width)
+        let rasterScaleY = CGFloat(height) / max(1, logicalSize.height)
+        var colors: [ColorToken] = []
+        colors.reserveCapacity(columns * rows)
+
+        for y in 0..<rows {
+            for x in 0..<columns {
+                var transparentSamples = 0
+                var counts: [ColorToken: Int] = [:]
+                var order: [ColorToken] = []
+                order.reserveCapacity(samplesPerCell * samplesPerCell)
+
+                for sampleY in 0..<samplesPerCell {
+                    for sampleX in 0..<samplesPerCell {
+                        let px: Int
+                        let py: Int
+                        if let alignment {
+                            let logicalX = crop.minX * logicalSize.width
+                                + alignment.offsetX
+                                + (CGFloat(x) + (CGFloat(sampleX) + 0.5) / CGFloat(samplesPerCell)) * alignment.cellSize
+                            let logicalY = crop.minY * logicalSize.height
+                                + alignment.offsetY
+                                + (CGFloat(y) + (CGFloat(sampleY) + 0.5) / CGFloat(samplesPerCell)) * alignment.cellSize
+                            px = max(0, min(width - 1, Int(floor(logicalX * rasterScaleX))))
+                            py = max(0, min(height - 1, Int(floor(logicalY * rasterScaleY))))
+                        } else {
+                            let normalizedX = crop.minX + ((CGFloat(x) + (CGFloat(sampleX) + 0.5) / CGFloat(samplesPerCell)) / CGFloat(columns)) * crop.width
+                            let normalizedY = crop.minY + ((CGFloat(y) + (CGFloat(sampleY) + 0.5) / CGFloat(samplesPerCell)) / CGFloat(rows)) * crop.height
+                            px = max(0, min(width - 1, Int(floor(normalizedX * CGFloat(width)))))
+                            py = max(0, min(height - 1, Int(floor(normalizedY * CGFloat(height)))))
+                        }
+
+                        let offset = (py * width + px) * 4
+                        guard bytes[offset + 3] >= 128 else {
+                            transparentSamples += 1
+                            continue
+                        }
+                        let token = Mard221Palette.nearest(red: bytes[offset], green: bytes[offset + 1], blue: bytes[offset + 2])
+                        if counts[token] == nil { order.append(token) }
+                        counts[token, default: 0] += 1
                     }
-                    let token = Mard221Palette.nearest(red: bytes[offset], green: bytes[offset + 1], blue: bytes[offset + 2])
-                    counts[token, default: 0] += 1
+                }
+
+                if transparentSamples > (samplesPerCell * samplesPerCell) / 2 {
+                    colors.append(Palette.empty)
+                } else {
+                    var best = Palette.empty
+                    var bestCount = -1
+                    for token in order {
+                        let count = counts[token, default: 0]
+                        if count > bestCount { best = token; bestCount = count }
+                    }
+                    colors.append(best)
                 }
             }
-            guard transparentPixels <= sampledPixels / 2 else { return Palette.empty }
-            return counts.max { left, right in
-                left.value == right.value ? left.key.code > right.key.code : left.value < right.value
-            }?.key ?? Palette.empty
         }
-        if mergeThreshold > 0 { colors = mergeLowUsage(colors, threshold: mergeThreshold) }
-        return colors
+        return mergeThreshold > 0 ? mergeLowUsage(colors, threshold: mergeThreshold) : colors
     }
 
-    private static func mergeLowUsage(_ cells: [ColorToken], threshold: Int) -> [ColorToken] {
+    static func mergeLowUsage(_ cells: [ColorToken], threshold: Int) -> [ColorToken] {
         let count = cells.filter { $0 != Palette.empty }.reduce(into: [ColorToken: Int]()) { $0[$1, default: 0] += 1 }
         let stable = count.filter { $0.value > threshold }.map(\.key)
         guard !stable.isEmpty else { return cells }
@@ -474,6 +656,18 @@ enum Mard221Palette {
         let values = part.split(separator: ":", maxSplits: 1); guard values.count == 2 else { return nil }
         return ColorToken(hex: String(values[1]).uppercased(), code: String(values[0]))
     }
+    static func resolve(_ rawValue: String) -> ColorToken? {
+        let raw = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return nil }
+        if let exactCode = colors.first(where: { $0.code.caseInsensitiveCompare(raw) == .orderedSame }) { return exactCode }
+        let normalizedHex = raw.trimmingCharacters(in: CharacterSet(charactersIn: "#")).uppercased()
+        guard normalizedHex.count == 6, Int(normalizedHex, radix: 16) != nil else { return nil }
+        if let exactHex = colors.first(where: { $0.hex.uppercased() == normalizedHex }) { return exactHex }
+        let value = Int(normalizedHex, radix: 16) ?? 0
+        return nearest(red: UInt8((value >> 16) & 255), green: UInt8((value >> 8) & 255), blue: UInt8(value & 255))
+    }
+
+    static func code(for rawValue: String) -> String { resolve(rawValue)?.code ?? rawValue }
     static func nearest(red: UInt8, green: UInt8, blue: UInt8) -> ColorToken {
         colors.min { rgbDistance(red, green, blue, $0) < rgbDistance(red, green, blue, $1) } ?? Palette.empty
     }

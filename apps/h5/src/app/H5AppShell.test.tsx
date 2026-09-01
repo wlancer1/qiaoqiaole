@@ -38,6 +38,8 @@ function installRuntimeDom() {
     querySelector: vi.fn(() => null),
     querySelectorAll: vi.fn(() => []),
   });
+  const matchMedia = vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn(), addListener: vi.fn(), removeListener: vi.fn() }));
+  vi.stubGlobal('matchMedia', matchMedia);
   vi.stubGlobal('window', {
     addEventListener: vi.fn(),
     cancelAnimationFrame: vi.fn(),
@@ -46,6 +48,7 @@ function installRuntimeDom() {
     getComputedStyle: vi.fn(() => ({ overflow: 'visible', overflowY: 'visible' })),
     history: { back: vi.fn(), pushState: vi.fn(), state: null },
     localStorage: { getItem: vi.fn(() => null), removeItem: vi.fn(), setItem: vi.fn() },
+    matchMedia,
     location: {
       href: 'http://localhost/discover?sort=hot',
       origin: 'http://localhost',
@@ -86,6 +89,7 @@ describe('H5AppShell production overlay ownership', () => {
     const fetchMock = vi.fn(async (input: string) => {
       if (input.includes('/projects?folder=folder-1&page=2&pageSize=12')) return new Response(JSON.stringify({ projects: [{ id: 'project-page-2', name: '第二页作品', rows: 1, cols: 1, tone: 'recent', createdAt: '2026-01-01', updatedAt: '2026-01-01', folderId: 'folder-1' }], page: 2, pageSize: 12, total: 40, hasMore: false }), { status: 200 });
       if (input.includes('/projects?folder=folder-1&page=1&pageSize=12')) return new Response(JSON.stringify({ projects: [{ id: 'project-page-1', name: '第一页作品', rows: 1, cols: 1, tone: 'recent', createdAt: '2026-01-01', updatedAt: '2026-01-01', folderId: 'folder-1' }], page: 1, pageSize: 12, total: 40, hasMore: true }), { status: 200 });
+      if (input.includes('/projects?page=1&pageSize=1')) return new Response(JSON.stringify({ projects: [], page: 1, pageSize: 1, total: 40, hasMore: true }), { status: 200 });
       if (input.includes('/project-folders')) return new Response(JSON.stringify({ folders: [{ id: 'folder-1', name: '收藏', projectCount: 40 }] }), { status: 200 });
       return new Response(JSON.stringify({}), { status: 200 });
     });

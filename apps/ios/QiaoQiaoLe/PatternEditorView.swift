@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 import PhotosUI
 
@@ -20,13 +21,20 @@ struct PatternEditorView: View {
     @State private var viewportSize: CGSize = .zero
     @State private var artboardFrame: CGRect = .zero
 
+    private var fittingCanvasScale: CGFloat {
+        guard viewportSize.width > 0 else { return 1 }
+        let artboardWidth = CGFloat(document.columns) * EditorCanvasMetrics.cellSide + EditorCanvasMetrics.rulerGutter
+        return min(1, max(EditorCanvasMetrics.minimumScale, (viewportSize.width - 24) / artboardWidth))
+    }
+
     private var rulerGeometry: EditorViewportRulerGeometry {
         EditorViewportRulerGeometry(
             viewportSize: viewportSize,
             artboardFrame: artboardFrame,
             rows: document.rows,
             columns: document.columns,
-            scale: effectiveCanvasScale
+            scale: effectiveCanvasScale,
+            minimumStickyScale: fittingCanvasScale
         )
     }
 
@@ -35,24 +43,24 @@ struct PatternEditorView: View {
     /// display transform; the document grid and user-requested zoom remain
     /// unchanged, so enlarged canvases still pan and expose sticky rulers.
     private var effectiveCanvasScale: CGFloat {
-        guard viewportSize.width > 0 else { return canvasScale }
-        let artboardWidth = CGFloat(document.columns) * EditorCanvasMetrics.cellSide + EditorCanvasMetrics.rulerGutter
-        let fittingScale = min(1, max(EditorCanvasMetrics.minimumScale, (viewportSize.width - 24) / artboardWidth))
-        return canvasScale * fittingScale
+        canvasScale * fittingCanvasScale
     }
 
     var body: some View {
         VStack(spacing: 0) {
                 editorToolbar
-                Divider()
                 GeometryReader { viewport in
                     ZStack(alignment: .topTrailing) {
+                        EditorStageBackground()
                         ScrollView([.horizontal, .vertical]) {
                             GridCanvas(document: document, scale: effectiveCanvasScale, hidesStaticRulers: rulerGeometry.sticky)
-                                .padding(12)
+                                .padding(.horizontal, 12)
+                                .padding(.top, 28)
+                                .padding(.bottom, 170)
                         }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .coordinateSpace(name: "editor-canvas-viewport")
-                        .background(Color(hex: "F4F7FC"))
+                        .background(Color.clear)
                         .simultaneousGesture(MagnificationGesture()
                             .onChanged { value in
                                 let base = pinchStartScale ?? canvasScale
@@ -66,7 +74,7 @@ struct PatternEditorView: View {
                         .onChange(of: viewport.size) { _, value in viewportSize = value }
                         .onPreferenceChange(EditorArtboardFramePreferenceKey.self) { artboardFrame = $0 }
                         if rulerGeometry.sticky {
-                            EditorViewportRulers(geometry: rulerGeometry, scale: effectiveCanvasScale)
+                            H5ViewportRulers(geometry: rulerGeometry)
                                 .allowsHitTesting(false)
                                 .accessibilityHidden(true)
                         }
@@ -78,17 +86,24 @@ struct PatternEditorView: View {
                             )
                             .padding(12)
                         }
-                        HStack(alignment: .bottom, spacing: 10) {
-                            editorToolRail
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            zoomControls
-                        }
-                        .padding(12)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                        zoomControls
+                            .padding(.leading, 12)
+                            .padding(.top, 12)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+                        editorToolRail
+                            .frame(height: 58)
+                            .padding(.horizontal, 12)
+                            .padding(.bottom, 88)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+
+                        palette
+                            .frame(height: 66)
+                            .padding(.horizontal, 12)
+                            .padding(.bottom, 12)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                     }
                 }
-                Divider()
-                palette
             }
             .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $showSettings) { SettingsSheet(document: document) }
@@ -122,9 +137,9 @@ struct PatternEditorView: View {
 
     private var editorToolbar: some View {
         HStack(spacing: 4) {
-            Button { dismiss() } label: { Image(systemName: "chevron.left").frame(width: 36, height: 42) }
+            Button { dismiss() } label: { H5Icon(name: "lucide-arrow-left", size: 22).frame(width: 36, height: 42) }
                 .accessibilityLabel("返回作品列表")
-            Button { showSettings = true } label: { Image(systemName: "slider.horizontal.3").frame(width: 34, height: 42) }
+            Button { showSettings = true } label: { H5Icon(name: "lucide-sliders-horizontal", size: 21).frame(width: 34, height: 42) }
                 .accessibilityLabel("画布设置")
             Text("\(document.columns)×\(document.rows)")
                 .font(.caption.weight(.semibold))
@@ -135,23 +150,23 @@ struct PatternEditorView: View {
                 .overlay(RoundedRectangle(cornerRadius: AppTokens.controlCorner).stroke(AppTokens.line, lineWidth: 1))
                 .accessibilityLabel("画布尺寸 \(document.columns) × \(document.rows)")
             Spacer(minLength: 2)
-            Button { document.undo() } label: { Image(systemName: "arrow.uturn.backward").frame(width: 31, height: 42) }
+            Button { document.undo() } label: { H5Icon(name: "lucide-undo-2", size: 21).frame(width: 31, height: 42) }
                 .disabled(!document.canUndo).accessibilityLabel("撤销")
-            Button { document.redo() } label: { Image(systemName: "arrow.uturn.forward").frame(width: 31, height: 42) }
+            Button { document.redo() } label: { H5Icon(name: "lucide-redo-2", size: 21).frame(width: 31, height: 42) }
                 .disabled(!document.canRedo).accessibilityLabel("重做")
             PhotosPicker(selection: $referencePickerItem, matching: .images) {
-                Image(systemName: "square.and.arrow.up").frame(width: 31, height: 42)
+                H5Icon(name: "lucide-upload", size: 21).frame(width: 31, height: 42)
             }
             .accessibilityLabel("上传参考图")
             Menu {
                 Button("导出 PNG 图纸", action: exportPNG)
                 Button("导出 STL 模型", action: exportSTL)
             } label: {
-                Image(systemName: "doc.badge.arrow.up").frame(width: 31, height: 42)
+                H5Icon(name: "lucide-file-down", size: 21).frame(width: 31, height: 42)
             }
             .accessibilityLabel("导出图纸或 STL")
             if let onRequestSave {
-                Button { onRequestSave() } label: { Image(systemName: "externaldrive.badge.checkmark").frame(width: 31, height: 42) }
+                Button { onRequestSave() } label: { H5Icon(name: "lucide-save", size: 21).frame(width: 31, height: 42) }
                     .accessibilityLabel("保存作品")
             }
             Circle().fill(document.selectedColor.swiftUIColor).frame(width: 28, height: 28)
@@ -172,10 +187,12 @@ struct PatternEditorView: View {
             Button("1:1") { canvasScale = 1 }.font(.caption2.weight(.semibold)).accessibilityLabel("重置画布视图")
         }
         .buttonStyle(.plain)
-        .padding(7)
-        .background(AppTokens.panel)
-        .clipShape(RoundedRectangle(cornerRadius: AppTokens.compactCorner))
-        .shadow(color: .black.opacity(0.12), radius: 5, y: 2)
+        .frame(width: 50)
+        .padding(.vertical, 6)
+        .background(Color.white.opacity(0.96))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: "DEE2E5"), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .shadow(color: .black.opacity(0.10), radius: 8, y: 3)
     }
 
     private var editorToolRail: some View {
@@ -183,7 +200,7 @@ struct PatternEditorView: View {
             HStack(spacing: 8) {
                 ForEach(EditorTool.allCases) { tool in
                     Button { document.tool = tool } label: {
-                        Label(tool.rawValue, systemImage: tool.symbol).labelStyle(.iconOnly)
+                        H5Icon(name: tool.h5Icon, size: 21)
                             .frame(width: 42, height: 42)
                             .background(document.tool == tool ? Color(hex: "146CFF") : Color.white)
                             .foregroundStyle(document.tool == tool ? .white : Color(hex: "171819"))
@@ -193,7 +210,7 @@ struct PatternEditorView: View {
                     .accessibilityAddTraits(document.tool == tool ? .isSelected : [])
                 }
                 Button { showBeadList = true } label: {
-                    Image(systemName: "list.bullet").frame(width: 42, height: 42)
+                    H5Icon(name: "lucide-list", size: 21).frame(width: 42, height: 42)
                         .background(showBeadList ? Color(hex: "146CFF") : Color.white)
                         .foregroundStyle(showBeadList ? .white : Color(hex: "171819"))
                         .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -202,37 +219,50 @@ struct PatternEditorView: View {
             }
             .padding(7)
         }
-        .background(AppTokens.panel.opacity(0.96))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .shadow(color: .black.opacity(0.12), radius: 7, y: 3)
+        .background(Color.white.opacity(0.96))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color(hex: "DEE2E5"), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .shadow(color: .black.opacity(0.14), radius: 12, y: 5)
         .accessibilityLabel("画布工具栏")
         .accessibilityIdentifier("画布工具栏")
     }
 
     private var palette: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                ForEach(Array(document.paletteColors().prefix(8)), id: \.self) { color in
-                    Button { document.selectedColor = color } label: {
-                        VStack(spacing: 3) {
-                            Circle().fill(color.swiftUIColor).frame(width: 30, height: 30)
-                                .overlay(Circle().stroke(document.selectedColor == color ? Color(hex: "171819") : .clear, lineWidth: 2))
-                            Text(color.code).font(.caption2).foregroundStyle(Color(hex: "6F7478"))
-                        }.frame(width: 42)
-                    }.accessibilityLabel("选择色号 \(color.code)")
+        HStack(spacing: 0) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 7) {
+                    ForEach(document.paletteColors(), id: \.self) { color in
+                        EditorPaletteColorButton(color: color, isSelected: document.selectedColor == color) {
+                            document.selectedColor = color
+                        }
+                    }
                 }
+                .padding(.leading, 12)
+                .padding(.trailing, 8)
+                .padding(.vertical, 8)
+            }
+
+            HStack(spacing: 2) {
                 Button { showPaletteSearch = true } label: {
-                    Label("筛选色卡", systemImage: "magnifyingglass")
-                        .labelStyle(.iconOnly).frame(width: 42, height: 42)
+                    H5Icon(name: "h5-filter", size: 18)
+                        .frame(width: 42, height: 48)
                 }
                 .accessibilityLabel("筛选色卡")
                 Button { showBeadList = true } label: {
-                    Label("豆子清单", systemImage: "list.bullet")
-                        .labelStyle(.iconOnly).frame(width: 42, height: 42)
+                    H5Icon(name: "lucide-list", size: 19)
+                        .frame(width: 42, height: 48)
                 }
                 .accessibilityLabel("打开豆子清单")
-            }.padding(.horizontal, 16).padding(.vertical, 9)
-        }.background(Color.white)
+            }
+            .foregroundStyle(AppTokens.flowText)
+            .background(Color.white)
+        }
+        .background(Color.white.opacity(0.96))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color(hex: "DEE2E5"), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(color: .black.opacity(0.10), radius: 10, y: 4)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("底部色卡，共 \(Mard221Palette.colors.count) 色")
     }
 
     private func exportSTL() {
@@ -253,6 +283,62 @@ struct PatternEditorView: View {
             exportURL = nil
             exportError = error.localizedDescription
         }
+    }
+}
+
+
+private struct EditorStageBackground: View {
+    var body: some View {
+        Canvas { context, size in
+            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Color(hex: "EEF5F8")))
+            let tile: CGFloat = 24
+            for row in 0...Int(size.height / tile) {
+                for col in 0...Int(size.width / tile) where (row + col).isMultiple(of: 2) {
+                    context.fill(Path(CGRect(x: CGFloat(col) * tile, y: CGFloat(row) * tile, width: tile, height: tile)), with: .color(Color(hex: "E3EDF1")))
+                }
+            }
+        }
+        .ignoresSafeArea()
+    }
+}
+
+private struct EditorPaletteColorButton: View {
+    let color: ColorToken
+    let isSelected: Bool
+    let action: () -> Void
+
+    private var usesDarkForeground: Bool {
+        let value = Int(color.hex, radix: 16) ?? 0
+        let red = Double((value >> 16) & 255)
+        let green = Double((value >> 8) & 255)
+        let blue = Double(value & 255)
+        return red * 0.299 + green * 0.587 + blue * 0.114 > 160
+    }
+
+    private var foreground: Color { usesDarkForeground ? AppTokens.flowText : .white }
+
+    var body: some View {
+        Button(action: action) {
+            ZStack(alignment: .bottom) {
+                RoundedRectangle(cornerRadius: 9)
+                    .fill(color.swiftUIColor)
+                Text(color.code)
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(foreground)
+                    .shadow(color: usesDarkForeground ? .clear : .black.opacity(0.18), radius: 1)
+                    .padding(.bottom, 7)
+                Capsule()
+                    .fill(isSelected ? foreground : .clear)
+                    .frame(width: 16, height: 2.5)
+                    .padding(.bottom, 3)
+            }
+            .frame(width: 42, height: 48)
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(isSelected ? AppTokens.flowBrand : Color.black.opacity(0.08), lineWidth: isSelected ? 2.5 : 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("选择色号 \(color.code)")
+        .accessibilityValue("#\(color.hex)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
@@ -279,8 +365,8 @@ private struct PaletteSearchSheet: View {
                 }
                 .accessibilityLabel("选择色号 \(color.code)，#\(color.hex)")
             }
-            .searchable(text: $query, prompt: "输入色号或颜色值")
-            .navigationTitle("筛选色卡")
+            .searchable(text: $query, prompt: "输入色号，如 M15")
+            .navigationTitle("MARD 221 色卡")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } } }
         }
@@ -294,26 +380,127 @@ private struct EditorBeadListSheet: View {
     private var counts: [ProjectBeadCount] {
         document.projectBeadList().sorted { $0.count == $1.count ? $0.color < $1.color : $0.count > $1.count }
     }
+    private var total: Int { counts.reduce(0) { $0 + $1.count } }
 
     var body: some View {
-        NavigationStack {
-            List {
-                Section("共 \(counts.reduce(0) { $0 + $1.count }) 颗") {
-                    if counts.isEmpty { ContentUnavailableView("暂无豆子", systemImage: "circle.grid.3x3") }
-                    ForEach(counts, id: \.color) { count in
-                        HStack {
-                            Circle().fill(Mard221Palette.colors.first(where: { $0.code == count.color })?.swiftUIColor ?? AppTokens.muted).frame(width: 22, height: 22)
-                            Text(count.color).font(.body.weight(.medium))
-                            Spacer()
-                            Text("\(count.count) 颗").foregroundStyle(AppTokens.muted)
+        VStack(alignment: .leading, spacing: 0) {
+            Capsule()
+                .fill(AppTokens.sheetHandle)
+                .frame(width: 38, height: 4)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 10)
+
+            HStack {
+                Text("豆子清单")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(AppTokens.flowText)
+                Spacer()
+                Button { dismiss() } label: {
+                    H5Icon(name: "lucide-x", size: 18)
+                        .frame(width: 38, height: 38)
+                        .background(Color(hex: "F3F6FB"))
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color(hex: "64748B"))
+                .accessibilityLabel("关闭豆子清单")
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 12)
+
+            Text("按当前画布实时统计颜色和数量")
+                .font(.system(size: 12))
+                .foregroundStyle(Color(hex: "70819B"))
+                .padding(.horizontal, 18)
+                .padding(.top, 2)
+
+            HStack(spacing: 10) {
+                beadStat(title: "颜色种类", value: "\(counts.count)")
+                beadStat(title: "总豆子数", value: total.formatted())
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 14)
+
+            HStack(spacing: 0) {
+                Text("色号").frame(width: 54, alignment: .leading)
+                Text("颜色").frame(maxWidth: .infinity, alignment: .leading)
+                Text("数量").frame(width: 70, alignment: .trailing)
+                Text("占比").frame(width: 54, alignment: .trailing)
+            }
+            .font(.system(size: 11, weight: .bold))
+            .foregroundStyle(Color(hex: "718096"))
+            .padding(.horizontal, 18)
+            .padding(.top, 16)
+            .padding(.bottom, 8)
+
+            Divider().padding(.horizontal, 18)
+
+            if counts.isEmpty {
+                VStack(spacing: 8) {
+                    Text("暂无豆子").font(.system(size: 15, weight: .bold)).foregroundStyle(AppTokens.flowText)
+                    Text("画布中添加颜色后会自动统计").font(.system(size: 12)).foregroundStyle(AppTokens.flowMuted)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(counts, id: \.color) { item in
+                            beadRow(item)
+                            Divider().padding(.leading, 18)
                         }
                     }
+                    .padding(.bottom, 22)
                 }
             }
-            .navigationTitle("豆子清单")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } } }
         }
+        .background(Color.white)
+        .presentationDetents([.fraction(0.72), .large])
+        .presentationDragIndicator(.hidden)
+        .presentationCornerRadius(28)
+    }
+
+    private func beadStat(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.system(size: 11, weight: .semibold)).foregroundStyle(Color(hex: "718096"))
+            Text(value).font(.system(size: 20, weight: .black)).foregroundStyle(AppTokens.flowText)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(Color(hex: "F7FAFE"))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    private func beadRow(_ item: ProjectBeadCount) -> some View {
+        let resolved = Mard221Palette.colors.first(where: { $0.code.caseInsensitiveCompare(item.color) == .orderedSame })
+        let hex = resolved.map { "#\($0.hex.uppercased())" } ?? item.color
+        let percent = total > 0 ? String(format: "%.1f%%", Double(item.count) / Double(total) * 100) : "0.0%"
+        return HStack(spacing: 0) {
+            Text(resolved?.code ?? item.color)
+                .font(.system(size: 13, weight: .black))
+                .foregroundStyle(Color(hex: "17283F"))
+                .frame(width: 54, alignment: .leading)
+            HStack(spacing: 8) {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(resolved?.swiftUIColor ?? AppTokens.muted)
+                    .frame(width: 26, height: 26)
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.black.opacity(0.10), lineWidth: 1))
+                Text(hex)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(Color(hex: "52657F"))
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Text("× \(item.count.formatted())")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(Color(hex: "52657F"))
+                .frame(width: 70, alignment: .trailing)
+            Text(percent)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color(hex: "70819B"))
+                .frame(width: 54, alignment: .trailing)
+        }
+        .padding(.horizontal, 18)
+        .frame(minHeight: 48)
     }
 }
 
@@ -355,6 +542,7 @@ private struct ReferenceImageWindow: View {
 enum EditorCanvasMetrics {
     static let cellSide: CGFloat = 14
     static let rulerGutter: CGFloat = 22
+    static let rulerTopGutter: CGFloat = 20
     static let minimumScale: CGFloat = 0.2
     static let maximumScale: CGFloat = 12
 
@@ -382,11 +570,12 @@ struct EditorViewportRulerGeometry: Equatable {
         let validViewport = viewportSize.width > 0 && viewportSize.height > 0
         let cellWidth = artboardFrame.width / CGFloat(safeColumns)
         let cellHeight = artboardFrame.height / CGFloat(safeRows)
-        let gutter = EditorCanvasMetrics.rulerGutter * scale
+        let leftGutter = EditorCanvasMetrics.rulerGutter * scale
+        let topGutter = EditorCanvasMetrics.rulerTopGutter * scale
         let tolerance: CGFloat = 0.5
-        let overflowing = scale > minimumStickyScale && validViewport && (
-            artboardFrame.minX - gutter < tolerance ||
-            artboardFrame.minY - gutter < tolerance ||
+        let overflowing = scale > minimumStickyScale + 0.001 && validViewport && (
+            artboardFrame.minX - leftGutter < tolerance ||
+            artboardFrame.minY - topGutter < tolerance ||
             artboardFrame.maxX > viewportSize.width - tolerance ||
             artboardFrame.maxY > viewportSize.height - tolerance
         )
@@ -419,26 +608,40 @@ private struct EditorArtboardFramePreferenceKey: PreferenceKey {
     static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
 }
 
-private struct EditorViewportRulers: View {
+struct H5ViewportRulers: View {
     let geometry: EditorViewportRulerGeometry
-    let scale: CGFloat
 
     var body: some View {
-        let gutter = EditorCanvasMetrics.rulerGutter * scale
+        let leftGutter = EditorCanvasMetrics.rulerGutter
+        let topGutter = EditorCanvasMetrics.rulerTopGutter
         ZStack(alignment: .topLeading) {
-            AppTokens.flowBackground.opacity(0.96).frame(maxWidth: .infinity, alignment: .top).frame(height: gutter)
-            AppTokens.flowBackground.opacity(0.96).frame(maxHeight: .infinity, alignment: .leading).frame(width: gutter)
+            Color(hex: "F0F7FA").opacity(0.94)
+                .frame(maxWidth: .infinity, alignment: .top)
+                .frame(height: topGutter)
+                .overlay(alignment: .bottom) { Rectangle().fill(Color(hex: "76818B").opacity(0.34)).frame(height: 1) }
+            Color(hex: "F0F7FA").opacity(0.94)
+                .frame(maxHeight: .infinity, alignment: .leading)
+                .frame(width: leftGutter)
+                .overlay(alignment: .trailing) { Rectangle().fill(Color(hex: "76818B").opacity(0.34)).frame(width: 1) }
             ForEach(geometry.columns, id: \.tick) { item in
-                Text("\\(item.tick)")
-                    .font(.system(size: max(7, 8 * scale), weight: .medium, design: .monospaced))
-                    .foregroundStyle(AppTokens.muted)
-                    .position(x: item.offset, y: gutter / 2)
+                Text("\(item.tick)")
+                    .font(.system(size: 7, weight: .bold, design: .monospaced))
+                    .foregroundStyle(Color(hex: "65727D"))
+                    .padding(.horizontal, 3)
+                    .frame(minWidth: 14, minHeight: 13)
+                    .background(Color(hex: "F5F9FB").opacity(0.88))
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .position(x: item.offset, y: topGutter - 7)
             }
             ForEach(geometry.rows, id: \.tick) { item in
-                Text("\\(item.tick)")
-                    .font(.system(size: max(7, 8 * scale), weight: .medium, design: .monospaced))
-                    .foregroundStyle(AppTokens.muted)
-                    .position(x: gutter / 2, y: item.offset)
+                Text("\(item.tick)")
+                    .font(.system(size: 7, weight: .bold, design: .monospaced))
+                    .foregroundStyle(Color(hex: "65727D"))
+                    .padding(.horizontal, 3)
+                    .frame(minWidth: 14, minHeight: 13)
+                    .background(Color(hex: "F5F9FB").opacity(0.88))
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .position(x: leftGutter - 8, y: item.offset)
             }
         }
     }

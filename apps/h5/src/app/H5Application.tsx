@@ -538,7 +538,7 @@ function H5Application() {
     loadingMore={projectListDomain.loading}
     onLoadMore={projectListRoute.loadMore}
     page={projectListRoute.route.page}
-    total={projectListDomain.total}
+    total={projectListDomain.overallTotal}
     onLoadPrevious={projectListRoute.loadPrevious}
     actionSheet={null}
   />);

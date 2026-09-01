@@ -23,6 +23,7 @@ export type ProjectListDomainResult = {
   page: number;
   hasMore: boolean;
   total: number;
+  overallTotal: number;
   loading: boolean;
   loadPage: (token: string, route: ProjectListRoute, options?: { preserveOnError?: boolean }) => Promise<void>;
   loadFolders: (token: string) => Promise<void>;
@@ -39,10 +40,12 @@ export function useProjectListDomain({ requestApi, setStatus, pageSize = default
   const [folderId, setFolderId] = useState<ProjectListRoute['folderId']>('all');
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
+  const [overallTotal, setOverallTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [likedProjects, setLikedProjects] = useState<RecentProject[]>([]);
   const [likedLoading, setLikedLoading] = useState(false);
   const requestSequence = useRef(0);
+  const overallTotalToken = useRef('');
 
   const projects = useMemo(() => {
     const sorted = [...allProjects].sort((a, b) => Date.parse(b.updatedAt || b.createdAt) - Date.parse(a.updatedAt || a.createdAt));
@@ -71,7 +74,30 @@ export function useProjectListDomain({ requestApi, setStatus, pageSize = default
       setPage(payload.page || route.page);
       setFolderId(route.folderId);
       setHasMore(Boolean(payload.hasMore));
-      setTotal(Number(payload.total) || 0);
+      const nextTotal = Number(payload.total) || 0;
+      setTotal(nextTotal);
+      if (route.folderId === 'all') {
+        overallTotalToken.current = token;
+        setOverallTotal(nextTotal);
+      } else if (overallTotalToken.current !== token) {
+        // Never show another account's cached total while bootstrapping a
+        // direct folder route for the newly authenticated account.
+        setOverallTotal(0);
+        // The folder list endpoint reports the selected folder total. The H5
+        // "我的创作" summary is an account-wide statistic and must not change
+        // when the user switches folders, so bootstrap the all-project count
+        // once when entering a folder route directly.
+        try {
+          const allPayload = await getRecentProjects(requestApi, token, { page: 1, pageSize: 1, folderId: 'all' });
+          if (requestSequence.current === sequence) {
+            overallTotalToken.current = token;
+            setOverallTotal(Number(allPayload.total) || 0);
+          }
+        } catch {
+          // Keep the last known account total; folder filtering itself still
+          // succeeded and should remain usable.
+        }
+      }
       void loadFolders(token);
     } catch (error) {
       if (requestSequence.current !== sequence) return;
@@ -99,5 +125,5 @@ export function useProjectListDomain({ requestApi, setStatus, pageSize = default
     }
   };
 
-  return { projects, allProjects, folders, likedProjects, likedLoading, page, hasMore, total, loading, loadPage, loadFolders, loadLiked };
+  return { projects, allProjects, folders, likedProjects, likedLoading, page, hasMore, total, overallTotal, loading, loadPage, loadFolders, loadLiked };
 }

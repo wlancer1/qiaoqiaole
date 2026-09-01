@@ -1,5 +1,6 @@
 import SwiftUI
 import PhotosUI
+import UniformTypeIdentifiers
 
 enum AvatarImageData {
     static func decode(_ value: String?) -> Data? {
@@ -31,26 +32,14 @@ struct AppRootView: View {
                 .navigationDestination(for: AppRoute.self, destination: destination)
             }
 
-            // H5 keeps creation separate from the four primary tabs.  The
-            // system TabView gives us native navigation/accessibility while
-            // this application-level action preserves the central floating
-            // entry on both compact and wide layouts.
             if router.path.isEmpty {
-                Button {
-                    router.navigate(to: .split)
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 28, weight: .medium))
-                        .foregroundStyle(.white)
-                        .frame(width: 58, height: 58)
-                        .background(AppTokens.flowBrand)
-                        .clipShape(Circle())
-                        .shadow(color: AppTokens.flowBrand.opacity(0.3), radius: 12, y: 5)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("创建拼豆图纸")
+                H5BottomTabBar(
+                    selected: router.selectedTab,
+                    unreadCount: messagesFixture?.notifications.filter { !$0.isRead }.count ?? session.unreadNotificationCount,
+                    onSelect: { router.select(tab: $0) },
+                    onCreate: { router.overlay = .createDrawing }
+                )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                .padding(.bottom, 22)
                 .zIndex(1)
             }
 
@@ -69,8 +58,14 @@ struct AppRootView: View {
         .animation(.easeInOut(duration: 0.2), value: router.routeStatus?.id)
         .onAppear {
             let launchArguments = ProcessInfo.processInfo.arguments
-            if (launchArguments.contains("-ui-testing-split-fixture") || launchArguments.contains("-ui-testing-split-crop-workspace")), splitWorkflow.image == nil {
+            if (launchArguments.contains("-ui-testing-split-fixture")
+                || launchArguments.contains("-ui-testing-split-workspace")
+                || launchArguments.contains("-ui-testing-split-align-workspace")
+                || launchArguments.contains("-ui-testing-split-crop-workspace")), splitWorkflow.image == nil {
                 splitWorkflow.load(image: SplitWorkflow.uiTestingFixtureImage(), name: "UI 自动化固定图")
+                if launchArguments.contains("-ui-testing-split-align-workspace") {
+                    splitWorkflow.setSplitMode(.align)
+                }
             }
             if ProcessInfo.processInfo.arguments.contains("-ui-testing-editor-workspace") {
                 document.replaceGrid(columns: 32, rows: 32, colors: Array(repeating: Palette.empty, count: 32 * 32))
@@ -98,7 +93,75 @@ struct AppRootView: View {
         // Give the system tab container the compact navigation idiom while the
         // page itself retains its independently constrained wide layout.
         .environment(\.horizontalSizeClass, .compact)
+        .toolbar(.hidden, for: .tabBar)
     }
+
+
+private struct H5BottomTabBar: View {
+    let selected: HomeTab
+    let unreadCount: Int
+    let onSelect: (HomeTab) -> Void
+    let onCreate: () -> Void
+
+    var body: some View {
+        HStack(spacing: 0) {
+            tab(.home)
+            tab(.discover)
+
+            Button(action: onCreate) {
+                Image(systemName: "plus")
+                    .font(.system(size: 28, weight: .medium))
+                    .foregroundStyle(.white)
+                    .frame(width: 62, height: 62)
+                    .background(AppTokens.flowBrand)
+                    .clipShape(Circle())
+                    .shadow(color: AppTokens.flowBrand.opacity(0.28), radius: 10, y: 4)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("创建")
+            .frame(maxWidth: .infinity)
+            .offset(y: -18)
+
+            tab(.messages)
+            tab(.profile)
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, 8)
+        .padding(.bottom, 10)
+        .frame(minHeight: 76)
+        .background(Color.white)
+    }
+
+    @ViewBuilder
+    private func tab(_ tab: HomeTab) -> some View {
+        Button { onSelect(tab) } label: {
+            VStack(spacing: 4) {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: tab.symbol + (selected == tab ? ".fill" : ""))
+                        .font(.system(size: 21, weight: selected == tab ? .semibold : .medium))
+                    if tab == .messages && unreadCount > 0 {
+                        Text(unreadCount > 9 ? "9+" : "\(unreadCount)")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 4)
+                            .frame(minWidth: 16, minHeight: 16)
+                            .background(Color.red)
+                            .clipShape(Capsule())
+                            .offset(x: 9, y: -7)
+                    }
+                }
+                Text(tab.title)
+                    .font(.system(size: 11, weight: selected == tab ? .bold : .semibold))
+            }
+            .foregroundStyle(selected == tab ? AppTokens.flowBrand : Color(hex: "202224"))
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(tab.title)
+        .accessibilityAddTraits(selected == tab ? .isSelected : [])
+    }
+}
 
     private var profileFixture: ProfileVisualFixture? {
         let arguments = ProcessInfo.processInfo.arguments
@@ -239,7 +302,7 @@ private struct BeadingSessionVisualFixture {
             InventoryCheckItem(colorCode: "H7", required: 603, available: 700, missing: 0),
             InventoryCheckItem(colorCode: "C4", required: 59, available: 42, missing: 17),
             InventoryCheckItem(colorCode: "A4", required: 29, available: 31, missing: 0),
-        ], summary: InventoryCheckSummary(sufficient: false, missingColorCount: 1, missingBeadCount: 17))
+        ], summary: InventoryCheckSummary(sufficient: false, required: 691, available: 674, missing: 17))
         return BeadingSessionVisualFixture(session: session, canvas: BeadingCanvas(columns: columns, rows: rows, cells: cells), inventory: inventory, warehouseLoadError: nil)
     }()
 
@@ -276,7 +339,11 @@ private struct BeadingSessionView: View {
     @State private var selectedWarehouseID: String?
     @State private var canvas: BeadingCanvas?
     @State private var markedCellIndexes = Set<Int>()
+    /// H5 keeps the selected color and highlight visibility as two independent states.
     @State private var highlightedColorCode: String?
+    @State private var highlightEnabled = true
+    @State private var markMode = false
+    @State private var fitCanvasRequest = UUID()
 
     init(session: AppSession, projectID: String, fixture: BeadingSessionVisualFixture? = nil) {
         let initialHighlight = fixture.flatMap { value -> String? in
@@ -297,15 +364,20 @@ private struct BeadingSessionView: View {
 
     var body: some View {
         Group {
-            if isLoading { ProgressView("正在读取拼豆会话…") }
-            else if let beading { sessionContent(beading) }
-            else { startContent }
+            if isLoading {
+                H5RouteLoadingView(label: "正在准备拼豆", description: "正在读取作品与库存")
+            } else if let beading {
+                sessionContent(beading)
+            } else {
+                H5RouteLoadingView(label: "正在检查豆子库存", description: "确认库存后即可开始拼豆")
+            }
         }
         .navigationTitle("开始拼豆").navigationBarTitleDisplayMode(.inline)
-        .task(id: projectID) { guard fixture == nil else { return }; await load(); await loadWarehouses() }
+        .task(id: projectID) { guard fixture == nil else { return }; await bootstrapWorkspace() }
         .onDisappear { timerTask?.cancel() }
         .onChange(of: markedCellIndexes) { _, _ in persistToolDraft() }
         .onChange(of: highlightedColorCode) { _, _ in persistToolDraft() }
+        .onChange(of: highlightEnabled) { _, _ in persistToolDraft() }
         .onChange(of: codesVisible) { _, _ in persistToolDraft() }
         .onChange(of: gridVisible) { _, _ in persistToolDraft() }
         .onChange(of: canvasLocked) { _, _ in persistToolDraft() }
@@ -322,10 +394,20 @@ private struct BeadingSessionView: View {
         } message: { Text("下次可以从当前色号继续。") }
         .sheet(isPresented: $showInventorySheet) {
             if let inventory {
-                InventoryCheckSheetView(check: inventory, selectedWarehouseID: $selectedWarehouseID, warehouses: warehouses, onWarehouseChange: { warehouseID in
-                    selectedWarehouseID = warehouseID
-                    await checkInventory()
-                }, onClose: { showInventorySheet = false })
+                InventoryCheckSheetView(
+                    check: inventory,
+                    selectedWarehouseID: $selectedWarehouseID,
+                    warehouses: warehouses,
+                    onWarehouseChange: { warehouseID in
+                        selectedWarehouseID = warehouseID
+                        await refreshInventoryCheck()
+                    },
+                    onClose: {
+                        showInventorySheet = false
+                        if beading == nil { exitWorkspace() }
+                    },
+                    onStart: { await startFromInventoryCheck() }
+                )
             }
         }
         .sheet(isPresented: $showMoreTools) {
@@ -333,7 +415,7 @@ private struct BeadingSessionView: View {
         }
         .sheet(isPresented: $showColorSearch) {
             BeadingColorSearchSheet(query: $colorSearchQuery, requirements: sortedRequirements(in: beading), completedColorCodes: beading?.completedColorCodes ?? [], color: color, onSelect: { code in
-                highlightedColorCode = code
+                selectColor(code)
                 showColorSearch = false
             }, onClose: { showColorSearch = false })
         }
@@ -343,39 +425,23 @@ private struct BeadingSessionView: View {
         } message: { Text("将清除当前拼豆页面中的全部单格标记。") }
     }
 
-    private var startContent: some View {
-        VStack(spacing: 16) {
-            ContentUnavailableView("尚未开始拼豆", systemImage: "circle.grid.3x3", description: Text(error ?? "开始后可持续保存进度，也可稍后恢复。"))
-            Picker("扣库存仓库", selection: $selectedWarehouseID) {
-                Text("暂不关联仓库").tag(String?.none)
-                ForEach(warehouses) { warehouse in Text(warehouse.name).tag(Optional(warehouse.id)) }
-            }.pickerStyle(.menu).accessibilityLabel("选择拼豆仓库")
-            if let warehouseLoadError {
-                Button {
-                    Task { await loadWarehouses() }
-                } label: {
-                    Label(warehouseLoadError, systemImage: "exclamationmark.triangle.fill")
-                        .font(.footnote)
-                        .foregroundStyle(Color.orange)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(12)
-                        .background(Color.orange.opacity(0.1))
-                        .clipShape(RoundedRectangle(cornerRadius: AppTokens.compactCorner))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("重新加载拼豆仓库列表")
-            }
-            Button(isSubmitting ? "正在开始…" : "开始拼豆") { Task { await start() } }.buttonStyle(.borderedProminent).tint(AppTokens.flowBrand).disabled(isSubmitting)
-        }
-    }
-
     private func sessionContent(_ current: BeadingSession) -> some View {
         VStack(spacing: 0) {
             workspaceHeader(current)
             workspaceProgress(current)
             ZStack {
                 if let canvas {
-                    BeadingCanvasView(canvas: canvas, markedIndexes: markedCellIndexes, highlightedColorCode: highlightedColorCode, codesVisible: codesVisible, gridVisible: gridVisible, locked: canvasLocked, onToggleMark: toggleMark)
+                    BeadingCanvasView(
+                        canvas: canvas,
+                        markedIndexes: markedCellIndexes,
+                        highlightedColorCode: highlightEnabled ? highlightedColorCode : nil,
+                        codesVisible: codesVisible,
+                        gridVisible: gridVisible,
+                        locked: canvasLocked,
+                        markMode: markMode,
+                        fitRequest: fitCanvasRequest,
+                        onCellTap: handleCanvasCellTap
+                    )
                 } else {
                     ProgressView("正在加载拼豆画布…")
                 }
@@ -385,49 +451,85 @@ private struct BeadingSessionView: View {
             }
             workspaceControls(current)
         }
-        .background(Color(hex: "F2F5FD"))
+        .background(AppTokens.flowBackground)
         .toolbar(.hidden, for: .navigationBar)
     }
 
     private func workspaceHeader(_ current: BeadingSession) -> some View {
-        HStack {
-            Button { showExitChoice = true } label: { Image(systemName: "chevron.left").font(.headline.weight(.semibold)).frame(width: 44, height: 44) }
-                .accessibilityLabel("返回作品")
-            Button { Task { await checkInventory() } } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "cube")
-                    Text("库存").fixedSize(horizontal: true, vertical: false)
-                }
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(1)
-                .padding(.horizontal, 10)
-                .frame(minHeight: 36)
-                .background(Color(hex: "F7F9FC"))
-                .clipShape(Capsule())
-                .overlay(Capsule().stroke(Color(hex: "DCE4EF")))
+        HStack(spacing: 4) {
+            Button { showExitChoice = true } label: {
+                H5Icon(name: "lucide-arrow-left", size: 20).frame(width: 44, height: 44)
             }
-                .accessibilityLabel("检测库存")
-            Spacer()
-            Button { Task { await current.status == "paused" ? transition(.resume) : transition(.pause) } } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: current.status == "paused" ? "play.fill" : "pause.fill")
-                    Text(timeText).monospacedDigit().fixedSize(horizontal: true, vertical: false)
+            .buttonStyle(.plain)
+            .foregroundStyle(Color(hex: "52657F"))
+            .accessibilityLabel("返回")
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: 4) {
+                Button { Task { await checkInventory() } } label: {
+                    HStack(spacing: 5) {
+                        H5Icon(name: "lucide-package", size: 18)
+                        Text("库存")
+                    }
+                    .font(.system(size: 12, weight: .bold))
+                    .padding(.horizontal, 10)
+                    .frame(minHeight: 44)
+                    .foregroundStyle(Color(hex: "52657F"))
+                    .background(Color(hex: "F7F9FC"))
+                    .clipShape(Capsule())
+                    .overlay(Capsule().stroke(Color(hex: "DCE4EF"), lineWidth: 1))
                 }
-                .font(.subheadline.weight(.bold))
-                .lineLimit(1)
-                .padding(.horizontal, 10)
-                .frame(minHeight: 36)
-                .background(Color(hex: "F7F9FC"))
-                .clipShape(Capsule())
-                .overlay(Capsule().stroke(Color(hex: "DCE4EF")))
+                .buttonStyle(.plain)
+                .disabled(isSubmitting)
+                .accessibilityLabel("查看库存")
+
+                Button { Task { await current.status == "paused" ? transition(.resume) : transition(.pause) } } label: {
+                    HStack(spacing: 5) {
+                        Text(timeText).monospacedDigit()
+                        H5Icon(name: current.status == "paused" ? "lucide-play" : "lucide-pause", size: 16)
+                    }
+                    .font(.system(size: 12, weight: .bold))
+                    .padding(.horizontal, 10)
+                    .frame(minWidth: 82, minHeight: 44)
+                    .foregroundStyle(Color(hex: "34465F"))
+                    .background(Color(hex: "F7F9FC"))
+                    .clipShape(Capsule())
+                    .overlay(Capsule().stroke(Color(hex: "DCE4EF"), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .disabled(isSubmitting || current.status != "in_progress" && current.status != "paused")
+                .accessibilityLabel(current.status == "paused" ? "继续计时" : "暂停计时")
+
+                Button { Task { await saveProgress() } } label: {
+                    HStack(spacing: 5) {
+                        H5Icon(name: "lucide-save", size: 18)
+                        Text("保存")
+                    }
+                    .font(.system(size: 12, weight: .bold))
+                    .padding(.horizontal, 10)
+                    .frame(minHeight: 44)
+                    .foregroundStyle(Color(hex: "087058"))
+                    .background(Color(hex: "EDFBF7"))
+                    .clipShape(Capsule())
+                    .overlay(Capsule().stroke(Color(hex: "9FE3D4"), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .disabled(isSubmitting)
+                .accessibilityLabel("保存")
+
+                Button { showMoreTools = true } label: {
+                    H5Icon(name: "lucide-settings", size: 20).frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color(hex: "52657F"))
+                .disabled(isSubmitting)
+                .accessibilityLabel("设置")
             }
-                .disabled(isSubmitting || current.status != "in_progress" && current.status != "paused").accessibilityLabel(current.status == "paused" ? "继续计时" : "暂停计时")
-            Button { Task { await saveProgress() } } label: { Label("保存", systemImage: "archivebox.fill").font(.subheadline.weight(.semibold)).padding(.horizontal, 10).frame(minHeight: 36).foregroundStyle(Color(hex: "087058")).background(Color(hex: "EDFBF7")).clipShape(Capsule()).overlay(Capsule().stroke(Color(hex: "9FE3D4"))) }
-                .disabled(isSubmitting).accessibilityLabel("保存拼豆进度")
-            Button { showExitChoice = true } label: { Image(systemName: "gearshape").frame(width: 44, height: 44) }
-                .accessibilityLabel("拼豆更多设置").disabled(isSubmitting)
         }
-        .padding(.horizontal, 8).padding(.vertical, 7).background(AppTokens.panel)
+        .padding(.horizontal, 8)
+        .background(AppTokens.panel)
+        .overlay(alignment: .bottom) { Rectangle().fill(AppTokens.flowLine).frame(height: 1) }
     }
 
     private func workspaceProgress(_ current: BeadingSession) -> some View {
@@ -440,49 +542,140 @@ private struct BeadingSessionView: View {
             }.frame(height: 8)
             Text("\(current.progress.percent)%").font(.caption.weight(.bold)).foregroundStyle(AppTokens.flowBrand).frame(width: 38, alignment: .trailing)
         }
-        .padding(.horizontal, 16).frame(height: 26).background(AppTokens.panel).overlay(alignment: .bottom) { Divider() }
+        .padding(.horizontal, 16).frame(height: 26).background(AppTokens.panel)
+        .overlay(alignment: .bottom) { Rectangle().fill(AppTokens.flowLine).frame(height: 1) }
         .accessibilityElement(children: .ignore).accessibilityLabel("拼豆进度，\(current.progress.percent)%")
     }
 
     private func workspaceControls(_ current: BeadingSession) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                workspaceTool("magnifyingglass", title: "搜色") { colorSearchQuery = ""; showColorSearch = true }
-                workspaceTool("flag", title: "标记") { router.showNotice("点击当前高亮色号的格子即可标记。", kind: .success) }
-                workspaceTool("highlighter", title: "高亮") { highlightedColorCode = highlightedColorCode == nil ? current.requirements.first(where: { !current.completedColorCodes.contains($0.colorCode) })?.colorCode : nil }
-                workspaceTool(canvasLocked ? "lock.fill" : "lock", title: canvasLocked ? "解锁" : "锁定", accessibilityLabel: canvasLocked ? "解除画布锁定" : "锁定画布") { canvasLocked.toggle() }
-                workspaceTool("ellipsis", title: "更多") { showMoreTools = true }
-                workspaceTool("arrow.down.right.and.arrow.up.left", title: "适应") { highlightedColorCode = nil }
-                Button(current.progress.completed == current.progress.total ? "确认完成" : "完成 \(current.progress.completed)/\(current.progress.total)") {
-                    Task { await current.progress.completed == current.progress.total ? prepareCompletion() : completeCurrentColor() }
+                workspaceTool("lucide-search", title: "搜色", active: showColorSearch) { colorSearchQuery = ""; showColorSearch = true }
+                workspaceTool("lucide-flag", title: "标记", active: markMode, disabled: canvasLocked || highlightedColorCode == nil) { markMode.toggle() }
+                workspaceTool("lucide-lightbulb", title: "高亮", active: highlightEnabled) { highlightEnabled.toggle() }
+                workspaceTool("lucide-lock", title: "锁定", active: canvasLocked) { canvasLocked.toggle() }
+                workspaceTool("lucide-more-horizontal", title: "更多", active: showMoreTools) { showMoreTools = true }
+                workspaceTool("lucide-maximize", title: "适应") { fitCanvasRequest = UUID() }
+            }
+            .padding(.horizontal, 3)
+            .frame(height: 56)
+            .background(AppTokens.panel)
+            .overlay(alignment: .top) { Rectangle().fill(AppTokens.flowLine).frame(height: 1) }
+
+            HStack(spacing: 4) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(sortedRequirements(in: current)) { item in
+                            let selected = highlightedColorCode == item.colorCode
+                            let done = current.completedColorCodes.contains(item.colorCode)
+                            Button { selectColor(item.colorCode) } label: {
+                                VStack(spacing: 4) {
+                                    ZStack(alignment: .topTrailing) {
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .fill(color(for: item.colorCode))
+                                            .frame(width: 38, height: 38)
+                                            .overlay {
+                                                RoundedRectangle(cornerRadius: 12)
+                                                    .stroke(selected ? Color(hex: "F0A517") : Color.black.opacity(0.10), lineWidth: selected ? 2.5 : 1)
+                                            }
+                                            .shadow(color: Color(hex: "2A3F60").opacity(0.10), radius: 4, y: 2)
+                                            .overlay {
+                                                Text(item.colorCode)
+                                                    .font(.system(size: 14, weight: .black))
+                                                    .foregroundStyle(colorText(for: item.colorCode))
+                                            }
+                                        if done {
+                                            Circle().fill(Color(hex: "1268D7")).frame(width: 20, height: 20)
+                                                .overlay(H5Icon(name: "lucide-check", size: 12).foregroundStyle(.white))
+                                                .overlay(Circle().stroke(Color.white, lineWidth: 2))
+                                                .offset(x: 6, y: -6)
+                                        }
+                                    }
+                                    Text("\(item.required)")
+                                        .font(.system(size: 12, weight: .bold))
+                                        .foregroundStyle(Color(hex: "5B6472"))
+                                }
+                                .frame(width: 48)
+                                .frame(minHeight: 58)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("选择色号 \(item.colorCode)\(selected ? "，当前" : "")\(done ? "，已完成" : "")")
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.top, 6)
+                    .padding(.bottom, 8)
                 }
-                    .font(.subheadline.weight(.bold)).foregroundStyle(.white).frame(width: 82, height: 46).background(AppTokens.flowBrand).clipShape(RoundedRectangle(cornerRadius: 12)).accessibilityLabel(current.progress.completed == current.progress.total ? "确认完成拼豆" : "完成当前色").accessibilityValue("\(current.progress.completed)/\(current.progress.total)")
-            }.padding(.horizontal, 8).padding(.vertical, 6).background(AppTokens.panel)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
+
+                HStack(spacing: 6) {
                     Button { colorSortMode = colorSortMode.next } label: {
-                        Label(colorSortMode.shortTitle, systemImage: "arrow.up.arrow.down")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(AppTokens.flowText)
-                            .frame(minHeight: 32)
+                        VStack(spacing: 3) {
+                            H5Icon(name: "lucide-sliders-horizontal", size: 18)
+                            Text(colorSortMode == .code ? "色号" : "数量")
+                                .font(.system(size: 10, weight: .bold))
+                        }
+                        .foregroundStyle(Color(hex: "52657F"))
+                        .frame(width: 44, height: 44)
+                        .background(Color(hex: "F5F8FE"))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: "E0E7F1"), lineWidth: 1))
                     }
-                    .accessibilityLabel("切换色号排序，当前\(colorSortMode.title)")
-                    .accessibilityValue(colorSortMode.title)
-                    ForEach(sortedRequirements(in: current)) { item in
-                        let selected = highlightedColorCode == item.colorCode
-                        let done = current.completedColorCodes.contains(item.colorCode)
-                        Button { highlightedColorCode = item.colorCode } label: {
-                            VStack(spacing: 2) { Text(item.colorCode).font(.caption.weight(.heavy)); Text("\(item.required)颗").font(.caption2) }
-                                .foregroundStyle(colorText(for: item.colorCode)).frame(width: 46, height: 42).background(color(for: item.colorCode)).clipShape(RoundedRectangle(cornerRadius: 9)).overlay(RoundedRectangle(cornerRadius: 9).stroke(selected ? Color(hex: "F0A523") : .clear, lineWidth: 3)).overlay(alignment: .topTrailing) { if done { Image(systemName: "checkmark.circle.fill").foregroundStyle(AppTokens.flowBrand).background(Circle().fill(.white)).offset(x: 4, y: -4) } }
-                        }.accessibilityLabel("选择色号 \(item.colorCode)\(selected ? "，当前" : "")\(done ? "，已完成" : "")，\(item.required) 颗")
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("切换排序，当前\(colorSortMode.title)")
+
+                    let terminal = current.progress.completed == current.progress.total
+                    let currentDone = highlightedColorCode.map { current.completedColorCodes.contains($0) } ?? false
+                    Button(terminal ? "确认完成" : "完成 \(current.progress.completed)/\(current.progress.total)") {
+                        Task { await terminal ? prepareCompletion() : completeCurrentColor() }
                     }
-                }.padding(.horizontal, 10).padding(.vertical, 7)
-            }.background(Color(hex: "F7F9FC"))
-        }.background(AppTokens.panel).disabled(isSubmitting)
+                    .font(.system(size: 14, weight: .black))
+                    .foregroundStyle(.white)
+                    .frame(width: 82, height: 44)
+                    .background(Color(hex: "1268D7"))
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .shadow(color: Color(hex: "1268D7").opacity(0.22), radius: 6, y: 3)
+                    .disabled(isSubmitting || (!terminal && (highlightedColorCode == nil || currentDone)))
+                    .accessibilityLabel(terminal ? "确认完成拼豆" : "完成当前色")
+                }
+                .padding(.trailing, 8)
+            }
+            .background(AppTokens.panel)
+            .overlay(alignment: .top) { Rectangle().fill(AppTokens.flowLine).frame(height: 1) }
+        }
+        .background(AppTokens.panel)
     }
 
-    private func workspaceTool(_ symbol: String, title: String, accessibilityLabel: String? = nil, action: @escaping () -> Void) -> some View {
-        Button(action: action) { VStack(spacing: 2) { Image(systemName: symbol).font(.system(size: 17, weight: .medium)); Text(title).font(.caption2.weight(.semibold)) }.foregroundStyle(AppTokens.muted).frame(maxWidth: .infinity, minHeight: 44) }.accessibilityLabel(accessibilityLabel ?? title)
+    private func workspaceTool(_ icon: String, title: String, active: Bool = false, disabled: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 3) {
+                H5Icon(name: icon, size: 21)
+                Text(title).font(.system(size: 11, weight: active ? .bold : .semibold))
+            }
+            .foregroundStyle(active ? Color(hex: "8A5700") : Color(hex: "63738A"))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(active ? Color(hex: "FFF8DF") : Color.white)
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled || isSubmitting)
+        .opacity(disabled ? 0.45 : 1)
+        .accessibilityLabel(title)
+    }
+
+    private func selectColor(_ code: String) {
+        highlightedColorCode = code
+        if !highlightEnabled { highlightEnabled = true }
+    }
+
+    private func handleCanvasCellTap(_ index: Int) {
+        guard !canvasLocked, let canvas, canvas.cells.indices.contains(index) else { return }
+        let cell = canvas.cells[index]
+        guard cell.color != Palette.empty else { return }
+        if markMode {
+            guard let current = highlightedColorCode, cell.color.code == current else { return }
+            toggleMark(index)
+        } else {
+            selectColor(cell.color.code)
+        }
     }
 
     private func color(for code: String) -> Color { Mard221Palette.colors.first(where: { $0.code == code })?.swiftUIColor ?? Color(hex: "EEF2F7") }
@@ -508,12 +701,44 @@ private struct BeadingSessionView: View {
     }
 
     private var timeText: String { String(format: "%02d:%02d", elapsed / 60, elapsed % 60) }
-    private func load() async {
-        guard let token = session.token else { return }; let id = UUID(); requestID = id; isLoading = true; error = nil
+    private func bootstrapWorkspace() async {
+        guard let token = session.token else { return }
+        let id = UUID()
+        requestID = id
+        isLoading = true
+        error = nil
         defer { if requestID == id { isLoading = false } }
-        do { async let sessionValue = session.projects.beadingSession(projectID: projectID, token: token); async let detail = session.projects.detail(id: projectID, token: token); let (value, project) = try await (sessionValue, detail); guard requestID == id else { return }; guard let parsed = PatternDocument.parseH5Canvas(columns: project.cols, rows: project.rows, canvasData: project.canvasData) else { error = "作品画布数据无效"; return }; canvas = BeadingCanvas(columns: parsed.columns, rows: parsed.rows, cells: parsed.cells); apply(value); if selectedWarehouseID == nil { selectedWarehouseID = value?.warehouseId } }
-        catch { guard requestID == id else { return }; self.error = error.localizedDescription }
+        do {
+            async let sessionValue = session.projects.beadingSession(projectID: projectID, token: token)
+            async let detailValue = session.projects.detail(id: projectID, token: token)
+            let (existing, project) = try await (sessionValue, detailValue)
+            let availableWarehouses = (try? await session.projects.warehouses(token: token)) ?? []
+            guard requestID == id else { return }
+            warehouses = availableWarehouses
+            warehouseLoadError = availableWarehouses.isEmpty ? "暂无可用仓库，可继续拼豆但不会关联库存" : nil
+            guard let parsed = PatternDocument.parseH5Canvas(columns: project.cols, rows: project.rows, canvasData: project.canvasData) else {
+                error = "作品画布数据无效"
+                return
+            }
+            canvas = BeadingCanvas(columns: parsed.columns, rows: parsed.rows, cells: parsed.cells)
+
+            if let existing {
+                selectedWarehouseID = existing.warehouseId ?? availableWarehouses.first?.id
+                apply(existing)
+                return
+            }
+
+            // H5-aligned start flow: inventory check first, create the session only after confirmation.
+            selectedWarehouseID = availableWarehouses.first?.id
+            inventory = try await session.projects.projectInventoryCheck(projectID: projectID, warehouseID: selectedWarehouseID, token: token)
+            guard requestID == id else { return }
+            showInventorySheet = true
+        } catch {
+            guard requestID == id else { return }
+            self.error = error.localizedDescription
+        }
     }
+
     private func loadWarehouses() async {
         if let fixture {
             warehouseLoadError = fixture.warehouseLoadError
@@ -523,12 +748,13 @@ private struct BeadingSessionView: View {
         warehouseLoadError = nil
         do {
             warehouses = try await session.projects.warehouses(token: token)
+            if selectedWarehouseID == nil { selectedWarehouseID = warehouses.first?.id }
         } catch {
             warehouses = []
             warehouseLoadError = "仓库列表读取失败，点此重新加载"
         }
     }
-    private func start() async { guard let token = session.token else { return }; isSubmitting = true; defer { isSubmitting = false }; do { apply(try await session.projects.createBeadingSession(projectID: projectID, warehouseID: selectedWarehouseID, token: token)) } catch { self.error = error.localizedDescription } }
+
     private func completeCurrentColor() async {
         guard let current = beading, let code = highlightedColorCode, !current.completedColorCodes.contains(code) else { return }
         await toggle(code)
@@ -564,18 +790,44 @@ private struct BeadingSessionView: View {
     private func prepareCompletion() async { guard let current = beading, let token = session.token else { return }; isSubmitting = true; defer { isSubmitting = false }; do { apply(try await session.projects.transitionBeadingSession(current, action: .prepareCompletion, token: token)); showCompletionChoice = true } catch { self.error = error.localizedDescription } }
     private func complete(deduct: Bool) async { guard let current = beading, let token = session.token else { return }; isSubmitting = true; defer { isSubmitting = false }; do { let result = try await session.projects.completeBeadingSession(current, deductInventory: deduct, warehouseID: selectedWarehouseID, idempotencyKey: completionKey, token: token); apply(result.session); router.showNotice(result.deducted ? "拼豆完成，库存已扣减" : "拼豆已完成", kind: .success) } catch { self.error = error.localizedDescription } }
     private func abandon() async { guard let current = beading, let token = session.token else { return }; isSubmitting = true; defer { isSubmitting = false }; do { _ = try await session.projects.transitionBeadingSession(current, action: .abandon, token: token); router.showNotice("已放弃当前拼豆会话", kind: .success); exitWorkspace() } catch { self.error = error.localizedDescription } }
-    private func checkInventory() async {
+    private func refreshInventoryCheck() async {
         if let fixture {
             inventory = fixture.inventory
-            showInventorySheet = true
             return
         }
-        guard let current = beading, let token = session.token else { return }
+        guard let token = session.token else { return }
+        do {
+            if let current = beading {
+                inventory = try await session.projects.inventoryCheck(sessionID: current.id, warehouseID: selectedWarehouseID, token: token)
+            } else {
+                inventory = try await session.projects.projectInventoryCheck(projectID: projectID, warehouseID: selectedWarehouseID, token: token)
+            }
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func checkInventory() async {
         isSubmitting = true
         defer { isSubmitting = false }
+        await refreshInventoryCheck()
+        if inventory != nil { showInventorySheet = true }
+    }
+
+    private func startFromInventoryCheck() async {
+        guard beading == nil else {
+            showInventorySheet = false
+            return
+        }
+        guard let token = session.token else { return }
+        isSubmitting = true
+        error = nil
+        defer { isSubmitting = false }
         do {
-            inventory = try await session.projects.inventoryCheck(sessionID: current.id, warehouseID: selectedWarehouseID, token: token)
-            showInventorySheet = true
+            let created = try await session.projects.createBeadingSession(projectID: projectID, warehouseID: selectedWarehouseID, token: token)
+            showInventorySheet = false
+            inventory = nil
+            apply(created)
         } catch {
             self.error = error.localizedDescription
         }
@@ -589,6 +841,7 @@ private struct BeadingSessionView: View {
             let draft = BeadingDraftStore.read(ownerID: ownerID, sessionID: value.id)
             markedCellIndexes = draft.markedCellIndexes
             highlightedColorCode = draft.highlightedColorCode
+            highlightEnabled = draft.highlightEnabled
             codesVisible = draft.codesVisible
             gridVisible = draft.gridVisible
             canvasLocked = draft.canvasLocked
@@ -607,11 +860,11 @@ private struct BeadingSessionView: View {
         }
     }
     private func exitWorkspace() { if !router.path.isEmpty { router.path.removeLast() } else { router.navigate(to: .projects) } }
-    private func resetTools() { codesVisible = true; gridVisible = true; canvasLocked = false; colorSortMode = .remaining; colorSearchQuery = ""; markedCellIndexes = []; if let beading { highlightedColorCode = beading.requirements.first(where: { !beading.completedColorCodes.contains($0.colorCode) })?.colorCode }; showMoreTools = false }
+    private func resetTools() { codesVisible = true; gridVisible = true; canvasLocked = false; markMode = false; highlightEnabled = true; colorSortMode = .remaining; colorSearchQuery = ""; markedCellIndexes = []; if let beading { highlightedColorCode = beading.requirements.first(where: { !beading.completedColorCodes.contains($0.colorCode) })?.colorCode }; fitCanvasRequest = UUID(); showMoreTools = false }
     private func toggleMark(_ index: Int) { if markedCellIndexes.contains(index) { markedCellIndexes.remove(index) } else { markedCellIndexes.insert(index) } }
     private func persistToolDraft() {
         guard fixture == nil, let ownerID = session.user?.id, let sessionID = beading?.id else { return }
-        BeadingDraftStore.write(BeadingToolDraft(markedCellIndexes: markedCellIndexes, highlightedColorCode: highlightedColorCode, codesVisible: codesVisible, gridVisible: gridVisible, canvasLocked: canvasLocked, colorSortMode: colorSortMode), ownerID: ownerID, sessionID: sessionID)
+        BeadingDraftStore.write(BeadingToolDraft(markedCellIndexes: markedCellIndexes, highlightedColorCode: highlightedColorCode, highlightEnabled: highlightEnabled, codesVisible: codesVisible, gridVisible: gridVisible, canvasLocked: canvasLocked, colorSortMode: colorSortMode), ownerID: ownerID, sessionID: sessionID)
     }
     private func recoverConflict(_ failure: Error) { if let api = failure as? APIError, api.status == 409, api.code == "BEADING_VERSION_CONFLICT", let latest = api.session { apply(latest); error = "会话已在其他设备更新，已恢复最新进度。" } else { error = failure.localizedDescription } }
 }
@@ -649,57 +902,230 @@ enum BeadingColorSortMode: String, Equatable {
 }
 
 private struct BeadingCanvasView: View {
+    private let naturalCellSize: CGFloat = 18
     let canvas: BeadingCanvas
     let markedIndexes: Set<Int>
     let highlightedColorCode: String?
     let codesVisible: Bool
     let gridVisible: Bool
     let locked: Bool
-    let onToggleMark: (Int) -> Void
+    let markMode: Bool
+    let fitRequest: UUID
+    let onCellTap: (Int) -> Void
+
+    @State private var scale: CGFloat = 1
+    @State private var storedScale: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @State private var storedOffset: CGSize = .zero
+    @State private var rulerBaselineScale: CGFloat = 1
+
     var body: some View {
         GeometryReader { proxy in
-            let side = min(14.0, max(7.0, min((proxy.size.width - 38) / CGFloat(max(1, canvas.columns)), (proxy.size.height - 34) / CGFloat(max(1, canvas.rows)))) )
-            let gridWidth = side * CGFloat(canvas.columns)
-            let gridHeight = side * CGFloat(canvas.rows)
-            ScrollView([.horizontal, .vertical], showsIndicators: false) {
-                LazyVGrid(columns: Array(repeating: GridItem(.fixed(side), spacing: 0), count: canvas.columns), spacing: 0) {
-                    ForEach(canvas.cells) { cell in
-                        let matching = highlightedColorCode == nil || cell.color.code == highlightedColorCode
-                        Button { if matching && !locked { onToggleMark(cell.id) } } label: {
-                            Rectangle().fill(cell.color == Palette.empty ? Color.clear : cell.color.swiftUIColor)
-                                .frame(width: side, height: side)
-                                .overlay(Rectangle().stroke(markedIndexes.contains(cell.id) ? AppTokens.flowBrand : (gridVisible ? Color.black.opacity(0.18) : .clear), lineWidth: markedIndexes.contains(cell.id) ? max(1.5, side * 0.15) : 0.3))
-                                .overlay { if codesVisible && cell.color != Palette.empty && side >= 10 { Text(cell.color.code).font(.system(size: max(4.5, side * 0.38), weight: .bold, design: .rounded)).minimumScaleFactor(0.45).lineLimit(1).foregroundStyle(cell.color.swiftUIColor == Color.white ? AppTokens.flowText : .white).shadow(color: .black.opacity(0.35), radius: 0.5) } }
-                                .overlay { if markedIndexes.contains(cell.id) { Image(systemName: "checkmark").font(.system(size: max(5, side * 0.55), weight: .bold)).foregroundStyle(.white).shadow(radius: 1) } }
-                                .opacity(matching ? 1 : 0.18)
-                        }
-                        .buttonStyle(.plain).disabled(cell.color == Palette.empty || !matching || locked)
-                        .accessibilityLabel("第 \(cell.id / canvas.columns + 1) 行第 \(cell.id % canvas.columns + 1) 列，色号 \(cell.color.code)，\(markedIndexes.contains(cell.id) ? "已标记" : "未标记")")
+            let artboardSize = CGSize(
+                width: CGFloat(max(1, canvas.columns)) * naturalCellSize,
+                height: CGFloat(max(1, canvas.rows)) * naturalCellSize
+            )
+            let center = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+            let displayedSize = CGSize(width: artboardSize.width * scale, height: artboardSize.height * scale)
+            let artboardFrame = CGRect(
+                x: center.x - displayedSize.width / 2 + offset.width,
+                y: center.y - displayedSize.height / 2 + offset.height,
+                width: displayedSize.width,
+                height: displayedSize.height
+            )
+            let rulerGeometry = EditorViewportRulerGeometry(
+                viewportSize: proxy.size,
+                artboardFrame: artboardFrame,
+                rows: canvas.rows,
+                columns: canvas.columns,
+                scale: scale,
+                minimumStickyScale: rulerBaselineScale
+            )
+
+            ZStack {
+                Color(hex: "F2F5FD")
+
+                ZStack {
+                    Canvas(rendersAsynchronously: true) { context, _ in
+                        drawCanvas(context: &context)
+                    }
+                    .frame(width: artboardSize.width, height: artboardSize.height)
+                    .background(Color.white)
+                    if !rulerGeometry.sticky {
+                        BeadingStaticRulers(rows: canvas.rows, columns: canvas.columns, cellSize: naturalCellSize)
+                            .allowsHitTesting(false)
                     }
                 }
-                .frame(width: gridWidth, height: gridHeight, alignment: .topLeading)
-                .padding(16)
-                .background(AppTokens.panel)
-                .shadow(color: Color(hex: "2A3F60").opacity(0.16), radius: 10, y: 4)
+                .frame(width: artboardSize.width, height: artboardSize.height)
+                .shadow(color: Color(hex: "2A3F60").opacity(0.16), radius: 11, y: 5)
+                .scaleEffect(scale)
+                .offset(offset)
+
+                if rulerGeometry.sticky {
+                    H5ViewportRulers(geometry: rulerGeometry)
+                        .allowsHitTesting(false)
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .clipped()
+            .onAppear { fit(to: proxy.size, artboardSize: artboardSize) }
+            .onChange(of: proxy.size) { _, next in fit(to: next, artboardSize: artboardSize) }
+            .onChange(of: fitRequest) { _, _ in fit(to: proxy.size, artboardSize: artboardSize) }
+            .simultaneousGesture(
+                MagnifyGesture()
+                    .onChanged { value in
+                        guard !locked else { return }
+                        scale = min(8, max(0.25, storedScale * value.magnification))
+                    }
+                    .onEnded { _ in storedScale = scale }
+            )
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 4, coordinateSpace: .local)
+                    .onChanged { value in
+                        guard !locked, !markMode else { return }
+                        offset = CGSize(width: storedOffset.width + value.translation.width, height: storedOffset.height + value.translation.height)
+                    }
+                    .onEnded { _ in
+                        guard !locked, !markMode else { return }
+                        storedOffset = offset
+                    }
+            )
+            .simultaneousGesture(
+                SpatialTapGesture()
+                    .onEnded { value in
+                        guard !locked else { return }
+                        if let index = cellIndex(at: value.location, viewportCenter: center, artboardSize: artboardSize) {
+                            onCellTap(index)
+                        }
+                    }
+            )
         }
-        .padding(12)
-        .accessibilityElement(children: .combine).accessibilityLabel("拼豆工作画布，\(canvas.columns) 列 \(canvas.rows) 行")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("拼豆工作画布，\(canvas.columns) 列 \(canvas.rows) 行")
+    }
+
+    private func fit(to viewport: CGSize, artboardSize: CGSize) {
+        let availableWidth = max(1, viewport.width - 32)
+        let availableHeight = max(1, viewport.height - 32)
+        // H5 fits the artwork together with the 22pt left and 20pt top ruler gutters.
+        let contentWidth = artboardSize.width + EditorCanvasMetrics.rulerGutter
+        let contentHeight = artboardSize.height + EditorCanvasMetrics.rulerTopGutter
+        let fitted = min(availableWidth / contentWidth, availableHeight / contentHeight)
+        let nextScale = min(8, max(0.25, fitted))
+        let centeredOffset = CGSize(
+            width: EditorCanvasMetrics.rulerGutter * nextScale / 2,
+            height: EditorCanvasMetrics.rulerTopGutter * nextScale / 2
+        )
+        scale = nextScale
+        storedScale = nextScale
+        rulerBaselineScale = nextScale
+        offset = centeredOffset
+        storedOffset = centeredOffset
+    }
+
+    private func cellIndex(at point: CGPoint, viewportCenter: CGPoint, artboardSize: CGSize) -> Int? {
+        let localX = (point.x - viewportCenter.x - offset.width) / max(scale, 0.001) + artboardSize.width / 2
+        let localY = (point.y - viewportCenter.y - offset.height) / max(scale, 0.001) + artboardSize.height / 2
+        guard localX >= 0, localY >= 0, localX < artboardSize.width, localY < artboardSize.height else { return nil }
+        let col = Int(localX / naturalCellSize)
+        let row = Int(localY / naturalCellSize)
+        let index = row * canvas.columns + col
+        return canvas.cells.indices.contains(index) ? index : nil
+    }
+
+    private func drawCanvas(context: inout GraphicsContext) {
+        let visibleCode = highlightedColorCode
+        let showCodes = codesVisible && naturalCellSize * scale >= 9
+        let lineColor = Color.black.opacity(0.16)
+
+        for cell in canvas.cells {
+            let col = cell.id % canvas.columns
+            let row = cell.id / canvas.columns
+            let rect = CGRect(
+                x: CGFloat(col) * naturalCellSize,
+                y: CGFloat(row) * naturalCellSize,
+                width: naturalCellSize,
+                height: naturalCellSize
+            )
+            let isEmpty = cell.color == Palette.empty
+            let matches = visibleCode == nil || cell.color.code == visibleCode
+            if !isEmpty {
+                context.fill(Path(rect), with: .color(cell.color.swiftUIColor.opacity(matches ? 1 : 0.16)))
+            } else {
+                context.fill(Path(rect), with: .color(Color.white.opacity(matches ? 1 : 0.16)))
+            }
+
+            if gridVisible {
+                context.stroke(Path(rect), with: .color(lineColor), lineWidth: 0.35)
+            }
+
+            if markedIndexes.contains(cell.id) {
+                context.stroke(Path(rect.insetBy(dx: 1, dy: 1)), with: .color(AppTokens.flowBrand), lineWidth: 2.2)
+                let mark = Text("✓").font(.system(size: 10, weight: .black)).foregroundStyle(Color.white)
+                context.draw(mark, at: CGPoint(x: rect.midX, y: rect.midY), anchor: .center)
+            } else if showCodes && !isEmpty {
+                let value = Int(cell.color.hex, radix: 16) ?? 0
+                let red = Double((value >> 16) & 0xff)
+                let green = Double((value >> 8) & 0xff)
+                let blue = Double(value & 0xff)
+                let textColor: Color = (red * 0.299 + green * 0.587 + blue * 0.114) > 155 ? Color(hex: "1E3048") : .white
+                let text = Text(cell.color.code)
+                    .font(.system(size: 6.8, weight: .bold, design: .rounded))
+                    .foregroundStyle(textColor.opacity(matches ? 0.92 : 0.30))
+                context.draw(text, at: CGPoint(x: rect.midX, y: rect.midY), anchor: .center)
+            }
+        }
+    }
+}
+
+private struct BeadingStaticRulers: View {
+    let rows: Int
+    let columns: Int
+    let cellSize: CGFloat
+
+    private func ticks(_ size: Int) -> [Int] {
+        guard size > 0 else { return [] }
+        return Array(stride(from: 1, through: size, by: 5))
+    }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            ForEach(ticks(columns), id: \.self) { tick in
+                Text("\(tick)")
+                    .font(.system(size: 7, weight: .bold, design: .monospaced))
+                    .foregroundStyle(Color(hex: "65727D"))
+                    .frame(minWidth: 14, minHeight: 13)
+                    .background(Color(hex: "F5F9FB").opacity(0.78))
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .position(x: (CGFloat(tick) - 0.5) * cellSize, y: -7)
+            }
+            ForEach(ticks(rows), id: \.self) { tick in
+                Text("\(tick)")
+                    .font(.system(size: 7, weight: .bold, design: .monospaced))
+                    .foregroundStyle(Color(hex: "65727D"))
+                    .frame(minWidth: 14, minHeight: 13)
+                    .background(Color(hex: "F5F9FB").opacity(0.78))
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .position(x: -8, y: (CGFloat(tick) - 0.5) * cellSize)
+            }
+        }
+        .frame(width: CGFloat(max(1, columns)) * cellSize, height: CGFloat(max(1, rows)) * cellSize)
     }
 }
 
 struct BeadingToolDraft: Equatable {
     let markedCellIndexes: Set<Int>
     let highlightedColorCode: String?
+    let highlightEnabled: Bool
     let codesVisible: Bool
     let gridVisible: Bool
     let canvasLocked: Bool
     let colorSortMode: BeadingColorSortMode
 
-    init(markedCellIndexes: Set<Int> = [], highlightedColorCode: String? = nil, codesVisible: Bool = true, gridVisible: Bool = true, canvasLocked: Bool = false, colorSortMode: BeadingColorSortMode = .remaining) {
+    init(markedCellIndexes: Set<Int> = [], highlightedColorCode: String? = nil, highlightEnabled: Bool = true, codesVisible: Bool = true, gridVisible: Bool = true, canvasLocked: Bool = false, colorSortMode: BeadingColorSortMode = .remaining) {
         self.markedCellIndexes = markedCellIndexes
         self.highlightedColorCode = highlightedColorCode
+        self.highlightEnabled = highlightEnabled
         self.codesVisible = codesVisible
         self.gridVisible = gridVisible
         self.canvasLocked = canvasLocked
@@ -711,6 +1137,7 @@ enum BeadingDraftStore {
     private struct Draft: Codable {
         let markedCellIndexes: [Int]
         let highlightedColorCode: String?
+        let highlightEnabled: Bool?
         let codesVisible: Bool?
         let gridVisible: Bool?
         let canvasLocked: Bool?
@@ -719,10 +1146,10 @@ enum BeadingDraftStore {
     static func key(ownerID: String, sessionID: String) -> String { "qiaoqiaole.beading-draft:\(ownerID):\(sessionID)" }
     static func read(ownerID: String, sessionID: String, defaults: UserDefaults = .standard) -> BeadingToolDraft {
         guard let data = defaults.data(forKey: key(ownerID: ownerID, sessionID: sessionID)), let draft = try? JSONDecoder().decode(Draft.self, from: data) else { return BeadingToolDraft() }
-        return BeadingToolDraft(markedCellIndexes: Set(draft.markedCellIndexes.filter { $0 >= 0 }), highlightedColorCode: draft.highlightedColorCode, codesVisible: draft.codesVisible ?? true, gridVisible: draft.gridVisible ?? true, canvasLocked: draft.canvasLocked ?? false, colorSortMode: BeadingColorSortMode(rawValue: draft.colorSortMode ?? "") ?? .remaining)
+        return BeadingToolDraft(markedCellIndexes: Set(draft.markedCellIndexes.filter { $0 >= 0 }), highlightedColorCode: draft.highlightedColorCode, highlightEnabled: draft.highlightEnabled ?? true, codesVisible: draft.codesVisible ?? true, gridVisible: draft.gridVisible ?? true, canvasLocked: draft.canvasLocked ?? false, colorSortMode: BeadingColorSortMode(rawValue: draft.colorSortMode ?? "") ?? .remaining)
     }
     static func write(_ value: BeadingToolDraft, ownerID: String, sessionID: String, defaults: UserDefaults = .standard) {
-        let draft = Draft(markedCellIndexes: value.markedCellIndexes.sorted(), highlightedColorCode: value.highlightedColorCode, codesVisible: value.codesVisible, gridVisible: value.gridVisible, canvasLocked: value.canvasLocked, colorSortMode: value.colorSortMode.rawValue)
+        let draft = Draft(markedCellIndexes: value.markedCellIndexes.sorted(), highlightedColorCode: value.highlightedColorCode, highlightEnabled: value.highlightEnabled, codesVisible: value.codesVisible, gridVisible: value.gridVisible, canvasLocked: value.canvasLocked, colorSortMode: value.colorSortMode.rawValue)
         if let data = try? JSONEncoder().encode(draft) { defaults.set(data, forKey: key(ownerID: ownerID, sessionID: sessionID)) }
     }
 }
@@ -829,89 +1256,208 @@ private struct InventoryCheckSheetView: View {
     let warehouses: [WarehouseSummary]
     let onWarehouseChange: (String?) async -> Void
     let onClose: () -> Void
+    let onStart: () async -> Void
     @State private var changingWarehouse = false
+    @State private var starting = false
+
+    private var requiredTotal: Int { check.items.reduce(0) { $0 + $1.required } }
+    private var availableTotal: Int { check.items.reduce(0) { $0 + min($1.available, $1.required) } }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("开始拼豆前").font(.caption.weight(.semibold)).foregroundStyle(AppTokens.flowBrand)
-                        Text("检测豆子库存").font(.title2.bold()).foregroundStyle(AppTokens.flowText)
-                    }
+        VStack(spacing: 0) {
+            Capsule()
+                .fill(Color(hex: "CBD5E1"))
+                .frame(width: 36, height: 4)
+                .padding(.top, 12)
+                .padding(.bottom, 14)
 
-                    Picker("选择仓库", selection: $selectedWarehouseID) {
-                        Text("不使用仓库").tag(String?.none)
-                        ForEach(warehouses) { warehouse in Text(warehouse.name).tag(Optional(warehouse.id)) }
-                    }
-                    .pickerStyle(.menu)
-                    .disabled(changingWarehouse)
-                    .accessibilityLabel("选择库存检测仓库")
-                    .onChange(of: selectedWarehouseID) { _, value in
-                        guard !changingWarehouse else { return }
-                        changingWarehouse = true
-                        Task {
-                            await onWarehouseChange(value)
-                            changingWarehouse = false
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(check.summary.sufficient ? "库存充足，可以继续拼豆" : "有 \(check.summary.missingBeadCount) 颗豆子不足")
-                            .font(.headline)
-                            .foregroundStyle(check.summary.sufficient ? Color(hex: "087058") : Color.orange)
-                        Text(check.summary.sufficient ? "所选仓库可满足本次拼豆。" : "共缺 \(check.summary.missingColorCount) 种色号；请补货或更换仓库。")
-                            .font(.subheadline)
-                            .foregroundStyle(AppTokens.muted)
-                    }
-                    .padding(14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(check.summary.sufficient ? Color(hex: "EDFBF7") : Color(hex: "FFF5E8"))
-                    .clipShape(RoundedRectangle(cornerRadius: AppTokens.controlCorner))
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("库存明细").font(.headline).foregroundStyle(AppTokens.flowText)
-                        ForEach(check.items) { item in
-                            HStack(spacing: 10) {
-                                Text(item.colorCode).font(.subheadline.weight(.heavy)).frame(width: 42, alignment: .leading)
-                                Text("需要 \(item.required) 颗").font(.subheadline).foregroundStyle(AppTokens.muted)
-                                Spacer(minLength: 8)
-                                Text(item.missing == 0 ? "库存 \(item.available)" : "缺 \(item.missing) 颗")
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(item.missing == 0 ? Color(hex: "087058") : Color.orange)
-                            }
-                            .padding(.vertical, 10)
-                            Divider()
-                        }
-                    }
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("开始拼豆前")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(Color(hex: "6B7F9C"))
+                    Text("检测豆子库存")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(Color(hex: "1E3048"))
                 }
-                .padding(AppTokens.pagePadding)
+                Spacer()
+                Button(action: onClose) {
+                    H5Icon(name: "lucide-x", size: 20)
+                        .frame(width: 44, height: 44)
+                        .background(Color(hex: "F3F6FB"))
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color(hex: "64748B"))
+                .disabled(changingWarehouse || starting)
+                .accessibilityLabel("关闭库存检测")
             }
-            .navigationTitle("库存检测")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("关闭", action: onClose).disabled(changingWarehouse).accessibilityLabel("关闭库存检测")
+            .padding(.horizontal, 18)
+
+            HStack(spacing: 12) {
+                Text("选择仓库")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(Color(hex: "52657F"))
+                Spacer()
+                Picker("选择仓库", selection: $selectedWarehouseID) {
+                    if warehouses.isEmpty { Text("不使用仓库").tag(String?.none) }
+                    ForEach(warehouses) { warehouse in
+                        Text(warehouse.name).tag(Optional(warehouse.id))
+                    }
                 }
-            }
-            .safeAreaInset(edge: .bottom) {
-                HStack(spacing: 10) {
-                    Button("返回", action: onClose).buttonStyle(.bordered).frame(maxWidth: .infinity)
-                    Button("继续拼豆", action: onClose).buttonStyle(.borderedProminent).tint(AppTokens.flowBrand).frame(maxWidth: .infinity)
-                }
+                .pickerStyle(.menu)
                 .disabled(changingWarehouse)
-                .padding(.horizontal, AppTokens.pagePadding)
-                .padding(.vertical, 10)
-                .background(AppTokens.panel)
+                .tint(Color(hex: "35506F"))
             }
+            .padding(.horizontal, 18)
+            .padding(.top, 12)
+            .onChange(of: selectedWarehouseID) { _, value in
+                guard !changingWarehouse else { return }
+                changingWarehouse = true
+                Task {
+                    await onWarehouseChange(value)
+                    changingWarehouse = false
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(check.summary.sufficient ? "库存充足，可以开始" : "有 \(check.summary.missingBeadCount) 颗豆子不足")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(check.summary.sufficient ? Color(hex: "20834C") : Color(hex: "A45B00"))
+                Text("共需 \(requiredTotal) 颗 · 当前可用 \(availableTotal) 颗")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color(hex: "70819B"))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(check.summary.sufficient ? Color(hex: "EFFAF3") : Color(hex: "FFF7E8"))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .padding(.horizontal, 18)
+            .padding(.top, 14)
+
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(check.items) { item in
+                        HStack(spacing: 8) {
+                            Text(item.colorCode)
+                                .font(.system(size: 14, weight: .black))
+                                .foregroundStyle(Color(hex: "17283F"))
+                                .frame(width: 56, alignment: .leading)
+                            Text("需要 \(item.required) 颗")
+                                .font(.system(size: 14))
+                                .foregroundStyle(Color(hex: "52657F"))
+                            Spacer(minLength: 8)
+                            Text(item.missing == 0 ? "库存 \(item.available)" : "缺 \(item.missing) 颗")
+                                .font(.system(size: 14, weight: item.missing == 0 ? .medium : .bold))
+                                .foregroundStyle(item.missing == 0 ? Color(hex: "258452") : Color(hex: "D95F42"))
+                        }
+                        .padding(.vertical, 12)
+                        if item.id != check.items.last?.id {
+                            Rectangle().fill(Color(hex: "EDF1F6")).frame(height: 1)
+                        }
+                    }
+                }
+                .padding(.horizontal, 18)
+            }
+
+            HStack(spacing: 10) {
+                Button("返回", action: onClose)
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(Color(hex: "52657F"))
+                    .frame(maxWidth: .infinity, minHeight: 46)
+                    .background(Color(hex: "F7F9FC"))
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: "DCE4EF"), lineWidth: 1))
+                Button(starting ? "正在开始…" : "仍然开始拼豆") {
+                    starting = true
+                    Task {
+                        await onStart()
+                        starting = false
+                    }
+                }
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, minHeight: 46)
+                    .background(Color(hex: "246CF4"))
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+            .buttonStyle(.plain)
+            .disabled(changingWarehouse || starting)
+            .padding(.horizontal, 18)
+            .padding(.top, 12)
+            .padding(.bottom, 18)
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
-        .interactiveDismissDisabled(changingWarehouse)
+        .background(Color.white)
+        .presentationDetents([.fraction(0.72), .large])
+        .presentationDragIndicator(.hidden)
+        .presentationCornerRadius(24)
+        .interactiveDismissDisabled(changingWarehouse || starting)
     }
 }
 
-private struct InventorySummaryView: View { let check: InventoryCheck; var body: some View { VStack(alignment: .leading, spacing: 6) { Text(check.summary.sufficient ? "库存充足" : "库存不足").font(.headline).foregroundStyle(check.summary.sufficient ? .green : .orange); Text(check.summary.sufficient ? "所选仓库可满足本次拼豆。" : "缺少 \(check.summary.missingColorCount) 色、\(check.summary.missingBeadCount) 颗；请补货或更换仓库。").font(.caption).foregroundStyle(AppTokens.muted); ForEach(check.items.filter { $0.missing > 0 }) { item in Text("\(item.colorCode)：缺 \(item.missing) 颗").font(.caption).foregroundStyle(.orange) } }.padding(12).frame(maxWidth: .infinity, alignment: .leading).background(AppTokens.panel).clipShape(RoundedRectangle(cornerRadius: AppTokens.controlCorner)) } }
+private struct InventorySummaryView: View { let check: InventoryCheck; var body: some View { VStack(alignment: .leading, spacing: 6) { Text(check.summary.sufficient ? "库存充足" : "库存不足").font(.headline).foregroundStyle(check.summary.sufficient ? .green : .orange); Text(check.summary.sufficient ? "所选仓库可满足本次拼豆。" : "缺少 \(check.items.filter { $0.missing > 0 }.count) 色、\(check.summary.missingBeadCount) 颗；请补货或更换仓库。").font(.caption).foregroundStyle(AppTokens.muted); ForEach(check.items.filter { $0.missing > 0 }) { item in Text("\(item.colorCode)：缺 \(item.missing) 颗").font(.caption).foregroundStyle(.orange) } }.padding(12).frame(maxWidth: .infinity, alignment: .leading).background(AppTokens.panel).clipShape(RoundedRectangle(cornerRadius: AppTokens.controlCorner)) } }
+
+private struct H5PageTopBar: View {
+    let title: String
+    let rightSymbol: String?
+    let rightAccessibilityLabel: String?
+    let onBack: () -> Void
+    let onRight: (() -> Void)?
+
+    init(
+        title: String,
+        rightSymbol: String? = nil,
+        rightAccessibilityLabel: String? = nil,
+        onBack: @escaping () -> Void,
+        onRight: (() -> Void)? = nil
+    ) {
+        self.title = title
+        self.rightSymbol = rightSymbol
+        self.rightAccessibilityLabel = rightAccessibilityLabel
+        self.onBack = onBack
+        self.onRight = onRight
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Button(action: onBack) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(Color(hex: "344054"))
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("返回上一页")
+
+            Spacer(minLength: 0)
+            Text(title)
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(AppTokens.flowText)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+
+            Group {
+                if let rightSymbol, let onRight {
+                    Button(action: onRight) {
+                        Image(systemName: rightSymbol)
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundStyle(Color(hex: "344054"))
+                            .frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(rightAccessibilityLabel ?? title)
+                } else {
+                    Color.clear.frame(width: 44, height: 44)
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 58)
+        .background(AppTokens.panel)
+        .overlay(alignment: .bottom) { Rectangle().fill(AppTokens.flowLine).frame(height: 1) }
+    }
+}
 
 private struct WarehousesVisualFixture {
     let warehouses: [WarehouseSummary]
@@ -939,12 +1485,21 @@ private struct WarehouseListView: View {
     }
 
     var body: some View {
-        Group {
-            if isLoading && warehouses.isEmpty { ProgressView("正在读取仓库…") }
-            else { warehouseContent(error: error) }
+        VStack(spacing: 0) {
+            H5PageTopBar(
+                title: "豆子仓库",
+                rightSymbol: "arrow.clockwise",
+                rightAccessibilityLabel: "刷新仓库列表",
+                onBack: { if !router.path.isEmpty { router.path.removeLast() } },
+                onRight: { Task { await load() } }
+            )
+            Group {
+                if isLoading && warehouses.isEmpty { ProgressView("正在读取仓库…").frame(maxWidth: .infinity, maxHeight: .infinity) }
+                else { warehouseContent(error: error) }
+            }
         }
-        .navigationTitle("豆子仓库").navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { Task { await load() } } label: { Image(systemName: "arrow.clockwise") }.accessibilityLabel("刷新仓库列表") } }
+        .background(AppTokens.flowBackground)
+        .toolbar(.hidden, for: .navigationBar)
         .task(id: router.warehouseRevision) { if fixture == nil { await load() } }
         .sheet(isPresented: $showingCreate) { WarehouseCreateSheet(session: session, onCreated: { warehouse in warehouses.insert(WarehouseSummary(id: warehouse.id, name: warehouse.name, remark: warehouse.remark, colorSystem: warehouse.colorSystem, createdAt: warehouse.createdAt, updatedAt: warehouse.updatedAt, stockedColorCount: 0, totalWarehouseStock: 0), at: 0); showingCreate = false }) }
     }
@@ -1099,27 +1654,99 @@ private struct WarehouseDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 0) {
                     WarehouseStat(value: total.formatted(), title: "总库存颗")
+                    Divider().frame(height: 48)
                     WarehouseStat(value: inventory.values.filter { $0 > 0 }.count.formatted(), title: "有库存色")
-                    WarehouseStat(value: (Mard221Palette.colors.count - inventory.values.filter { $0 > 0 }.count).formatted(), title: "缺货色")
+                    Divider().frame(height: 48)
+                    WarehouseStat(value: (Mard221Palette.colors.count - inventory.values.filter { $0 > 0 }.count).formatted(), title: "缺货色", isWarning: true)
                 }
-                if !transactions.isEmpty { VStack(alignment: .leading, spacing: 8) { Text("库存流水").font(.headline); ForEach(transactions.prefix(8)) { item in HStack { Text(item.type == "in" ? "入库" : "出库").foregroundStyle(item.type == "in" ? .green : .orange).font(.caption.weight(.semibold)); Text(item.colorCode).font(.caption.weight(.medium)); Spacer(); Text("\(item.type == "out" ? "−" : "+")\(item.quantity) 颗").font(.caption); Text(item.createdAt.prefix(10)).font(.caption2).foregroundStyle(AppTokens.muted) } } }.padding(12).background(AppTokens.panel).clipShape(RoundedRectangle(cornerRadius: AppTokens.controlCorner)) }
-                TextField("搜索色号…", text: $query).textInputAutocapitalization(.characters).autocorrectionDisabled().padding(12).background(AppTokens.soft).clipShape(RoundedRectangle(cornerRadius: AppTokens.controlCorner)).accessibilityLabel("搜索仓库色号")
-                ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 8) { ForEach(warehouseLetters, id: \.self) { letter in Button(letter) { selectedLetter = letter }.font(.caption.weight(.semibold)).padding(.horizontal, 12).padding(.vertical, 8).background(selectedLetter == letter ? AppTokens.flowBrand : AppTokens.panel).foregroundStyle(selectedLetter == letter ? .white : AppTokens.flowText).clipShape(Capsule()).accessibilityLabel("筛选色号字母\(letter)").accessibilityAddTraits(selectedLetter == letter ? .isSelected : []) } }.padding(.horizontal, 1) }
-                HStack { Text("已选 \(selectedCodes.count) 色").font(.subheadline.weight(.medium)); Spacer(); Button("全选") { selectedCodes.formUnion(colors.map(\.code)) }; Button("反选") { let visible = Set(colors.map(\.code)); selectedCodes = Set(Mard221Palette.colors.map(\.code).filter { visible.contains($0) ? !selectedCodes.contains($0) : selectedCodes.contains($0) }) }; Button("清除") { selectedCodes.removeAll() } }
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 9), count: 4), spacing: 9) {
-                    ForEach(colors, id: \.self) { color in
-                        let selected = selectedCodes.contains(color.code)
-                        Button { if selected { selectedCodes.remove(color.code) } else { selectedCodes.insert(color.code) } } label: {
-                            VStack(spacing: 4) { Circle().fill(color.swiftUIColor).frame(width: 30, height: 30).overlay(Circle().stroke(selected ? AppTokens.flowBrand : AppTokens.line, lineWidth: selected ? 3 : 1)); Text(color.code).font(.caption2.weight(.semibold)); Text(inventory[color.code, default: 0] > 0 ? "\(inventory[color.code, default: 0])颗" : "—").font(.caption2).foregroundStyle(AppTokens.muted) }
-                                .frame(maxWidth: .infinity, minHeight: 72).background(selected ? AppTokens.flowBrand.opacity(0.08) : AppTokens.panel).clipShape(RoundedRectangle(cornerRadius: 10))
-                        }.buttonStyle(.plain).accessibilityLabel("\(color.code) 库存 \(inventory[color.code, default: 0]) 颗")
+                .padding(.vertical, 10)
+                .background(AppTokens.panel)
+                .clipShape(RoundedRectangle(cornerRadius: AppTokens.cardCorner))
+                .overlay(RoundedRectangle(cornerRadius: AppTokens.cardCorner).stroke(AppTokens.flowLine, lineWidth: 1))
+
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(AppTokens.flowMuted)
+                    TextField("搜索色号…", text: $query)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+                        .font(.subheadline)
+                }
+                .padding(.horizontal, 15)
+                .frame(height: 46)
+                .background(AppTokens.panel)
+                .clipShape(RoundedRectangle(cornerRadius: AppTokens.cardCorner))
+                .overlay(RoundedRectangle(cornerRadius: AppTokens.cardCorner).stroke(AppTokens.flowLine, lineWidth: 1))
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("搜索仓库色号")
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 9) {
+                        ForEach(warehouseLetters, id: \.self) { letter in
+                            Button(letter) { selectedLetter = letter }
+                                .font(.subheadline.weight(selectedLetter == letter ? .semibold : .medium))
+                                .frame(minWidth: letter == "全部" ? 58 : 40, minHeight: 38)
+                                .background(selectedLetter == letter ? AppTokens.flowBrand : AppTokens.panel)
+                                .foregroundStyle(selectedLetter == letter ? .white : AppTokens.flowText)
+                                .clipShape(Capsule())
+                                .overlay(Capsule().stroke(selectedLetter == letter ? .clear : AppTokens.flowLine, lineWidth: 1))
+                                .accessibilityLabel("筛选色号字母\(letter)")
+                                .accessibilityAddTraits(selectedLetter == letter ? .isSelected : [])
+                        }
                     }
                 }
+
+                VStack(spacing: 0) {
+                    HStack(spacing: 0) {
+                        Text("已选 ").foregroundStyle(AppTokens.flowMuted) + Text("\(selectedCodes.count)").fontWeight(.bold) + Text(" 色").foregroundStyle(AppTokens.flowMuted)
+                        Spacer(minLength: 8)
+                        WarehouseSelectionButton(title: "全选") { selectedCodes.formUnion(colors.map(\.code)) }
+                        Divider().frame(height: 22)
+                        WarehouseSelectionButton(title: "反选") {
+                            let visible = Set(colors.map(\.code))
+                            selectedCodes = Set(Mard221Palette.colors.map(\.code).filter { visible.contains($0) ? !selectedCodes.contains($0) : selectedCodes.contains($0) })
+                        }
+                        Divider().frame(height: 22)
+                        WarehouseSelectionButton(title: "清除") { selectedCodes.removeAll() }
+                    }
+                    .font(.subheadline.weight(.medium))
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 48)
+
+                    Divider()
+
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 6), spacing: 13) {
+                        ForEach(colors, id: \.self) { color in
+                            WarehouseColorCard(
+                                color: color,
+                                stock: inventory[color.code, default: 0],
+                                isSelected: selectedCodes.contains(color.code)
+                            ) {
+                                if selectedCodes.contains(color.code) { selectedCodes.remove(color.code) }
+                                else { selectedCodes.insert(color.code) }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 16)
+                }
+                .background(AppTokens.panel)
+                .clipShape(RoundedRectangle(cornerRadius: AppTokens.cardCorner))
+                .overlay(RoundedRectangle(cornerRadius: AppTokens.cardCorner).stroke(AppTokens.flowLine, lineWidth: 1))
+
+                if !transactions.isEmpty {
+                    InventoryHistoryCard(transactions: Array(transactions.prefix(8)))
+                }
             }
-            .padding(AppTokens.pagePadding)
+            .frame(maxWidth: AppTokens.flowContentMax)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, AppTokens.pagePadding)
+            .padding(.top, 14)
+            .padding(.bottom, 24)
         }
         .safeAreaInset(edge: .bottom) { actionBar }
         .background(AppTokens.flowBackground).navigationTitle(warehouse?.name ?? "豆子仓库").navigationBarTitleDisplayMode(.inline)
@@ -1130,10 +1757,38 @@ private struct WarehouseDetailView: View {
     private var actionBar: some View {
         VStack(spacing: 9) {
             if let error { Text(error).font(.caption).foregroundStyle(.red).frame(maxWidth: .infinity, alignment: .leading) }
-            HStack { Picker("库存单位", selection: $unit) { Text("按颗").tag(WarehouseInventoryMutation.Unit.count); Text("按克").tag(WarehouseInventoryMutation.Unit.gram) }.pickerStyle(.segmented); TextField(unit == .gram ? "克数" : "颗数", text: $amountText).keyboardType(.decimalPad).frame(width: 72).multilineTextAlignment(.trailing).accessibilityLabel(unit == .gram ? "入出库克数" : "入出库颗数") }
+            HStack(spacing: 10) {
+                Picker("库存单位", selection: $unit) { Text("按颗").tag(WarehouseInventoryMutation.Unit.count); Text("按克").tag(WarehouseInventoryMutation.Unit.gram) }
+                    .pickerStyle(.segmented)
+                TextField(unit == .gram ? "克数" : "颗数", text: $amountText)
+                    .keyboardType(.decimalPad)
+                    .frame(width: 74, height: 36)
+                    .multilineTextAlignment(.center)
+                    .background(AppTokens.flowBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: AppTokens.compactCorner))
+                    .overlay(RoundedRectangle(cornerRadius: AppTokens.compactCorner).stroke(AppTokens.flowLine, lineWidth: 1))
+                    .accessibilityLabel(unit == .gram ? "入出库克数" : "入出库颗数")
+            }
             if unit == .gram { Text("1g ≈ 15 颗豆子；将按换算后的颗数入出库。 ").font(.caption).foregroundStyle(AppTokens.muted).frame(maxWidth: .infinity, alignment: .leading) }
-            HStack { Text("已选 \(selectedCodes.count) 色").font(.caption).foregroundStyle(AppTokens.muted); Spacer(); Button("出库") { Task { await mutate(.out) } }.buttonStyle(.bordered).tint(.orange); Button("入库") { Task { await mutate(.in) } }.buttonStyle(.borderedProminent).tint(AppTokens.flowBrand) }
-        }.padding(.horizontal, AppTokens.pagePadding).padding(.vertical, 10).background(AppTokens.panel).disabled(isLoading || isSubmitting || selectedCodes.isEmpty)
+            HStack(spacing: 10) {
+                Text("已选 \(selectedCodes.count) 色").font(.subheadline.weight(.medium)).foregroundStyle(AppTokens.flowMuted)
+                Spacer()
+                Button("出库") { Task { await mutate(.out) } }
+                    .font(.subheadline.weight(.semibold)).frame(width: 76, height: 40)
+                    .foregroundStyle(Color.orange).background(Color.orange.opacity(0.1)).clipShape(RoundedRectangle(cornerRadius: 12))
+                    .disabled(isLoading || isSubmitting || selectedCodes.isEmpty)
+                Button("入库") { Task { await mutate(.in) } }
+                    .font(.subheadline.weight(.semibold)).frame(width: 76, height: 40)
+                    .foregroundStyle(.white).background(AppTokens.flowBrand).clipShape(RoundedRectangle(cornerRadius: 12))
+                    .disabled(isLoading || isSubmitting || selectedCodes.isEmpty)
+            }
+        }
+        .padding(.horizontal, AppTokens.pagePadding)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .background(AppTokens.panel)
+        .clipShape(.rect(topLeadingRadius: AppTokens.cardCorner, topTrailingRadius: AppTokens.cardCorner))
+        .shadow(color: AppTokens.flowCardShadow, radius: 14, y: -4)
     }
 
     private func load() async {
@@ -1154,7 +1809,100 @@ private struct WarehouseDetailView: View {
     }
 }
 
-private struct WarehouseStat: View { let value: String; let title: String; var body: some View { VStack(spacing: 4) { Text(value).font(.headline.bold()); Text(title).font(.caption).foregroundStyle(AppTokens.muted) }.frame(maxWidth: .infinity).padding(.vertical, 12).background(AppTokens.panel).clipShape(RoundedRectangle(cornerRadius: AppTokens.controlCorner)) } }
+private struct WarehouseStat: View {
+    let value: String
+    let title: String
+    var isWarning = false
+
+    var body: some View {
+        VStack(spacing: 5) {
+            Text(value)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(isWarning ? Color.orange : Color(hex: "294267"))
+            Text(title).font(.caption).foregroundStyle(AppTokens.flowMuted)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+private struct WarehouseSelectionButton: View {
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(title, action: action)
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(AppTokens.flowBrand)
+            .frame(minWidth: 50, minHeight: 36)
+    }
+}
+
+private struct WarehouseColorCard: View {
+    let color: ColorToken
+    let stock: Int
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(color.swiftUIColor)
+                    .aspectRatio(1, contentMode: .fit)
+                    .opacity(stock > 0 ? 1 : 0.56)
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(isSelected ? AppTokens.flowBrand : Color.black.opacity(0.08), lineWidth: isSelected ? 2.5 : 1))
+                    .overlay(alignment: .topTrailing) {
+                        if isSelected {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 18, height: 18)
+                                .background(AppTokens.flowBrand)
+                                .clipShape(Circle())
+                                .overlay(Circle().stroke(.white, lineWidth: 1.5))
+                                .offset(x: 5, y: -5)
+                        }
+                    }
+                Text(color.code)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(AppTokens.flowText)
+                    .lineLimit(1)
+                Text(stock > 0 ? "\(stock)颗" : "—")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(stock > 0 ? AppTokens.flowMuted : Color.orange)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(color.code) 库存 \(stock) 颗")
+    }
+}
+
+private struct InventoryHistoryCard: View {
+    let transactions: [WarehouseTransaction]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("库存流水").font(.headline).foregroundStyle(AppTokens.flowText)
+            ForEach(transactions) { item in
+                HStack(spacing: 8) {
+                    Text(item.type == "in" ? "入库" : "出库")
+                        .foregroundStyle(item.type == "in" ? .green : .orange)
+                        .font(.caption.weight(.semibold))
+                    Text(item.colorCode).font(.caption.weight(.medium))
+                    Spacer()
+                    Text("\(item.type == "out" ? "−" : "+")\(item.quantity) 颗").font(.caption)
+                    Text(item.createdAt.prefix(10)).font(.caption2).foregroundStyle(AppTokens.flowMuted)
+                }
+            }
+        }
+        .padding(16)
+        .background(AppTokens.panel)
+        .clipShape(RoundedRectangle(cornerRadius: AppTokens.cardCorner))
+        .overlay(RoundedRectangle(cornerRadius: AppTokens.cardCorner).stroke(AppTokens.flowLine, lineWidth: 1))
+    }
+}
 
 private struct ProjectEditorContainer: View {
     @EnvironmentObject private var router: AppRouter
@@ -1212,22 +1960,29 @@ private struct ProjectsView: View {
     @State private var likedHasMore = false
     @State private var likedPage = 1
     @State private var likedRequestID = UUID()
+    @State private var receivedLikesCount = 0
 
     init(session: AppSession, store: ProjectListStore, fixture: ProjectsVisualFixture? = nil) { self.session = session; self.store = store; self.fixture = fixture }
 
     var body: some View {
-        Group {
-            if let fixture {
-                fixtureContent(fixture)
-            } else if let token = session.token {
-                content(token: token)
-            } else {
-                ContentUnavailableView("请先登录", systemImage: "person.crop.circle.badge.exclamationmark", description: Text("登录后可同步和管理你的作品。"))
+        VStack(spacing: 0) {
+            H5PageTopBar(
+                title: "我的作品",
+                onBack: { if !router.path.isEmpty { router.path.removeLast() } }
+            )
+            Group {
+                if let fixture {
+                    fixtureContent(fixture)
+                } else if let token = session.token {
+                    content(token: token)
+                } else {
+                    ContentUnavailableView("请先登录", systemImage: "person.crop.circle.badge.exclamationmark", description: Text("登录后可同步和管理你的作品。"))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
         }
         .background(AppTokens.flowBackground)
-        .navigationTitle("我的作品")
-        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .navigationBar)
     }
 
     private func fixtureContent(_ fixture: ProjectsVisualFixture) -> some View {
@@ -1244,59 +1999,243 @@ private struct ProjectsView: View {
     @ViewBuilder
     private func content(token: String) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack {
-                    Text("我的创作").font(.title3.bold()).foregroundStyle(AppTokens.flowText)
-                    Spacer()
-                    Button("新建画布", systemImage: "plus") { router.navigate(to: .canvas) }
-                        .buttonStyle(.borderedProminent).tint(AppTokens.flowBrand)
-                }
-                Picker("作品分类", selection: $contentTab) { Text("作品").tag(ProjectsContentTab.works); Text("喜欢").tag(ProjectsContentTab.likes) }
-                    .pickerStyle(.segmented).accessibilityLabel("作品分类")
-                if contentTab == .works { worksContent(token: token) }
-                else { likedContent(token: token) }
-            }
-            .padding(AppTokens.pagePadding)
-        }
-        .refreshable { if contentTab == .works { await store.load(repository: session.projects, token: token) } else { await loadLiked(token: token) } }
-        .task(id: token) { await store.load(repository: session.projects, token: token) }
-        .onChange(of: contentTab) { _, tab in if tab == .likes, likedProjects.isEmpty, !likedLoading { Task { await loadLiked(token: token) } } }
-    }
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(spacing: 0) {
+                    HStack(spacing: 12) {
+                        UserAvatarView(avatarURL: nil, size: 62, accessibilityLabel: "我的创作头像")
+                        VStack(alignment: .leading, spacing: 5) {
+                            HStack(spacing: 6) {
+                                Text("我的创作")
+                                    .font(.system(size: 18, weight: .bold))
+                                    .foregroundStyle(AppTokens.flowText)
+                                Text("作品")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 7)
+                                    .frame(height: 20)
+                                    .background(AppTokens.flowBrand)
+                                    .clipShape(Capsule())
+                            }
+                            Text("保存的拼豆图纸都会显示在这里")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(AppTokens.flowMuted)
+                        }
+                        Spacer()
+                        Text("\(store.overallTotal) 件")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(AppTokens.flowMuted)
+                    }
+                    .padding(.horizontal, 13)
+                    .padding(.vertical, 14)
+                    .background(Color.white)
 
-    @ViewBuilder
-    private func worksContent(token: String) -> some View {
-        Button("新建文件夹", systemImage: "folder.badge.plus") { router.overlay = .createProjectFolder }
-            .font(.subheadline.weight(.medium)).foregroundStyle(AppTokens.flowBrand)
-        folderPicker(token: token)
-        if store.isLoading && store.projects.isEmpty {
-                    ProgressView("正在加载作品…").frame(maxWidth: .infinity).padding(.vertical, 48)
-        } else if let error = store.error {
-                    VStack(spacing: 12) {
-                        ContentUnavailableView("作品读取失败", systemImage: "exclamationmark.triangle", description: Text(error))
-                        Button("重试") { Task { await store.load(repository: session.projects, token: token) } }
-                            .buttonStyle(.bordered)
+                    Rectangle().fill(Color(hex: "EDF1F6")).frame(height: 1)
+
+                    HStack(spacing: 0) {
+                        ProjectsStat(value: store.overallTotal, title: "作品")
+                        ProjectsStatDivider()
+                        ProjectsStat(value: receivedLikesCount, title: "获赞")
+                        ProjectsStatDivider()
+                        ProjectsStat(value: 0, title: "浏览")
                     }
-        } else if store.projects.isEmpty {
-                    VStack(spacing: 12) {
-                        ContentUnavailableView("还没有作品", systemImage: "square.grid.3x3", description: Text("从图片分图或新建画布开始创作。"))
-                        Button("图片分图") { router.navigate(to: .split) }.buttonStyle(.borderedProminent)
-                    }
-        } else {
-                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
-                        ForEach(store.projects) { project in
-                            ProjectCard(project: project, onOpen: { router.navigate(to: .projectEdit(project.id)) }, onMove: { router.overlay = .moveProject(project) }, onShare: { router.overlay = .shareProject(project) }, onEditTags: { router.overlay = .editProjectTags(project) }, onDelete: { router.overlay = .deleteProject(project) })
+                    .padding(.horizontal, 13)
+                    .padding(.vertical, 14)
+                    .background(Color.white)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 20))
+                .overlay(RoundedRectangle(cornerRadius: 20).stroke(AppTokens.flowLine, lineWidth: 1))
+                .shadow(color: Color(hex: "1B3D65").opacity(0.08), radius: 8, y: 4)
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+
+                HStack(spacing: 0) {
+                    projectTab(.works, title: "作品")
+                    projectTab(.likes, title: "喜欢")
+                }
+                .frame(height: 45)
+                .padding(.horizontal, 16)
+
+                if contentTab == .works {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            HStack(spacing: 8) {
+                                Text("文件夹").font(.system(size: 16, weight: .bold)).foregroundStyle(Color(hex: "344054"))
+                                Text("\(store.folders.count)")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundStyle(Color(hex: "667085"))
+                                    .padding(.horizontal, 6)
+                                    .frame(minWidth: 22, minHeight: 22)
+                                    .background(Color(hex: "EDF1F7"))
+                                    .clipShape(Capsule())
+                            }
+                            Spacer()
+                            Button {
+                                router.overlay = .createProjectFolder
+                            } label: {
+                                Label("新建", systemImage: "folder.badge.plus")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundStyle(AppTokens.flowBrand)
+                                    .padding(.horizontal, 11)
+                                    .frame(minHeight: 36)
+                                    .background(Color.white)
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(AppTokens.flowBrand.opacity(0.38), lineWidth: 1))
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 10) {
+                                folderChip(id: "all", title: "全部", count: store.overallTotal, token: token)
+                                ForEach(store.folders) { folder in
+                                    folderChip(id: folder.id, title: folder.name, count: folder.projectCount, token: token)
+                                }
+                            }
                         }
                     }
-                    if store.hasMore { Button("加载更多") { Task { await store.load(repository: session.projects, token: token, reset: false) } }.frame(maxWidth: .infinity).buttonStyle(.bordered) }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                }
+
+                Group {
+                    if contentTab == .works { worksContentH5(token: token) }
+                    else { likedContentH5(token: token) }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 4)
+                .padding(.bottom, 30)
+            }
+            .frame(maxWidth: 548)
+            .frame(maxWidth: .infinity)
+        }
+        .background(AppTokens.flowBackground)
+        .refreshable { if contentTab == .works { await store.load(repository: session.projects, token: token) } else { await loadLiked(token: token) } }
+        .task(id: token) {
+            async let list: Void = store.load(repository: session.projects, token: token)
+            async let stats: Void = loadProjectProfileStats(token: token)
+            _ = await (list, stats)
+        }
+        .onChange(of: contentTab) { _, tab in
+            if tab == .likes, likedProjects.isEmpty, !likedLoading { Task { await loadLiked(token: token) } }
+        }
+    }
+
+    private func projectTab(_ tab: ProjectsContentTab, title: String) -> some View {
+        Button { contentTab = tab } label: {
+            VStack(spacing: 5) {
+                Spacer()
+                Text(title)
+                    .font(.system(size: 14, weight: contentTab == tab ? .bold : .semibold))
+                    .foregroundStyle(contentTab == tab ? AppTokens.flowBrand : Color(hex: "667085"))
+                Capsule()
+                    .fill(contentTab == tab ? AppTokens.flowBrand : Color.clear)
+                    .frame(width: 34, height: 3)
+                Spacer().frame(height: 3)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func folderChip(id: String, title: String, count: Int, token: String) -> some View {
+        let selected = store.selectedFolderID == id || (id == "all" && (store.selectedFolderID == nil || store.selectedFolderID == "all"))
+        return Button {
+            Task { await store.selectFolder(id, repository: session.projects, token: token) }
+        } label: {
+            HStack(spacing: 7) {
+                Text(title).lineLimit(1)
+                Text("\(count)")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(selected ? AppTokens.flowBrand : Color(hex: "738096"))
+                    .padding(.horizontal, 5)
+                    .frame(minHeight: 20)
+                    .background(selected ? Color(hex: "DBE9FF") : Color(hex: "F1F3F7"))
+                    .clipShape(Capsule())
+            }
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(selected ? AppTokens.flowBrand : Color(hex: "526178"))
+            .padding(.horizontal, 12)
+            .frame(minHeight: 38)
+            .background(selected ? Color(hex: "EDF4FF") : Color.white)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(selected ? Color(hex: "C8DAF9") : Color(hex: "E3E8F0"), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func worksContentH5(token: String) -> some View {
+        if store.isLoading && store.projects.isEmpty {
+            ProgressView("正在加载作品…").frame(maxWidth: .infinity).padding(.vertical, 48)
+        } else if let error = store.error {
+            H5InlineFailure(title: "作品读取失败", message: error) { Task { await store.load(repository: session.projects, token: token) } }
+        } else if store.projects.isEmpty {
+            VStack(spacing: 10) {
+                Text(store.overallTotal > 0 ? "这个文件夹里还没有作品" : "还没有保存的作品")
+                    .font(.system(size: 15, weight: .bold)).foregroundStyle(AppTokens.flowText)
+                Text("保存作品后会显示在这里").font(.system(size: 12)).foregroundStyle(AppTokens.flowMuted)
+            }
+            .frame(maxWidth: .infinity, minHeight: 150)
+            .background(Color.white)
+            .clipShape(RoundedRectangle(cornerRadius: 20))
+        } else {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 7), count: 3), spacing: 8) {
+                ForEach(store.projects) { project in
+                    Button { router.overlay = .projectActions(project) } label: {
+                        ProjectVisualCard(project: project)
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        Button("移动到文件夹") { router.overlay = .moveProject(project) }
+                        if project.sharedToCommunity { Button("编辑社区标签") { router.overlay = .editProjectTags(project) } }
+                        else { Button("发布到社区") { router.overlay = .shareProject(project) } }
+                        Button("删除作品", role: .destructive) { router.overlay = .deleteProject(project) }
+                    }
+                }
+            }
+            if store.hasMore {
+                Button("加载更多") { Task { await store.load(repository: session.projects, token: token, reset: false) } }
+                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(AppTokens.flowBrand)
+                    .frame(maxWidth: .infinity, minHeight: 42)
+            }
         }
     }
 
     @ViewBuilder
-    private func likedContent(token: String) -> some View {
-        if likedLoading && likedProjects.isEmpty { ProgressView("正在加载喜欢的作品…").frame(maxWidth: .infinity).padding(.vertical, 48) }
-        else if let likedError { VStack(spacing: 12) { ContentUnavailableView("喜欢的作品读取失败", systemImage: "exclamationmark.triangle", description: Text(likedError)); Button("重新加载") { Task { await loadLiked(token: token) } }.buttonStyle(.bordered) } }
-        else if likedProjects.isEmpty { ContentUnavailableView("还没有喜欢的作品", systemImage: "heart", description: Text("去发现页看看喜欢的作品吧。")) }
-        else { LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) { ForEach(likedProjects) { project in Button { router.navigate(to: .communityPost(project.id)) } label: { LikedProjectCard(project: project) }.buttonStyle(.plain).accessibilityLabel("打开喜欢的作品\(project.name)") } }; if likedHasMore { Button("加载更多喜欢的作品") { Task { await loadLiked(token: token, reset: false) } }.frame(maxWidth: .infinity).buttonStyle(.bordered) } }
+    private func likedContentH5(token: String) -> some View {
+        if likedLoading && likedProjects.isEmpty {
+            ProgressView("正在加载喜欢的作品…").frame(maxWidth: .infinity).padding(.vertical, 48)
+        } else if let likedError {
+            H5InlineFailure(title: "喜欢的作品读取失败", message: likedError) { Task { await loadLiked(token: token) } }
+        } else if likedProjects.isEmpty {
+            VStack(spacing: 10) {
+                Text("还没有喜欢的作品").font(.system(size: 15, weight: .bold)).foregroundStyle(AppTokens.flowText)
+                Text("去发现页看看喜欢的作品吧").font(.system(size: 12)).foregroundStyle(AppTokens.flowMuted)
+            }
+            .frame(maxWidth: .infinity, minHeight: 150)
+            .background(Color.white)
+            .clipShape(RoundedRectangle(cornerRadius: 20))
+        } else {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 7), count: 3), spacing: 8) {
+                ForEach(likedProjects) { project in
+                    Button { router.navigate(to: .communityPost(project.id)) } label: {
+                        LikedProjectVisualCard(project: project)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            if likedHasMore {
+                Button("加载更多喜欢的作品") { Task { await loadLiked(token: token, reset: false) } }
+                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(AppTokens.flowBrand)
+                    .frame(maxWidth: .infinity, minHeight: 42)
+            }
+        }
+    }
+
+    private func loadProjectProfileStats(token: String) async {
+        if let profile = try? await session.projects.accountProfile(token: token) {
+            receivedLikesCount = profile.likesCount
+        }
     }
 
     private func loadLiked(token: String, reset: Bool = true) async {
@@ -1327,6 +2266,52 @@ private struct ProjectsView: View {
     private var currentFolderName: String {
         guard let id = store.selectedFolderID, id != "all" else { return "全部作品" }
         return store.folders.first(where: { $0.id == id })?.name ?? "全部作品"
+    }
+}
+
+private struct ProjectsStat: View {
+    let value: Int
+    let title: String
+    var body: some View {
+        VStack(spacing: 5) {
+            Text(value.formatted())
+                .font(.system(size: 19, weight: .bold))
+                .foregroundStyle(AppTokens.flowText)
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(AppTokens.flowMuted)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+private struct ProjectsStatDivider: View {
+    var body: some View { Rectangle().fill(Color(hex: "EDF1F6")).frame(width: 1, height: 42) }
+}
+
+private struct H5InlineFailure: View {
+    let title: String
+    let message: String
+    let retry: () -> Void
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 26, weight: .medium))
+                .foregroundStyle(Color.orange)
+            Text(title).font(.system(size: 15, weight: .bold)).foregroundStyle(AppTokens.flowText)
+            Text(message).font(.system(size: 12)).foregroundStyle(AppTokens.flowMuted).multilineTextAlignment(.center)
+            Button("重新加载", action: retry)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(AppTokens.flowBrand)
+                .padding(.horizontal, 18)
+                .frame(minHeight: 36)
+                .background(AppTokens.flowBrandSoft)
+                .clipShape(Capsule())
+        }
+        .frame(maxWidth: .infinity, minHeight: 160)
+        .padding(18)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
     }
 }
 
@@ -1363,11 +2348,67 @@ private struct ProjectCard: View {
 private struct ProjectVisualCard: View {
     let project: ProjectSummary
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ZStack { RoundedRectangle(cornerRadius: 10).fill(Color(hex: "EDF5FF")); Image(systemName: "square.grid.3x3.fill").foregroundStyle(AppTokens.flowBrand.opacity(0.65)) }
-                .aspectRatio(1 / 0.92, contentMode: .fit)
-            Text(project.name).font(.caption.weight(.semibold)).foregroundStyle(AppTokens.flowText).lineLimit(1)
-        }.frame(maxWidth: .infinity, alignment: .leading).padding(7).background(AppTokens.panel).clipShape(RoundedRectangle(cornerRadius: AppTokens.compactCorner))
+        VStack(spacing: 0) {
+            ZStack {
+                Color(hex: "EDF5FF")
+                if let url = AppAssetURL.url(for: project.thumbnailImage) {
+                    AsyncImage(url: url) { phase in ThumbnailPhaseView(phase: phase) }
+                } else {
+                    Image(systemName: "square.grid.3x3.fill")
+                        .font(.system(size: 22))
+                        .foregroundStyle(AppTokens.flowBrand.opacity(0.60))
+                }
+            }
+            .aspectRatio(1 / 0.92, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 5))
+            .padding(7)
+            .padding(.bottom, 0)
+
+            Text(project.name.hasPrefix("wx") ? "未命名作品" : project.name)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color(hex: "142647"))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 7)
+                .padding(.top, 3)
+                .padding(.bottom, 7)
+        }
+        .frame(maxWidth: .infinity)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: "E3EDFA"), lineWidth: 1))
+        .shadow(color: Color(hex: "1B3D65").opacity(0.06), radius: 4, y: 2)
+    }
+}
+
+private struct LikedProjectVisualCard: View {
+    let project: LikedProjectSummary
+    var body: some View {
+        VStack(spacing: 0) {
+            ZStack {
+                Color(hex: "EDF5FF")
+                if let url = AppAssetURL.url(for: project.thumbnailImage) {
+                    AsyncImage(url: url) { phase in ThumbnailPhaseView(phase: phase) }
+                } else {
+                    Image(systemName: "heart.fill")
+                        .font(.system(size: 22))
+                        .foregroundStyle(AppTokens.flowBrand.opacity(0.55))
+                }
+            }
+            .aspectRatio(1 / 0.92, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 5))
+            .padding(7)
+            Text(project.name.hasPrefix("wx") ? "未命名作品" : project.name)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color(hex: "142647"))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 7)
+                .padding(.bottom, 7)
+        }
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: "E3EDFA"), lineWidth: 1))
     }
 }
 
@@ -1420,7 +2461,7 @@ private struct HomeLandingView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                HomeBrandHero(onUpload: { router.navigate(to: .split) })
+                HomeBrandHero(onUpload: { router.overlay = .createDrawing })
                 VStack(alignment: .leading, spacing: 16) {
                     HomeSectionHeader(title: "最近项目", actionTitle: session.token == nil && fixture == nil ? nil : "全部") { router.navigate(to: .projects) }
                     recentContent
@@ -1432,7 +2473,7 @@ private struct HomeLandingView: View {
             }
             .frame(maxWidth: AppTokens.flowContentMax)
             .frame(maxWidth: .infinity)
-            .padding(.bottom, 28)
+            .padding(.bottom, 112)
         }
         .background(AppTokens.flowBackground)
         .navigationBarHidden(true)
@@ -1454,7 +2495,7 @@ private struct HomeLandingView: View {
         } else {
             HStack(alignment: .top, spacing: 10) {
                 ForEach(recentProjects.prefix(4)) { project in
-                    Button { router.navigate(to: .projectEdit(project.id)) } label: { RecentProjectCard(project: project) }
+                    Button { router.overlay = .projectActions(project) } label: { RecentProjectCard(project: project) }
                         .buttonStyle(.plain).frame(maxWidth: .infinity)
                 }
             }
@@ -1523,13 +2564,13 @@ private struct HomeBrandHero: View {
             .padding(.horizontal, AppTokens.pagePadding).padding(.top, 92).padding(.bottom, 72)
             Button(action: onUpload) {
                 HStack(spacing: 13) {
-                    Image(systemName: "photo.badge.plus").font(.system(size: 24, weight: .semibold)).frame(width: 48, height: 48).background(.white.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 14))
+                    H5Icon(name: "lucide-image", size: 25).frame(width: 48, height: 48).background(.white.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 14))
                     VStack(alignment: .leading, spacing: 5) {
                         Text("上传图片\n制作拼豆图纸").font(.headline.weight(.bold)).lineSpacing(2)
                         Text("支持 PNG / JPG / WebP").font(.footnote).foregroundStyle(.white.opacity(0.72))
                     }
                     Spacer(minLength: 0)
-                    Image(systemName: "chevron.right.circle.fill").font(.title2).foregroundStyle(.white)
+                    H5Icon(name: "lucide-arrow-right", size: 22).foregroundStyle(.white)
                 }
                 .foregroundStyle(.white).padding(15).background(LinearGradient(colors: [Color(hex: "2483FF"), AppTokens.flowBrand], startPoint: .topLeading, endPoint: .bottomTrailing)).clipShape(RoundedRectangle(cornerRadius: 18))
                 .shadow(color: AppTokens.flowBrand.opacity(0.3), radius: 14, y: 8)
@@ -1646,7 +2687,7 @@ private struct CommunityPostDetailView: View {
             else if let post { detail(post) }
             else { ContentUnavailableView("图纸不存在", systemImage: "square.grid.3x3") }
         }
-        .background(AppTokens.flowBackground)
+        .background(Color(hex: "F8FBFF"))
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .tabBar)
         .task(id: "\(postID)-\(router.communityCommentRevision)") {
@@ -1658,21 +2699,35 @@ private struct CommunityPostDetailView: View {
 
     private func detail(_ post: CommunityPostDetail) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 12) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: AppTokens.cardCorner).fill(Color(hex: "EDF5FF"))
-                    if let url = AppAssetURL.url(for: post.sourceImage ?? post.thumbnailImage) { AsyncImage(url: url) { phase in ThumbnailPhaseView(phase: phase) } }
-                    else { Image(systemName: "square.grid.3x3.fill").font(.system(size: 46)).foregroundStyle(AppTokens.flowBrand.opacity(0.62)) }
+                    Color(hex: "EDF5FF")
+                    // Community thumbnails are generated from the pixel canvas;
+                    // the original source photo is only a fallback. This keeps
+                    // the detail hero consistent with the H5 pixel-effect view.
+                    if let url = AppAssetURL.url(for: post.thumbnailImage ?? post.sourceImage) {
+                        AsyncImage(url: url) { phase in ThumbnailPhaseView(phase: phase) }
+                    } else {
+                        Image(systemName: "square.grid.3x3.fill").font(.system(size: 46)).foregroundStyle(AppTokens.flowBrand.opacity(0.62))
+                    }
                 }
                 .frame(maxWidth: .infinity)
                 .aspectRatio(CGFloat(max(1, post.cols)) / CGFloat(max(1, post.rows)), contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: AppTokens.controlCorner))
-                .padding(12)
+                .padding(10)
                 .background(AppTokens.panel)
                 .clipShape(RoundedRectangle(cornerRadius: AppTokens.cardCorner))
+                .overlay(RoundedRectangle(cornerRadius: AppTokens.cardCorner).stroke(AppTokens.flowLine, lineWidth: 1))
+                .shadow(color: AppTokens.flowCardShadow, radius: 12, y: 5)
+                .accessibilityLabel("\(post.name)预览")
+
                 VStack(alignment: .leading, spacing: 12) {
-                    Text(post.name).font(.title2.bold()).foregroundStyle(AppTokens.flowText)
-                    HStack(spacing: 8) { Text("发布日期 \(CommunityPostPresentation.publicationTime(post.sharedAt ?? ""))"); Text("·"); Text("浏览次数 未统计") }.font(.footnote).foregroundStyle(AppTokens.muted)
+                    Text(post.name).font(.title2.weight(.bold)).foregroundStyle(AppTokens.flowText)
+                    HStack(spacing: 12) {
+                        Text("发布日期 \(CommunityPostPresentation.publicationTime(post.sharedAt ?? ""))")
+                        Text("浏览次数 未统计")
+                    }
+                    .font(.caption).foregroundStyle(AppTokens.flowMuted)
                     if !post.tags.isEmpty { FlowReadOnlyTags(tags: post.tags) }
                     HStack(spacing: 10) {
                         CommunityDetailMetaCard(title: "图纸尺寸", value: CommunityPostPresentation.physicalSize(cols: post.cols, rows: post.rows), symbol: "ruler")
@@ -1682,61 +2737,140 @@ private struct CommunityPostDetailView: View {
                 .padding(16)
                 .background(AppTokens.panel)
                 .clipShape(RoundedRectangle(cornerRadius: AppTokens.cardCorner))
+                .overlay(RoundedRectangle(cornerRadius: AppTokens.cardCorner).stroke(AppTokens.flowLine, lineWidth: 1))
+                .shadow(color: AppTokens.flowCardShadow, radius: 10, y: 4)
+
                 BeadSummaryCard(items: post.beadList)
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack { Text("评论").font(.headline); Text("(\(post.commentsCount))").font(.subheadline).foregroundStyle(AppTokens.muted) }
-                    if isLoadingComments { ProgressView("正在读取评论…").frame(maxWidth: .infinity, alignment: .leading) }
-                    else if comments.isEmpty { Text("还没有评论，来说点什么吧。") .font(.footnote).foregroundStyle(AppTokens.muted) }
-                    else { ForEach(comments) { comment in CommentThreadView(comment: comment, currentUserID: session.user?.id, onReply: { replyTarget = $0 }, onDelete: requestCommentDeletion) } }
-                }.padding(16).background(AppTokens.panel).clipShape(RoundedRectangle(cornerRadius: AppTokens.controlCorner))
+
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 5) {
+                        Text("评论").font(.headline).foregroundStyle(AppTokens.flowText)
+                        Text("(\(post.commentsCount))").font(.subheadline).foregroundStyle(AppTokens.flowMuted)
+                        Spacer()
+                    }
+                    if isLoadingComments {
+                        ProgressView("评论加载中…").frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 8)
+                    } else if comments.isEmpty {
+                        Text("还没有评论，来留下第一条吧。").font(.footnote).foregroundStyle(AppTokens.flowMuted).padding(.vertical, 8)
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(comments) { comment in
+                                CommentThreadView(comment: comment, currentUserID: session.user?.id, onReply: { replyTarget = $0 }, onDelete: requestCommentDeletion)
+                                if comment.id != comments.last?.id { Divider().padding(.leading, 44) }
+                            }
+                        }
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 11) {
+                            TextField(replyTarget == nil ? (session.token == nil ? "登录后参与评论" : "写下你的评论…") : "回复 @\(replyTarget?.author ?? "")…", text: $commentText)
+                                .textInputAutocapitalization(.sentences)
+                                .font(.system(size: 13))
+                                .padding(.horizontal, 13)
+                                .frame(height: 43)
+                                .background(Color.white)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: "DCE3EC"), lineWidth: 1))
+                                .accessibilityLabel(replyTarget == nil ? "评论内容" : "回复内容")
+                            Button(isSubmittingComment ? "发布中…" : "发布") { Task { await submitComment() } }
+                                .font(.system(size: 13, weight: .bold)).foregroundStyle(.white)
+                                .padding(.horizontal, 17)
+                                .frame(minHeight: 43).background(Color(hex: "2F6CF6"))
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                                .disabled(commentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSubmittingComment)
+                                .accessibilityLabel("发布评论")
+                        }
+                        if let replyTarget {
+                            Button("取消回复") { self.replyTarget = nil }
+                                .buttonStyle(.plain)
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(Color(hex: "4381D6"))
+                                .accessibilityLabel("取消回复 \(replyTarget.author)")
+                        }
+                    }
+                    .padding(.top, 4)
+                }
+                .padding(16)
+                .background(AppTokens.panel)
+                .clipShape(RoundedRectangle(cornerRadius: AppTokens.cardCorner))
+                .overlay(RoundedRectangle(cornerRadius: AppTokens.cardCorner).stroke(AppTokens.flowLine, lineWidth: 1))
+                .shadow(color: AppTokens.flowCardShadow, radius: 10, y: 4)
             }
             .frame(maxWidth: 390)
             .frame(maxWidth: .infinity)
-            .padding(AppTokens.pagePadding)
-            .padding(.bottom, 132)
+            .padding(.horizontal, 0)
+            .padding(.top, 12)
+            .padding(.bottom, 92)
         }
         .safeAreaInset(edge: .top, spacing: 0) { detailHeader(post) }
-        .safeAreaInset(edge: .bottom) {
-            VStack(spacing: 9) {
-                HStack(spacing: 10) {
-                    Button { Task { await toggleLike() } } label: { Label("\(post.likesCount)", systemImage: post.likedByMe ? "heart.fill" : "heart") }
-                        .buttonStyle(.bordered).tint(post.likedByMe ? .red : AppTokens.flowBrand).disabled(isLiking)
-                        .accessibilityLabel(post.likedByMe ? "取消点赞" : "点赞")
-                    Button(isCopying ? "复制中…" : "复制到仓库") { Task { await copyToRepository() } }
-                        .buttonStyle(.borderedProminent).tint(AppTokens.flowBrand).disabled(isCopying)
-                        .accessibilityLabel("复制到仓库")
-                    Spacer(minLength: 0)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            HStack(spacing: 10) {
+                Button { Task { await toggleLike() } } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: post.likedByMe ? "heart.fill" : "heart")
+                            .foregroundStyle(Color.red)
+                        Text("\(post.likesCount)").font(.subheadline.weight(.semibold)).foregroundStyle(AppTokens.flowText)
+                    }
+                    .frame(minWidth: 92, minHeight: 44)
+                    .background(AppTokens.panel)
+                    .clipShape(Capsule())
+                    .overlay(Capsule().stroke(Color(hex: "FFC2C2"), lineWidth: 1))
                 }
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        if let replyTarget { HStack { Text("回复 @\(replyTarget.author)").font(.caption).foregroundStyle(AppTokens.muted); Button("取消回复") { self.replyTarget = nil }.font(.caption).accessibilityLabel("取消回复") } }
-                        TextField(replyTarget == nil ? "写评论…" : "写回复…", text: $commentText, axis: .vertical).lineLimit(1...3).textInputAutocapitalization(.sentences).accessibilityLabel(replyTarget == nil ? "评论内容" : "回复内容")
-                    }.padding(.horizontal, 10).padding(.vertical, 7).background(AppTokens.panel).clipShape(RoundedRectangle(cornerRadius: 10))
-                    Button("发布") { Task { await submitComment() } }.buttonStyle(.borderedProminent).tint(AppTokens.flowBrand).disabled(commentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSubmittingComment).accessibilityLabel("发布评论")
-                }
-            }.padding(.horizontal, AppTokens.pagePadding).padding(.vertical, 10).background(.ultraThinMaterial)
+                .buttonStyle(.plain).disabled(isLiking).accessibilityLabel(post.likedByMe ? "取消点赞" : "点赞")
+
+                Button(isCopying ? "复制中…" : "复制到仓库") { Task { await copyToRepository() } }
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, minHeight: 44).background(AppTokens.flowBrand)
+                    .clipShape(Capsule())
+                    .disabled(isCopying).accessibilityLabel("复制到仓库")
+            }
+            .frame(maxWidth: 390)
+            .padding(.horizontal, 0).padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
+            .background(AppTokens.panel.opacity(0.98))
+            .overlay(alignment: .top) { Divider().opacity(0.7) }
+            .shadow(color: AppTokens.flowCardShadow, radius: 14, y: -4)
         }
     }
 
     private func detailHeader(_ post: CommunityPostDetail) -> some View {
-        HStack(spacing: 10) {
-            Button { if !router.path.isEmpty { router.path.removeLast() } } label: { Image(systemName: "chevron.left").font(.headline.weight(.semibold)).frame(width: 44, height: 44) }
-                .buttonStyle(.plain).accessibilityLabel("返回发现")
-            Button { router.navigate(to: .authorProfile(post.authorId)) } label: { HStack(spacing: 8) {
-                UserAvatarView(avatarURL: post.authorAvatar, size: 36, accessibilityLabel: post.author + "的头像")
-                VStack(alignment: .leading, spacing: 2) { Text(post.author).font(.subheadline.weight(.semibold)); Text("社区分享者").font(.caption2).foregroundStyle(AppTokens.muted) }
-            } }.buttonStyle(.plain).accessibilityLabel("查看\(post.author)的作者主页")
-            Spacer(minLength: 0)
+        HStack(spacing: 9) {
+            Button { if !router.path.isEmpty { router.path.removeLast() } } label: {
+                Image(systemName: "chevron.left").font(.subheadline.weight(.bold)).foregroundStyle(AppTokens.flowText)
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain).accessibilityLabel("返回发现")
+
+            Button { router.navigate(to: .authorProfile(post.authorId)) } label: {
+                HStack(spacing: 9) {
+                    UserAvatarView(avatarURL: post.authorAvatar, size: 36, accessibilityLabel: post.author + "的头像")
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(post.author).font(.subheadline.weight(.semibold)).foregroundStyle(AppTokens.flowText).lineLimit(1)
+                        Text("社区分享者").font(.caption2).foregroundStyle(AppTokens.flowMuted)
+                    }
+                }
+            }
+            .buttonStyle(.plain).accessibilityLabel("查看\(post.author)的作者主页")
+
+            Spacer(minLength: 4)
             if post.authorId != session.user?.id {
                 Button(post.isFollowing ? "已关注" : "关注") { Task { await toggleFollow() } }
-                    .buttonStyle(.borderedProminent).controlSize(.small).tint(post.isFollowing ? AppTokens.muted : AppTokens.flowBrand).disabled(isTogglingFollow)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(post.isFollowing ? Color(hex: "8993A3") : .white)
+                    .padding(.horizontal, 14).frame(minWidth: 68, minHeight: 30)
+                    .background(post.isFollowing ? Color(hex: "EEF1F5") : AppTokens.flowBrand)
+                    .clipShape(Capsule())
+                    .overlay(Capsule().stroke(post.isFollowing ? Color(hex: "D8DEE8") : AppTokens.flowBrand, lineWidth: 1))
+                    .disabled(isTogglingFollow)
                     .accessibilityLabel(post.isFollowing ? "取消关注\(post.author)" : "关注\(post.author)")
             }
-            ShareLink(item: URL(string: "qiaoqiaole://community/posts/\(post.id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? post.id)")!) { Image(systemName: "square.and.arrow.up").frame(width: 36, height: 36) }
-                .buttonStyle(.plain).accessibilityLabel("分享图纸")
+            ShareLink(item: URL(string: "qiaoqiaole://community/posts/\(post.id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? post.id)")!) {
+                Image(systemName: "square.and.arrow.up").font(.subheadline.weight(.semibold)).foregroundStyle(AppTokens.flowText)
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain).accessibilityLabel("分享图纸")
         }
         .frame(maxWidth: 390).frame(maxWidth: .infinity)
-        .padding(.horizontal, AppTokens.pagePadding).padding(.vertical, 7)
+        .padding(.horizontal, 0).padding(.vertical, 8)
         .background(AppTokens.panel.opacity(0.98))
         .overlay(alignment: .bottom) { Divider().opacity(0.65) }
     }
@@ -1875,16 +3009,72 @@ private struct CommentThreadView: View {
     let currentUserID: String?
     let onReply: (CommunityComment) -> Void
     let onDelete: (CommunityComment) -> Void
+    @State private var repliesExpanded = false
+
+    private var visibleReplies: [CommunityComment] {
+        repliesExpanded ? comment.replies : Array(comment.replies.prefix(2))
+    }
+
     var body: some View {
-        HStack(alignment: .top, spacing: 9) {
-            UserAvatarView(avatarURL: comment.authorAvatar, size: 32, accessibilityLabel: "\(comment.author)的头像")
-            VStack(alignment: .leading, spacing: 5) {
-                HStack { Text(comment.author).font(.subheadline.weight(.semibold)); Text(comment.createdAt.prefix(10)).font(.caption).foregroundStyle(AppTokens.muted) }
-                Text(comment.content).font(.subheadline).foregroundStyle(AppTokens.flowText)
-                HStack { Button("回复") { onReply(comment) }.font(.caption).buttonStyle(.plain).foregroundStyle(AppTokens.flowBrand).accessibilityLabel("回复\(comment.author)的评论"); if comment.authorId == currentUserID { Button("删除") { onDelete(comment) }.font(.caption).buttonStyle(.plain).foregroundStyle(.red).accessibilityLabel("删除我的评论") } }
-                ForEach(comment.replies) { reply in HStack(alignment: .top, spacing: 5) { UserAvatarView(avatarURL: reply.authorAvatar, size: 22, accessibilityLabel: "\(reply.author)的头像"); VStack(alignment: .leading, spacing: 3) { Text(reply.author).font(.caption.weight(.semibold)); Text(reply.content).font(.caption).foregroundStyle(AppTokens.flowText); HStack { Button("回复") { onReply(reply) }.font(.caption2).buttonStyle(.plain).foregroundStyle(AppTokens.flowBrand).accessibilityLabel("回复\(reply.author)的评论"); if reply.authorId == currentUserID { Button("删除") { onDelete(reply) }.font(.caption2).buttonStyle(.plain).foregroundStyle(.red).accessibilityLabel("删除我的回复") } } } } }
+        VStack(alignment: .leading, spacing: 14) {
+            commentRow(comment)
+            ForEach(visibleReplies) { reply in
+                commentRow(reply)
+                    .padding(.leading, 46)
             }
-        }.padding(.vertical, 7).accessibilityElement(children: .combine).accessibilityLabel("评论，\(comment.author)：\(comment.content)")
+            if comment.replies.count > 2 {
+                Button(repliesExpanded ? "收起回复" : "展开 \(comment.replies.count - visibleReplies.count) 条回复") {
+                    repliesExpanded.toggle()
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(Color(hex: "4381D6"))
+                .padding(.leading, 46)
+            }
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .contain)
+    }
+
+    private func commentRow(_ item: CommunityComment) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            UserAvatarView(avatarURL: item.authorAvatar, size: 35, accessibilityLabel: "\(item.author)的头像")
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 5) {
+                    Text(item.author)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color(hex: "1D2634"))
+                        .lineLimit(1)
+                    if let replyName = item.replyToUserName, !replyName.isEmpty {
+                        Text("回复 @\(replyName)")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color(hex: "4381D6"))
+                            .lineLimit(1)
+                    }
+                }
+                Text(item.content)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color(hex: "3F4C5F"))
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 11) {
+                    Text(CommunityPostPresentation.commentTime(item.createdAt))
+                        .font(.system(size: 10))
+                        .foregroundStyle(Color(hex: "7A8799"))
+                    Button("回复") { onReply(item) }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 10))
+                        .foregroundStyle(Color(hex: "718096"))
+                    if item.authorId == currentUserID {
+                        Button("删除") { onDelete(item) }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color(hex: "E46B6B"))
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 
@@ -1922,18 +3112,37 @@ private struct BeadSummaryCard: View {
             HStack { Text("豆子清单").font(.headline); Spacer(); Text("\(total) 颗 · \(items.count) 色").font(.caption).foregroundStyle(AppTokens.muted) }
             if items.isEmpty { Text("该稿件没有可统计的豆子。").font(.footnote).foregroundStyle(AppTokens.muted) }
             else {
-                ForEach(items.prefix(5), id: \.color) { item in HStack { Circle().fill(Mard221Palette.colors.first(where: { $0.code == item.color })?.swiftUIColor ?? AppTokens.muted).frame(width: 14, height: 14); Text(item.color).font(.subheadline.weight(.medium)); Spacer(); Text("\(item.count) 颗").font(.subheadline).foregroundStyle(AppTokens.muted) } }
+                VStack(spacing: 0) {
+                    ForEach(Array(items.prefix(5).enumerated()), id: \.element.color) { index, item in
+                        let resolved = Mard221Palette.resolve(item.color)
+                        HStack(spacing: 10) {
+                            RoundedRectangle(cornerRadius: 5)
+                                .fill(resolved?.swiftUIColor ?? AppTokens.muted)
+                                .frame(width: 24, height: 24)
+                                .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.black.opacity(0.1), lineWidth: 1))
+                            Text(resolved?.code ?? item.color)
+                                .font(.subheadline.weight(.medium)).foregroundStyle(AppTokens.flowText).lineLimit(1)
+                            Spacer(minLength: 4)
+                            Text("\(item.count)").font(.subheadline.weight(.semibold)).foregroundStyle(AppTokens.flowText)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 40)
+                        if index < min(items.count, 5) - 1 { Divider().opacity(0.55) }
+                    }
+                }
                 Button("查看全部颜色") { isShowingAllColors = true }
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(AppTokens.flowBrand)
                     .accessibilityLabel("查看全部颜色")
             }
         }
-        .padding(16).background(AppTokens.panel).clipShape(RoundedRectangle(cornerRadius: AppTokens.controlCorner))
+        .padding(16).background(AppTokens.panel).clipShape(RoundedRectangle(cornerRadius: AppTokens.cardCorner))
+        .overlay(RoundedRectangle(cornerRadius: AppTokens.cardCorner).stroke(AppTokens.flowLine, lineWidth: 1))
+        .shadow(color: AppTokens.flowCardShadow, radius: 10, y: 4)
         .sheet(isPresented: $isShowingAllColors) {
             NavigationStack {
                 List(items, id: \.color) { item in
-                    HStack { Circle().fill(Mard221Palette.colors.first(where: { $0.code == item.color })?.swiftUIColor ?? AppTokens.muted).frame(width: 18, height: 18); Text(item.color).font(.body.weight(.medium)); Spacer(); Text("\(item.count) 颗").foregroundStyle(AppTokens.muted) }
+                    let resolved = Mard221Palette.resolve(item.color)
+                    HStack(spacing: 10) { RoundedRectangle(cornerRadius: 6).fill(resolved?.swiftUIColor ?? AppTokens.muted).frame(width: 30, height: 30); Text(resolved?.code ?? item.color).font(.body.weight(.medium)); Spacer(); Text("\(item.count) 颗").foregroundStyle(AppTokens.muted) }
                 }
                 .navigationTitle("豆子清单")
                 .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成") { isShowingAllColors = false }.accessibilityLabel("关闭豆子清单") } }
@@ -1962,7 +3171,7 @@ private struct UserAvatarView: View {
     var body: some View {
         ZStack {
             Circle().fill(LinearGradient(colors: [AppTokens.flowBrand, Color(hex: "071C48")], startPoint: .topLeading, endPoint: .bottomTrailing))
-            Image(systemName: "person.fill").font(.system(size: size * 0.47, weight: .medium)).foregroundStyle(.white)
+            H5Icon(name: "lucide-user-round", size: size * 0.48).foregroundStyle(.white)
             if let data = AvatarImageData.decode(avatarURL), let image = UIImage(data: data) {
                 Image(uiImage: image).resizable().scaledToFill()
             } else if let url = AppAssetURL.url(for: avatarURL) {
@@ -2030,8 +3239,13 @@ private struct DiscoverLandingView: View {
                         ForEach(tags, id: \.tag) { tag in TagFilter(title: tag.tag, selected: selectedTags.contains(tag.tag)) { toggle(tag.tag) } }
                     }.padding(.horizontal, 1)
                 }
-                Picker("稿件排序", selection: $sort) { Text("热门").tag("hot"); Text("最新").tag("latest") }
-                    .pickerStyle(.segmented).accessibilityLabel("稿件排序")
+                HStack(alignment: .bottom, spacing: 38) {
+                    DiscoverSortTab(title: "最新", value: "latest", selection: $sort)
+                    DiscoverSortTab(title: "热门", value: "hot", selection: $sort)
+                    Spacer(minLength: 0)
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("稿件排序")
                 content
             }
             .padding(AppTokens.pagePadding)
@@ -2079,6 +3293,32 @@ private struct DiscoverLandingView: View {
             if reset { posts = []; hasMore = false }
             self.error = error.localizedDescription
         }
+    }
+}
+
+private struct DiscoverSortTab: View {
+    let title: String
+    let value: String
+    @Binding var selection: String
+
+    private var selected: Bool { selection == value }
+
+    var body: some View {
+        Button {
+            selection = value
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.system(size: 14, weight: selected ? .semibold : .regular))
+                    .foregroundStyle(selected ? AppTokens.flowBrand : Color(hex: "617A9E"))
+                Capsule()
+                    .fill(selected ? AppTokens.flowBrand : Color.clear)
+                    .frame(width: 36, height: 3)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
@@ -2229,17 +3469,141 @@ private struct ProfileLandingView: View {
             else { ContentUnavailableView("资料读取失败", systemImage: "person.crop.circle.badge.exclamationmark", description: Text(error ?? "请重试")) }
         }
         .navigationTitle("我的").navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .navigationBar)
         .task { if fixture == nil { await load() } }
         .sheet(isPresented: $showingEditor) { ProfileEditor(name: $name, currentAvatarURL: profile?.user.avatarUrl, isSaving: isSaving, error: error, onSave: { name, avatar in Task { await save(name: name, avatarURL: avatar) } }) }
     }
-    private func content(_ profile: AccountProfile) -> some View { ScrollView { VStack(spacing: 16) {
-        HStack { VStack(alignment: .leading, spacing: 4) { Text("我的").font(.largeTitle.bold()); Text("管理你的拼豆世界").font(.subheadline).foregroundStyle(.white.opacity(0.82)) }; Spacer(); Image(systemName: "circle.hexagongrid.fill").font(.system(size: 48)).foregroundStyle(.white.opacity(0.3)) }.padding(22).background(LinearGradient(colors: [Color(hex: "173D90"), AppTokens.flowBrand], startPoint: .topLeading, endPoint: .bottomTrailing)).clipShape(RoundedRectangle(cornerRadius: AppTokens.cardCorner))
-        HStack(spacing: 14) { UserAvatarView(avatarURL: profile.user.avatarUrl, size: 62, accessibilityLabel: "我的头像"); VStack(alignment: .leading, spacing: 5) { Text(profile.user.nickname).font(.title2.bold()); Text("登录后同步项目与豆子库存").font(.caption).foregroundStyle(AppTokens.muted) }; Spacer(); Button("编辑资料") { name = profile.user.nickname; showingEditor = true }.buttonStyle(.bordered) }.padding(18).background(AppTokens.panel).clipShape(RoundedRectangle(cornerRadius: AppTokens.cardCorner))
-        HStack(spacing: 0) { ProfileStat(value: projectCount, title: "作品") { router.navigate(to: .projects) }; ProfileStat(value: profile.likesCount, title: "获赞") { router.navigate(to: .projects) }; ProfileStat(value: profile.followingCount, title: "关注") { router.navigate(to: .following) }; ProfileStat(value: profile.followersCount, title: "粉丝") { router.navigate(to: .followers) } }.background(AppTokens.panel).clipShape(RoundedRectangle(cornerRadius: AppTokens.controlCorner))
-        Button { router.navigate(to: .warehouses) } label: { HStack(spacing: 14) { Image(systemName: "shippingbox.fill").font(.title2).foregroundStyle(AppTokens.flowBrand).frame(width: 42, height: 42).background(Color(hex: "EAF2FF")).clipShape(RoundedRectangle(cornerRadius: 12)); VStack(alignment: .leading, spacing: 5) { Text("豆子仓库").font(.headline).foregroundStyle(AppTokens.flowText); if let stockedColorCount, let totalWarehouseStock { Text("已入库 \(stockedColorCount) / 221 色 · 共 \(totalWarehouseStock.formatted()) 颗").font(.caption).foregroundStyle(AppTokens.muted); ProgressView(value: Double(stockedColorCount), total: 221).tint(AppTokens.flowBrand) } else { Text("库存摘要暂不可用").font(.caption).foregroundStyle(AppTokens.muted) } }; Spacer(); Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(AppTokens.muted) }.padding(16).background(AppTokens.panel).clipShape(RoundedRectangle(cornerRadius: AppTokens.controlCorner)) }.buttonStyle(.plain).accessibilityLabel(stockedColorCount == nil ? "豆子仓库，库存摘要暂不可用" : "豆子仓库，已入库 \(stockedColorCount ?? 0) 色，共 \(totalWarehouseStock ?? 0) 颗")
-        if let summaryError { Button { Task { await load() } } label: { Label(summaryError, systemImage: "exclamationmark.triangle.fill").font(.footnote).foregroundStyle(Color.orange).frame(maxWidth: .infinity, alignment: .leading).padding(12).background(Color.orange.opacity(0.1)).clipShape(RoundedRectangle(cornerRadius: AppTokens.compactCorner)) }.buttonStyle(.plain).accessibilityLabel("重新加载个人中心统计") }
-        VStack(spacing: 0) { ProfileRow(title: "用户协议", symbol: "doc.text") { router.navigate(to: .userAgreement) }; Divider(); ProfileRow(title: "隐私政策", symbol: "hand.raised") { router.navigate(to: .privacyPolicy) } }.background(AppTokens.panel).clipShape(RoundedRectangle(cornerRadius: AppTokens.controlCorner)); Button("退出登录", role: .destructive) { session.logout(); router.logout() }.buttonStyle(.bordered)
-    }.padding(AppTokens.pagePadding).padding(.bottom, 92) }.background(AppTokens.flowBackground) }
+    private func content(_ profile: AccountProfile) -> some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                ZStack(alignment: .top) {
+                    ProfileGuestHero()
+                    ProfileSignedInAccountCard(
+                        profile: profile,
+                        projectCount: projectCount,
+                        onEdit: {
+                            name = profile.user.nickname
+                            showingEditor = true
+                        },
+                        onProjects: { router.navigate(to: .projects) },
+                        onFollowing: { router.navigate(to: .following) },
+                        onFollowers: { router.navigate(to: .followers) }
+                    )
+                    .padding(.horizontal, 20)
+                    .padding(.top, 104)
+                }
+                .frame(height: 286)
+
+                Button { router.navigate(to: .warehouses) } label: {
+                    HStack(alignment: .top, spacing: 14) {
+                        H5Icon(name: "lucide-layers-3", size: 22)
+                            .foregroundStyle(AppTokens.flowBrand)
+                            .frame(width: 44, height: 44)
+                            .background(AppTokens.flowBrandSoft)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                        VStack(alignment: .leading, spacing: 7) {
+                            Text("豆子仓库")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundStyle(AppTokens.flowText)
+                            Text(stockedColorCount == nil ? "库存摘要暂不可用" : "管理 MARD 221 色库存")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(AppTokens.flowMuted)
+                            if let stockedColorCount, let totalWarehouseStock {
+                                GeometryReader { proxy in
+                                    ZStack(alignment: .leading) {
+                                        Capsule().fill(Color(hex: "E7EDF6"))
+                                        Capsule().fill(LinearGradient(colors: [AppTokens.flowBrand, Color(hex: "58A6FF")], startPoint: .leading, endPoint: .trailing))
+                                            .frame(width: max(4, proxy.size.width * min(1, CGFloat(stockedColorCount) / 221)))
+                                    }
+                                }
+                                .frame(height: 6)
+                                HStack {
+                                    Text("已入库 \(stockedColorCount) / 221 色")
+                                    Spacer()
+                                    Text("共 \(totalWarehouseStock.formatted()) 颗")
+                                }
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(Color(hex: "51627B"))
+                            }
+                        }
+                        Spacer(minLength: 4)
+                        H5Icon(name: "lucide-chevron-right", size: 18)
+                            .foregroundStyle(Color(hex: "9AA8BD"))
+                            .padding(.top, 14)
+                    }
+                    .padding(18)
+                    .frame(minHeight: 136, alignment: .top)
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 22))
+                    .overlay(RoundedRectangle(cornerRadius: 22).stroke(AppTokens.flowLine, lineWidth: 1))
+                    .shadow(color: Color(hex: "2C4A80").opacity(0.10), radius: 14, y: 6)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 20)
+
+                if let summaryError {
+                    Button { Task { await load() } } label: {
+                        Label(summaryError, systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(Color.orange)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                            .background(Color.orange.opacity(0.1))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 20)
+                }
+
+                Button {
+                    router.showNotice("设置功能即将开放。", kind: .success)
+                } label: {
+                    HStack(spacing: 14) {
+                        H5Icon(name: "lucide-settings", size: 20)
+                            .foregroundStyle(AppTokens.flowBrand)
+                            .frame(width: 36, height: 36)
+                            .background(AppTokens.flowBrandSoft)
+                            .clipShape(RoundedRectangle(cornerRadius: 11))
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("设置").font(.system(size: 15, weight: .bold)).foregroundStyle(AppTokens.flowText)
+                            Text("账号、安全与偏好").font(.system(size: 12, weight: .medium)).foregroundStyle(AppTokens.flowMuted)
+                        }
+                        Spacer()
+                        H5Icon(name: "lucide-chevron-right", size: 18).foregroundStyle(Color(hex: "9AA8BD"))
+                    }
+                    .padding(.horizontal, 18)
+                    .frame(minHeight: 70)
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 22))
+                    .overlay(RoundedRectangle(cornerRadius: 22).stroke(AppTokens.flowLine, lineWidth: 1))
+                    .shadow(color: Color(hex: "2C4A80").opacity(0.08), radius: 12, y: 5)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 20)
+
+                Button(role: .destructive) {
+                    session.logout()
+                    router.logout()
+                } label: {
+                    HStack(spacing: 7) {
+                        H5Icon(name: "lucide-log-out", size: 14)
+                        Text("退出登录")
+                    }
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color(hex: "D6455D"))
+                    .frame(maxWidth: .infinity, minHeight: 38)
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: "F1D8DC"), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.bottom, 112)
+            .frame(maxWidth: 548)
+            .frame(maxWidth: .infinity)
+        }
+        .background(AppTokens.flowBackground)
+    }
     private func load() async {
         guard let token = session.token else { return }
         isLoading = true
@@ -2278,72 +3642,231 @@ private struct ProfileLandingView: View {
     private func save(name: String, avatarURL: String?) async { guard let token = session.token else { return }; let clean = name.trimmingCharacters(in: .whitespacesAndNewlines); guard !clean.isEmpty, clean.count <= 32 else { error = "用户名需为 1–32 个字符"; return }; isSaving = true; defer { isSaving = false }; do { let user = try await session.projects.updateProfile(nickname: clean, avatarUrl: avatarURL ?? profile?.user.avatarUrl, token: token); if let profile { self.profile = AccountProfile(user: user, followersCount: profile.followersCount, followingCount: profile.followingCount, likesCount: profile.likesCount) }; showingEditor = false } catch { self.error = error.localizedDescription } }
 }
 
+private struct ProfileSignedInAccountCard: View {
+    let profile: AccountProfile
+    let projectCount: Int?
+    let onEdit: () -> Void
+    let onProjects: () -> Void
+    let onFollowing: () -> Void
+    let onFollowers: () -> Void
+
+    var body: some View {
+        VStack(spacing: 14) {
+            HStack(spacing: 14) {
+                UserAvatarView(avatarURL: profile.user.avatarUrl, size: 64, accessibilityLabel: "我的头像")
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(profile.user.nickname)
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(AppTokens.flowText)
+                        .lineLimit(1)
+                    Text("ID 20260729")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(AppTokens.flowMuted)
+                }
+                Spacer(minLength: 4)
+                Button(action: onEdit) {
+                    HStack(spacing: 5) {
+                        H5Icon(name: "lucide-brush", size: 13)
+                        Text("编辑资料")
+                    }
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color(hex: "35588E"))
+                    .padding(.horizontal, 12)
+                    .frame(minHeight: 26)
+                    .background(Color.white)
+                    .clipShape(Capsule())
+                    .overlay(Capsule().stroke(Color(hex: "D9E2F2"), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+            }
+
+            Rectangle().fill(Color(hex: "E8EDF5")).frame(height: 1)
+
+            HStack(spacing: 0) {
+                ProfileMetric(value: projectCount, title: "作品", action: onProjects)
+                ProfileMetricDivider()
+                ProfileMetric(value: profile.likesCount, title: "获赞", action: onProjects)
+                ProfileMetricDivider()
+                ProfileMetric(value: profile.followingCount, title: "关注", action: onFollowing)
+                ProfileMetricDivider()
+                ProfileMetric(value: profile.followersCount, title: "粉丝", action: onFollowers)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 18)
+        .frame(minHeight: 170)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 23))
+        .overlay(RoundedRectangle(cornerRadius: 23).stroke(Color(hex: "E6EDF7"), lineWidth: 1))
+        .shadow(color: Color(hex: "2C4A80").opacity(0.13), radius: 18, y: 8)
+    }
+}
+
+private struct ProfileMetric: View {
+    let value: Int?
+    let title: String
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 5) {
+                Text(value?.formatted() ?? "—")
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundStyle(AppTokens.flowBrand)
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color(hex: "536989"))
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct ProfileMetricDivider: View {
+    var body: some View { Rectangle().fill(Color(hex: "E1E8F3")).frame(width: 1, height: 34) }
+}
+
 private struct ProfileGuestLandingView: View {
     let onLogin: () -> Void
 
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("我的").font(.largeTitle.bold())
-                        Text("管理你的拼豆世界").font(.subheadline).foregroundStyle(.white.opacity(0.82))
-                    }
-                    Spacer()
-                    Image(systemName: "circle.hexagongrid.fill").font(.system(size: 48)).foregroundStyle(.white.opacity(0.3))
+                ZStack(alignment: .top) {
+                    ProfileGuestHero()
+                    ProfileGuestAccountCard(onLogin: onLogin)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 104)
                 }
-                .padding(22)
-                .background(LinearGradient(colors: [Color(hex: "173D90"), AppTokens.flowBrand], startPoint: .topLeading, endPoint: .bottomTrailing))
-                .clipShape(RoundedRectangle(cornerRadius: AppTokens.cardCorner))
+                .frame(height: 246)
 
-                HStack(spacing: 14) {
-                    UserAvatarView(avatarURL: nil, size: 62, accessibilityLabel: "未登录头像")
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("未登录").font(.title2.bold()).foregroundStyle(AppTokens.flowText)
-                        Text("登录后同步项目与豆子库存").font(.caption).foregroundStyle(AppTokens.muted)
+                Button(action: onLogin) {
+                    HStack(alignment: .top, spacing: 14) {
+                        H5Icon(name: "lucide-layers-3", size: 22)
+                            .foregroundStyle(AppTokens.flowBrand)
+                            .frame(width: 44, height: 44)
+                            .background(AppTokens.flowBrandSoft)
+                            .clipShape(RoundedRectangle(cornerRadius: AppTokens.controlCorner))
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("豆子仓库").font(.headline).foregroundStyle(AppTokens.flowText)
+                            Text("登录后查看豆子仓库").font(.caption).foregroundStyle(AppTokens.flowMuted)
+                            ProgressView(value: 4, total: 100)
+                                .tint(AppTokens.flowBrand)
+                                .scaleEffect(x: 1, y: 0.72, anchor: .center)
+                            HStack {
+                                Text("已入库 0 / 221 色")
+                                Spacer()
+                                Text("共 0 颗")
+                            }
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(AppTokens.flowMuted)
+                        }
+                        Spacer(minLength: 4)
+                        H5Icon(name: "lucide-chevron-right", size: 18)
+                            .foregroundStyle(AppTokens.flowMuted)
+                            .padding(.top, 4)
                     }
-                    Spacer()
-                    Button("立即登录", action: onLogin).buttonStyle(.bordered).accessibilityLabel("立即登录")
+                    .padding(18)
+                    .frame(minHeight: 136, alignment: .top)
+                    .background(AppTokens.panel)
+                    .clipShape(RoundedRectangle(cornerRadius: AppTokens.cardCorner))
+                    .overlay(RoundedRectangle(cornerRadius: AppTokens.cardCorner).stroke(AppTokens.flowLine, lineWidth: 1))
+                    .shadow(color: AppTokens.flowCardShadow, radius: 12, y: 5)
                 }
-                .padding(18).background(AppTokens.panel).clipShape(RoundedRectangle(cornerRadius: AppTokens.cardCorner))
+                .buttonStyle(.plain)
+                .padding(.horizontal, 20)
+                .accessibilityLabel("登录后查看豆子仓库")
 
                 Button(action: onLogin) {
                     HStack(spacing: 14) {
-                        Image(systemName: "shippingbox.fill").font(.title2).foregroundStyle(AppTokens.flowBrand).frame(width: 42, height: 42).background(Color(hex: "EAF2FF")).clipShape(RoundedRectangle(cornerRadius: 12))
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text("豆子仓库").font(.headline).foregroundStyle(AppTokens.flowText)
-                            Text("登录后查看豆子仓库").font(.caption).foregroundStyle(AppTokens.muted)
-                            ProgressView(value: 4, total: 100).tint(AppTokens.flowBrand)
-                            HStack { Text("已入库 0 / 221 色"); Spacer(); Text("共 0 颗") }.font(.caption2).foregroundStyle(AppTokens.muted)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(AppTokens.muted)
-                    }
-                    .padding(16).background(AppTokens.panel).clipShape(RoundedRectangle(cornerRadius: AppTokens.controlCorner))
-                }
-                .buttonStyle(.plain).accessibilityLabel("登录后查看豆子仓库")
-
-                Button(action: onLogin) {
-                    HStack {
-                        Image(systemName: "gearshape").foregroundStyle(AppTokens.flowBrand).frame(width: 25)
+                        H5Icon(name: "lucide-settings", size: 19)
+                            .foregroundStyle(AppTokens.flowBrand)
+                            .frame(width: 30, height: 30)
                         VStack(alignment: .leading, spacing: 3) {
-                            Text("设置").foregroundStyle(AppTokens.flowText)
-                            Text("账号、安全与偏好").font(.caption).foregroundStyle(AppTokens.muted)
+                            Text("设置").font(.body.weight(.semibold)).foregroundStyle(AppTokens.flowText)
+                            Text("账号、安全与偏好").font(.caption).foregroundStyle(AppTokens.flowMuted)
                         }
                         Spacer()
-                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(AppTokens.muted)
+                        H5Icon(name: "lucide-chevron-right", size: 18).foregroundStyle(AppTokens.flowMuted)
                     }
-                    .padding(15).background(AppTokens.panel).clipShape(RoundedRectangle(cornerRadius: AppTokens.controlCorner))
+                    .padding(.horizontal, 18)
+                    .frame(minHeight: 72)
+                    .background(AppTokens.panel)
+                    .clipShape(RoundedRectangle(cornerRadius: AppTokens.cardCorner))
+                    .overlay(RoundedRectangle(cornerRadius: AppTokens.cardCorner).stroke(AppTokens.flowLine, lineWidth: 1))
+                    .shadow(color: AppTokens.flowCardShadow, radius: 10, y: 4)
                 }
-                .buttonStyle(.plain).accessibilityLabel("打开设置，需要登录")
+                .buttonStyle(.plain)
+                .padding(.horizontal, 20)
+                .accessibilityLabel("打开设置，需要登录")
             }
-            .padding(AppTokens.pagePadding).padding(.bottom, 92)
+            .padding(.bottom, 112)
             .frame(maxWidth: 548)
             .frame(maxWidth: .infinity)
         }
         .background(AppTokens.flowBackground)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("我的，未登录")
+    }
+}
+
+private struct ProfileGuestHero: View {
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            LinearGradient(colors: [Color(hex: "061943"), Color(hex: "0B2D78"), Color(hex: "1455BE")], startPoint: .topLeading, endPoint: .bottomTrailing)
+            Circle().fill(Color(hex: "6AA6FF").opacity(0.45)).frame(width: 142, height: 142).blur(radius: 8).offset(x: 248, y: -56)
+            Circle().stroke(.white.opacity(0.22), lineWidth: 1).frame(width: 78, height: 78)
+                .overlay(Circle().fill(.white.opacity(0.12)).padding(23))
+                .shadow(color: Color(hex: "5B9DFF").opacity(0.55), radius: 20)
+                .offset(x: 272, y: 58)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("我的").font(.system(size: 38, weight: .black)).foregroundStyle(.white)
+                Text("管理你的拼豆世界").font(.subheadline).foregroundStyle(.white.opacity(0.7))
+            }
+            .padding(.leading, AppTokens.pagePadding + 4)
+            .padding(.top, 50)
+        }
+        .frame(maxWidth: .infinity, minHeight: 210, alignment: .topLeading)
+        .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 30, bottomTrailingRadius: 30))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("我的，管理你的拼豆世界")
+    }
+}
+
+private struct ProfileGuestAccountCard: View {
+    let onLogin: () -> Void
+
+    var body: some View {
+        HStack(spacing: 14) {
+            UserAvatarView(avatarURL: nil, size: 64, accessibilityLabel: "未登录头像")
+            VStack(alignment: .leading, spacing: 3) {
+                Text("未登录").font(.title3.weight(.bold)).foregroundStyle(AppTokens.flowText)
+                Text("登录后同步项目与豆子库存").font(.caption).foregroundStyle(AppTokens.flowMuted)
+            }
+            Spacer(minLength: 4)
+            Button(action: onLogin) {
+                HStack(spacing: 6) {
+                    H5Icon(name: "lucide-brush", size: 14)
+                    Text("立即登录")
+                }
+                .font(.system(size: 11, weight: .semibold))
+                .padding(.horizontal, 12)
+                .frame(minHeight: 26)
+                .foregroundStyle(Color(hex: "35588E"))
+                .background(Color.white)
+                .clipShape(Capsule())
+                .overlay(Capsule().stroke(Color(hex: "D9E2F2"), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("立即登录")
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 18)
+        .frame(minHeight: 128)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 23))
+        .overlay(RoundedRectangle(cornerRadius: 23).stroke(Color(hex: "E6EDF7"), lineWidth: 1))
+        .shadow(color: Color(hex: "2C4A80").opacity(0.13), radius: 18, y: 8)
     }
 }
 
@@ -2445,6 +3968,8 @@ private struct AppOverlayHost: View {
                 .buttonStyle(.plain).accessibilityLabel("关闭弹窗")
                 .disabled(router.isOverlaySubmitting)
             switch overlay {
+            case .createDrawing:
+                DrawingSourceDialog(session: session, document: document, workflow: splitWorkflow)
             case .login:
                 LoginDialog(onLogin: { phone, password in
                     if await session.login(phone: phone, password: password) {
@@ -2470,6 +3995,8 @@ private struct AppOverlayHost: View {
                     router.dismissOverlay(); router.showNotice(message, kind: .success)
                     if let token = session.token { Task { await projectStore.load(repository: session.projects, token: token) } }
                 }, onCancel: { router.dismissOverlay() })
+            case .projectActions(let project):
+                ProjectActionDialog(session: session, project: project)
             case .moveProject(let project):
                 MoveProjectDialog(project: project, session: session, onCompleted: completeMutation, onCancel: { router.dismissOverlay() })
             case .deleteProject(let project):
@@ -2523,6 +4050,363 @@ private struct AppOverlayHost: View {
     }
 }
 
+private struct DrawingSourceDialog: View {
+    @EnvironmentObject private var router: AppRouter
+    @ObservedObject var session: AppSession
+    @ObservedObject var document: PatternDocument
+    @ObservedObject var workflow: SplitWorkflow
+    @State private var localImageItem: PhotosPickerItem?
+    @State private var isImportingLocalImage = false
+    @State private var showLocalChoices = false
+    @State private var isFileImporterPresented = false
+    @State private var showBlankCanvas = false
+    @State private var blankColumns = "32"
+    @State private var blankRows = "32"
+    @State private var showXiaohongshuInput = false
+    @State private var xiaohongshuLink = ""
+    @State private var xiaohongshuTitle = "小红书图纸"
+    @State private var xiaohongshuImages: [XiaohongshuExtractedImage] = []
+    @State private var isShowingXiaohongshuImagePicker = false
+    @State private var isExtractingXiaohongshu = false
+    @State private var importingXiaohongshuID: String?
+    @State private var isCreatingBlankCanvas = false
+    @State private var error: String?
+
+    private var isBusy: Bool { isImportingLocalImage || isExtractingXiaohongshu || importingXiaohongshuID != nil || isCreatingBlankCanvas }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 28)
+            VStack(alignment: .leading, spacing: 10) {
+                Capsule().fill(AppTokens.sheetHandle).frame(width: AppTokens.sheetHandleWidth, height: AppTokens.sheetHandleHeight).frame(maxWidth: .infinity)
+                ZStack {
+                    VStack(spacing: 3) {
+                        Text("上传图纸").font(.title3.weight(.bold)).foregroundStyle(AppTokens.flowText)
+                        Text("选择一种方式开始创作").font(.caption).foregroundStyle(AppTokens.flowMuted)
+                    }
+                    HStack {
+                        Spacer()
+                        Button { router.dismissOverlay() } label: {
+                            H5Icon(name: "lucide-x", size: 19)
+                                .frame(width: 36, height: 36)
+                        }
+                        .buttonStyle(.plain).foregroundStyle(AppTokens.flowMuted)
+                        .disabled(isBusy).accessibilityLabel("关闭上传图纸")
+                    }
+                }
+
+                VStack(spacing: 10) {
+                    DrawingSourceRow(icon: "lucide-brush", title: "新建空白画布", subtitle: "选择尺寸，从空白网格开始创作", highlighted: showBlankCanvas) {
+                        withAnimation(.easeInOut(duration: 0.18)) { showBlankCanvas.toggle(); showLocalChoices = false; showXiaohongshuInput = false; xiaohongshuImages = []; error = nil }
+                    }
+                    .disabled(isBusy)
+
+                    if showBlankCanvas { blankCanvasControls.transition(.opacity.combined(with: .move(edge: .top))) }
+
+                    DrawingSourceRow(icon: "lucide-upload", title: isImportingLocalImage ? "正在读取图片…" : "从相册或文件选择", subtitle: isImportingLocalImage ? "正在解析图片尺寸与像素" : "打开设备相册或文件选择器", highlighted: showLocalChoices) {
+                        withAnimation(.easeInOut(duration: 0.18)) { showLocalChoices.toggle(); showBlankCanvas = false; showXiaohongshuInput = false; xiaohongshuImages = []; error = nil }
+                    }
+                    .disabled(isBusy)
+                    if showLocalChoices {
+                        HStack(spacing: 10) {
+                            PhotosPicker(selection: $localImageItem, matching: .images) {
+                                Label("照片图库", systemImage: "photo.on.rectangle").font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 42)
+                            }
+                            .buttonStyle(.bordered).tint(AppTokens.flowBrand).disabled(isBusy)
+                            .onChange(of: localImageItem) { _, item in Task { await importLocalImage(item) } }
+                            Button { isFileImporterPresented = true } label: {
+                                Label("系统文件", systemImage: "folder").font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 42)
+                            }
+                            .buttonStyle(.bordered).tint(AppTokens.flowBrand).disabled(isBusy)
+                        }
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+
+                    DrawingSourceRow(icon: "lucide-sparkles", title: session.token == nil ? "小红书提取 · 需登录" : "小红书提取", subtitle: "粘贴笔记链接后提取图片", highlighted: showXiaohongshuInput, iconTint: Color(hex: "FF526D"), iconBackground: Color(hex: "FFF1F3")) {
+                        guard session.token != nil else { router.requireLoginForDrawing(); return }
+                        withAnimation(.easeInOut(duration: 0.18)) { showXiaohongshuInput = true; showBlankCanvas = false; showLocalChoices = false; error = nil }
+                    }
+                    .disabled(isBusy)
+
+                    if showXiaohongshuInput { xiaohongshuControls.transition(.opacity.combined(with: .move(edge: .top))) }
+                }
+
+                if let error { Text(error).font(.caption).foregroundStyle(.red).frame(maxWidth: .infinity, alignment: .leading) }
+                Text("本地图片最大 20MB；生成时统一匹配 MARD 221 标准色号。")
+                    .font(.caption2).foregroundStyle(AppTokens.flowMuted)
+            }
+            .padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 22)
+            .frame(maxWidth: AppTokens.sheetWidth)
+            .background(AppTokens.panel)
+            .clipShape(UnevenRoundedRectangle(topLeadingRadius: AppTokens.sheetCorner, topTrailingRadius: AppTokens.sheetCorner))
+            .shadow(color: Color.black.opacity(0.16), radius: 24, y: -4)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .accessibilityElement(children: .contain).accessibilityLabel("上传图纸")
+        .fileImporter(isPresented: $isFileImporterPresented, allowedContentTypes: [.image], allowsMultipleSelection: false) { result in
+            Task { await importFileResult(result) }
+        }
+        .sheet(isPresented: $isShowingXiaohongshuImagePicker) {
+            NavigationStack {
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                        ForEach(Array(xiaohongshuImages.enumerated()), id: \.element.id) { index, image in
+                            Button { Task { await importXiaohongshuImage(image) } } label: {
+                                VStack(alignment: .leading, spacing: 7) {
+                                    XiaohongshuCandidatePreview(image: image)
+                                        .frame(maxWidth: .infinity).aspectRatio(1, contentMode: .fill)
+                                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                                    Text(importingXiaohongshuID == image.id ? "读取中…" : "第 \(index + 1) 张")
+                                        .font(.caption.weight(.semibold)).foregroundStyle(AppTokens.flowText)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(importingXiaohongshuID != nil)
+                            .accessibilityLabel("选择第 \(index + 1) 张小红书图片")
+                        }
+                    }
+                    .padding(16)
+                }
+                .background(AppTokens.flowBackground)
+                .navigationTitle("选择笔记图片")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("关闭") { isShowingXiaohongshuImagePicker = false }
+                            .disabled(importingXiaohongshuID != nil)
+                    }
+                }
+            }
+            .presentationDetents([.medium, .large])
+        }
+    }
+
+    private var blankCanvasControls: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                DrawingNumberField(title: "宽度列数", value: $blankColumns)
+                DrawingNumberField(title: "高度行数", value: $blankRows)
+            }
+            Button {
+                createBlankCanvas()
+            } label: {
+                HStack(spacing: 8) {
+                    if isCreatingBlankCanvas {
+                        ProgressView().controlSize(.small).tint(.white)
+                    }
+                    Text(isCreatingBlankCanvas ? "正在创建…" : "创建画布")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(AppTokens.flowBrand)
+            .clipShape(RoundedRectangle(cornerRadius: AppTokens.controlCorner))
+            .disabled(isBusy)
+            .accessibilityLabel(isCreatingBlankCanvas ? "正在创建空白画布" : "创建空白画布")
+        }
+        .padding(12).background(AppTokens.flowBackground).clipShape(RoundedRectangle(cornerRadius: AppTokens.controlCorner))
+    }
+
+    @MainActor
+    private func createBlankCanvas() {
+        guard !isCreatingBlankCanvas else { return }
+        let columns = min(max(Int(blankColumns.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 32, 2), 120)
+        let rows = min(max(Int(blankRows.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 32, 2), 120)
+        isCreatingBlankCanvas = true
+        error = nil
+        document.startBlankProject(columns: columns, rows: rows)
+
+        // Push the editor while the bottom overlay is still mounted, then dismiss the
+        // overlay on the next main-actor turn. Real devices can otherwise coalesce an
+        // overlay removal with a NavigationStack mutation and silently lose the push.
+        router.navigate(to: .canvas)
+        Task { @MainActor in
+            await Task.yield()
+            router.dismissOverlay(force: true)
+            isCreatingBlankCanvas = false
+        }
+    }
+
+    private var xiaohongshuControls: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            TextField("粘贴小红书笔记链接或分享口令", text: $xiaohongshuLink, axis: .vertical)
+                .lineLimit(1...3).textInputAutocapitalization(.never).autocorrectionDisabled()
+                .padding(.horizontal, 12).padding(.vertical, 10).background(AppTokens.panel)
+                .clipShape(RoundedRectangle(cornerRadius: AppTokens.compactCorner))
+                .overlay(RoundedRectangle(cornerRadius: AppTokens.compactCorner).stroke(AppTokens.flowLine, lineWidth: 1))
+                .accessibilityLabel("小红书链接")
+            Button(isExtractingXiaohongshu ? "提取中…" : "提取图片") { Task { await extractXiaohongshu() } }
+                .font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                .frame(maxWidth: .infinity, minHeight: 42).background(AppTokens.flowBrand)
+                .clipShape(RoundedRectangle(cornerRadius: AppTokens.controlCorner))
+                .disabled(isBusy || xiaohongshuLink.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        .padding(12).background(AppTokens.flowBackground).clipShape(RoundedRectangle(cornerRadius: AppTokens.controlCorner))
+    }
+
+    private func importFileResult(_ result: Result<[URL], Error>) async {
+        do {
+            guard let url = try result.get().first else { return }
+            isImportingLocalImage = true; error = nil; router.beginOverlaySubmission()
+            defer { isImportingLocalImage = false; router.endOverlaySubmission() }
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            let data = try Data(contentsOf: url, options: .mappedIfSafe)
+            let image = try Self.validateLocalDrawing(data)
+            workflow.load(image: image, data: data, name: url.lastPathComponent)
+            router.dismissOverlay(force: true); router.navigate(to: .split)
+        } catch { self.error = error.localizedDescription }
+    }
+
+    private func importLocalImage(_ item: PhotosPickerItem?) async {
+        guard let item else { return }
+        isImportingLocalImage = true; error = nil; router.beginOverlaySubmission()
+        defer { isImportingLocalImage = false; router.endOverlaySubmission(); localImageItem = nil }
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self) else { throw APIError(message: "无法读取这张图片，请选择其他图片后重试。") }
+            let image = try Self.validateLocalDrawing(data)
+            workflow.load(image: image, data: data, name: item.itemIdentifier ?? "参考图片")
+            router.dismissOverlay(force: true); router.navigate(to: .split)
+        } catch { self.error = error.localizedDescription }
+    }
+
+    private func extractXiaohongshu() async {
+        guard let token = session.token else { router.requireLoginForDrawing(); return }
+        guard let link = Self.extractSupportedXiaohongshuURL(from: xiaohongshuLink) else { error = "未识别到支持的小红书链接。"; return }
+        isExtractingXiaohongshu = true; error = nil; xiaohongshuImages = []; router.beginOverlaySubmission()
+        defer { isExtractingXiaohongshu = false; router.endOverlaySubmission() }
+        do {
+            let result = try await session.projects.extractXiaohongshu(link: link.absoluteString, token: token)
+            let images = result.availableImages
+            guard !images.isEmpty else { throw APIError(message: "未找到可用图片") }
+            xiaohongshuTitle = result.title?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? result.title! : "小红书图纸"
+            xiaohongshuImages = images
+            isShowingXiaohongshuImagePicker = true
+        } catch { self.error = error.localizedDescription }
+    }
+
+    private func importXiaohongshuImage(_ candidate: XiaohongshuExtractedImage) async {
+        guard let token = session.token else { router.requireLoginForDrawing(); return }
+        importingXiaohongshuID = candidate.id; error = nil; router.beginOverlaySubmission()
+        defer { importingXiaohongshuID = nil; router.endOverlaySubmission() }
+        do {
+            let dataURL: String
+            if let embedded = candidate.imageDataUrl, !embedded.isEmpty { dataURL = embedded }
+            else if let remote = candidate.imageUrl, !remote.isEmpty { dataURL = try await session.projects.downloadXiaohongshuImage(imageURL: remote, token: token) }
+            else { throw APIError(message: "未找到可用图片。") }
+            guard let data = Self.imageData(from: dataURL), data.count <= 20 * 1024 * 1024, let image = UIImage(data: data) else { throw APIError(message: "小红书图片读取失败，请换一张图片。") }
+            workflow.load(image: image, data: data, name: Self.safeImageName(xiaohongshuTitle))
+            isShowingXiaohongshuImagePicker = false
+            router.dismissOverlay(force: true); router.navigate(to: .split)
+        } catch { self.error = error.localizedDescription }
+    }
+
+    private static func validateLocalDrawing(_ data: Data) throws -> UIImage {
+        guard data.count <= 20 * 1024 * 1024 else { throw APIError(message: "图片不能超过 20MB。") }
+        guard isPNG(data) || isJPEG(data) || isWebP(data), let image = UIImage(data: data) else {
+            throw APIError(message: "请上传 PNG、JPG 或 WebP 图片。")
+        }
+        return image
+    }
+
+    private static func isPNG(_ data: Data) -> Bool {
+        let signature: [UInt8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
+        return data.count >= signature.count && Array(data.prefix(signature.count)) == signature
+    }
+
+    private static func isJPEG(_ data: Data) -> Bool {
+        let bytes = Array(data.prefix(3))
+        return bytes.count == 3 && bytes == [0xFF, 0xD8, 0xFF]
+    }
+
+    private static func isWebP(_ data: Data) -> Bool {
+        guard data.count >= 12 else { return false }
+        let bytes = Array(data.prefix(12))
+        return String(bytes: bytes[0..<4], encoding: .ascii) == "RIFF"
+            && String(bytes: bytes[8..<12], encoding: .ascii) == "WEBP"
+    }
+
+    private static func extractSupportedXiaohongshuURL(from text: String) -> URL? {
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue),
+              let match = detector.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let url = match.url, let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              let host = url.host?.lowercased() else { return nil }
+        if host == "xhslink.cn" { return url.port == nil ? url : nil }
+        let allowed = host == "xiaohongshu.com" || host.hasSuffix(".xiaohongshu.com") || host == "xhslink.com" || host.hasSuffix(".xhslink.com")
+        return allowed ? url : nil
+    }
+
+    fileprivate static func imageData(from dataURL: String) -> Data? {
+        guard let comma = dataURL.firstIndex(of: ","), dataURL[..<comma].lowercased().contains(";base64") else { return nil }
+        return Data(base64Encoded: String(dataURL[dataURL.index(after: comma)...]))
+    }
+
+    private static func safeImageName(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "小红书图纸" : String(trimmed.prefix(60))
+    }
+}
+
+private struct DrawingSourceRow: View {
+    let icon: String
+    let title: String
+    let subtitle: String
+    let highlighted: Bool
+    var iconTint: Color = AppTokens.flowBrand
+    var iconBackground: Color = AppTokens.flowBrandSoft
+    let action: () -> Void
+    var body: some View { Button(action: action) { DrawingSourceRowLabel(icon: icon, title: title, subtitle: subtitle, highlighted: highlighted, iconTint: iconTint, iconBackground: iconBackground) }.buttonStyle(.plain) }
+}
+
+private struct DrawingSourceRowLabel: View {
+    let icon: String
+    let title: String
+    let subtitle: String
+    let highlighted: Bool
+    let iconTint: Color
+    let iconBackground: Color
+    var body: some View {
+        HStack(spacing: 12) {
+            H5Icon(name: icon, size: 20).foregroundStyle(iconTint)
+                .frame(width: 40, height: 40).background(iconBackground).clipShape(RoundedRectangle(cornerRadius: 11))
+            VStack(alignment: .leading, spacing: 3) { Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(AppTokens.flowText); Text(subtitle).font(.caption).foregroundStyle(AppTokens.flowMuted).lineLimit(2) }
+            Spacer(minLength: 4)
+            Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(AppTokens.flowBrand)
+        }
+        .padding(.horizontal, 13).frame(minHeight: 66)
+        .background(highlighted ? AppTokens.flowBrandSoft : AppTokens.panel)
+        .clipShape(RoundedRectangle(cornerRadius: AppTokens.controlCorner))
+        .overlay(RoundedRectangle(cornerRadius: AppTokens.controlCorner).stroke(highlighted ? AppTokens.flowBrand.opacity(0.42) : AppTokens.flowLine, lineWidth: 1))
+    }
+}
+
+private struct DrawingNumberField: View {
+    let title: String
+    @Binding var value: String
+    var body: some View { VStack(alignment: .leading, spacing: 5) { Text(title).font(.caption).foregroundStyle(AppTokens.flowMuted); TextField("32", text: $value).keyboardType(.numberPad).multilineTextAlignment(.center).frame(height: 38).background(AppTokens.panel).clipShape(RoundedRectangle(cornerRadius: AppTokens.compactCorner)).overlay(RoundedRectangle(cornerRadius: AppTokens.compactCorner).stroke(AppTokens.flowLine, lineWidth: 1)) }.frame(maxWidth: .infinity) }
+}
+
+private struct XiaohongshuCandidatePreview: View {
+    let image: XiaohongshuExtractedImage
+    var body: some View {
+        ZStack {
+            AppTokens.flowBrandSoft
+            if let dataURL = image.imageDataUrl, let data = DrawingSourceDialog.imageData(from: dataURL), let uiImage = UIImage(data: data) {
+                Image(uiImage: uiImage).resizable().scaledToFill()
+            } else if let raw = image.imageUrl, let url = URL(string: raw) {
+                AsyncImage(url: url) { phase in
+                    if case .success(let rendered) = phase { rendered.resizable().scaledToFill() }
+                    else if case .failure = phase { Image(systemName: "photo").foregroundStyle(AppTokens.flowMuted) }
+                    else { ProgressView() }
+                }
+            } else { Image(systemName: "photo").foregroundStyle(AppTokens.flowMuted) }
+        }
+    }
+}
+
 private struct LoginDialog: View {
     @EnvironmentObject private var router: AppRouter
     let onLogin: (String, String) async -> String?
@@ -2532,6 +4416,7 @@ private struct LoginDialog: View {
     @State private var phone = ""
     @State private var password = ""
     @State private var acceptedAgreement = false
+    @State private var rememberPassword = false
     @State private var isRegistering = false
     @State private var confirmPassword = ""
     @State private var code = ""
@@ -2540,35 +4425,237 @@ private struct LoginDialog: View {
     @State private var isSendingCode = false
     @State private var isSubmitting = false
     @State private var error: String?
+
+    private enum AuthFocus: Hashable { case phone, password, confirmPassword, code }
+    @FocusState private var focusedField: AuthFocus?
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack { Text("手机号登录").font(.headline); Spacer(); Button("关闭", action: onCancel).accessibilityLabel("关闭登录").disabled(isSubmitting) }
-            Picker("账号操作", selection: $isRegistering) { Text("登录").tag(false); Text("注册").tag(true) }.pickerStyle(.segmented).disabled(isSubmitting || isSendingCode)
-            TextField("请输入手机号", text: $phone).keyboardType(.phonePad).textContentType(.telephoneNumber).textInputAutocapitalization(.never).autocorrectionDisabled().padding(12).background(AppTokens.soft).clipShape(RoundedRectangle(cornerRadius: AppTokens.compactCorner)).accessibilityLabel("手机号")
-            SecureField("请输入密码", text: $password).textContentType(.password).padding(12).background(AppTokens.soft).clipShape(RoundedRectangle(cornerRadius: AppTokens.compactCorner))
-            if isRegistering {
-                SecureField("请再次输入密码", text: $confirmPassword).textContentType(.newPassword).padding(12).background(AppTokens.soft).clipShape(RoundedRectangle(cornerRadius: AppTokens.compactCorner)).accessibilityLabel("确认密码")
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 13) {
+            Capsule()
+                .fill(AppTokens.sheetHandle)
+                .frame(width: 38, height: 4)
+                .frame(maxWidth: .infinity)
+                .padding(.top, -6)
+
+            ZStack {
+                Text("手机号\(isRegistering ? "注册" : "登录")")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(AppTokens.flowText)
+                    .frame(maxWidth: .infinity)
                 HStack {
-                    TextField("6位验证码", text: $code).keyboardType(.numberPad).padding(12).background(AppTokens.soft).clipShape(RoundedRectangle(cornerRadius: AppTokens.compactCorner)).accessibilityLabel("验证码")
-                    Button(isSendingCode ? "发送中…" : (countdown > 0 ? "\(countdown)s 后重发" : "获取验证码")) { Task { await sendCode() } }.disabled(isSendingCode || countdown > 0)
+                    Spacer()
+                    Button(action: onCancel) {
+                        H5Icon(name: "lucide-x", size: 18)
+                            .frame(width: 30, height: 30)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color(hex: "8B9AAF"))
+                    .disabled(isSubmitting)
+                    .accessibilityLabel("关闭登录")
                 }
             }
-            Toggle("我已阅读并同意用户协议和隐私政策", isOn: $acceptedAgreement).font(.caption).tint(AppTokens.flowBrand).accessibilityLabel("同意用户协议和隐私政策")
-            HStack(spacing: 12) {
-                Button("用户协议") { openLegal(.userAgreement) }.font(.caption).foregroundStyle(AppTokens.flowBrand).accessibilityLabel("查看用户协议")
-                Button("隐私政策") { openLegal(.privacyPolicy) }.font(.caption).foregroundStyle(AppTokens.flowBrand).accessibilityLabel("查看隐私政策")
+
+            HStack(spacing: 4) {
+                authTab("登录", selected: !isRegistering) { isRegistering = false; error = nil }
+                authTab("注册", selected: isRegistering) { isRegistering = true; error = nil }
             }
-            if let error { Text(error).font(.caption).foregroundStyle(.red) }
-            Button(isSubmitting ? "处理中…" : (isRegistering ? "注册" : "登录")) {
+            .padding(3)
+            .background(Color(hex: "EEF4FF"))
+            .clipShape(RoundedRectangle(cornerRadius: 11))
+            .disabled(isSubmitting || isSendingCode)
+
+            VStack(alignment: .leading, spacing: 12) {
+                authFieldTitle("手机号")
+                HStack(spacing: 0) {
+                    Text("+86")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color(hex: "344054"))
+                        .padding(.leading, 13)
+                    TextField("请输入手机号", text: $phone)
+                        .focused($focusedField, equals: .phone)
+                        .keyboardType(.phonePad)
+                        .textContentType(.telephoneNumber)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .font(.system(size: 13))
+                        .padding(.horizontal, 10)
+                        .frame(height: 44)
+                        .accessibilityLabel("手机号")
+                }
+                .background(Color(hex: "F8FBFF"))
+                .clipShape(RoundedRectangle(cornerRadius: 13))
+                .overlay(RoundedRectangle(cornerRadius: 13).stroke(AppTokens.flowLine, lineWidth: 1))
+
+                authFieldTitle("密码")
+                SecureField("请输入 8-128 位密码", text: $password)
+                    .focused($focusedField, equals: .password)
+                    .textContentType(isRegistering ? .newPassword : .password)
+                    .font(.system(size: 13))
+                    .padding(.horizontal, 13)
+                    .frame(height: 44)
+                    .background(Color(hex: "F8FBFF"))
+                    .clipShape(RoundedRectangle(cornerRadius: 13))
+                    .overlay(RoundedRectangle(cornerRadius: 13).stroke(AppTokens.flowLine, lineWidth: 1))
+
+                if isRegistering {
+                    authFieldTitle("确认密码")
+                    SecureField("请再次输入密码", text: $confirmPassword)
+                        .focused($focusedField, equals: .confirmPassword)
+                        .textContentType(.newPassword)
+                        .font(.system(size: 13))
+                        .padding(.horizontal, 13)
+                        .frame(height: 44)
+                        .background(Color(hex: "F8FBFF"))
+                        .clipShape(RoundedRectangle(cornerRadius: 13))
+                        .overlay(RoundedRectangle(cornerRadius: 13).stroke(AppTokens.flowLine, lineWidth: 1))
+                        .accessibilityLabel("确认密码")
+
+                    authFieldTitle("验证码")
+                    HStack(spacing: 8) {
+                        TextField("6位验证码", text: $code)
+                            .focused($focusedField, equals: .code)
+                            .keyboardType(.numberPad)
+                            .font(.system(size: 13))
+                            .onChange(of: code) { _, next in
+                                let digits = next.filter(\.isNumber)
+                                if digits != next || digits.count > 6 { code = String(digits.prefix(6)) }
+                            }
+                            .padding(.leading, 13)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .accessibilityLabel("验证码")
+                        Button(isSendingCode ? "发送中" : (countdown > 0 ? "\(countdown)s 后重发" : "获取验证码")) {
+                            Task { await sendCode() }
+                        }
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .frame(minWidth: 92, minHeight: 34)
+                        .background(AppTokens.flowBrand)
+                        .clipShape(RoundedRectangle(cornerRadius: 9))
+                        .padding(.trailing, 5)
+                        .disabled(isSendingCode || countdown > 0 || phone.isEmpty)
+                    }
+                    .background(Color(hex: "F8FBFF"))
+                    .clipShape(RoundedRectangle(cornerRadius: 13))
+                    .overlay(RoundedRectangle(cornerRadius: 13).stroke(AppTokens.flowLine, lineWidth: 1))
+                }
+            }
+
+            if !isRegistering {
+                authCheckRow(isOn: $rememberPassword) {
+                    Text("记住手机号和密码")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color(hex: "718096"))
+                }
+            }
+
+            authCheckRow(isOn: $acceptedAgreement) {
+                HStack(spacing: 0) {
+                    Text("我已阅读并同意")
+                    Button("《用户协议》") { openLegal(.userAgreement) }
+                        .foregroundStyle(AppTokens.flowBrand)
+                    Text("和")
+                    Button("《隐私政策》") { openLegal(.privacyPolicy) }
+                        .foregroundStyle(AppTokens.flowBrand)
+                }
+                .font(.system(size: 10))
+                .foregroundStyle(Color(hex: "718096"))
+            }
+
+            if let error {
+                Text(error)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color(hex: "D6455D"))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Button {
                 Task { @MainActor in
                     isSubmitting = true; router.beginOverlaySubmission()
                     error = isRegistering ? await onRegister(phone, password, code, smsRequestID) : await onLogin(phone, password)
                     isSubmitting = false; router.endOverlaySubmission()
                 }
-            }.frame(maxWidth: .infinity).padding(.vertical, 13).background(AppTokens.flowBrand).foregroundStyle(.white).clipShape(RoundedRectangle(cornerRadius: AppTokens.controlCorner)).disabled(phone.isEmpty || password.isEmpty || !acceptedAgreement || isSubmitting || (isRegistering && (password != confirmPassword || code.count != 6 || smsRequestID.isEmpty)))
-            Text("使用与 H5 相同的手机号和密码；注册需验证短信验证码。").font(.caption).foregroundStyle(AppTokens.muted)
-        }.padding(22).frame(maxWidth: 360).background(AppTokens.panel).clipShape(RoundedRectangle(cornerRadius: 28)).padding(20)
-        .accessibilityElement(children: .contain).accessibilityLabel("手机号登录")
+            } label: {
+                Text(isSubmitting ? "处理中..." : (isRegistering ? "注册" : "登录"))
+                    .font(.system(size: 15, weight: .bold))
+                    .frame(maxWidth: .infinity, minHeight: 48)
+            }
+            .foregroundStyle(.white)
+            .background(canSubmit ? AppTokens.flowBrand : Color(hex: "9BBCF5"))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .disabled(!canSubmit)
+        }
+            .padding(.horizontal, 20)
+            .padding(.top, 14)
+            .padding(.bottom, 28)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        // H5 uses a scrollable bottom panel. Login stays compact; registration may grow,
+        // while the keyboard can shrink the proposal and the form remains scrollable.
+        .frame(maxHeight: isRegistering ? 620 : 470)
+        .frame(maxWidth: AppTokens.sheetWidth)
+        .background(Color.white)
+        .clipShape(UnevenRoundedRectangle(topLeadingRadius: 28, topTrailingRadius: 28))
+        .overlay(UnevenRoundedRectangle(topLeadingRadius: 28, topTrailingRadius: 28).stroke(AppTokens.flowLine, lineWidth: 1))
+        .shadow(color: Color(hex: "1B3D65").opacity(0.18), radius: 24, y: -4)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        // Ignore only the container safe area. The keyboard safe area remains active, so the
+        // H5-style bottom panel lifts above the real keyboard instead of being covered by it.
+        .ignoresSafeArea(.container, edges: .bottom)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("完成") { focusedField = nil }
+                    .font(.system(size: 14, weight: .semibold))
+            }
+        }
+        .onChange(of: isRegistering) { _, _ in focusedField = nil }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("手机号登录")
+    }
+
+    private var canSubmit: Bool {
+        !phone.isEmpty && !password.isEmpty && acceptedAgreement && !isSubmitting &&
+        (!isRegistering || (password == confirmPassword && password.count >= 8 && code.count == 6 && !smsRequestID.isEmpty))
+    }
+
+    private func authTab(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(selected ? AppTokens.flowBrand : Color(hex: "667085"))
+                .frame(maxWidth: .infinity, minHeight: 32)
+                .background(selected ? Color.white : Color.clear)
+                .clipShape(RoundedRectangle(cornerRadius: 9))
+                .shadow(color: selected ? AppTokens.flowBrand.opacity(0.10) : .clear, radius: 3, y: 1)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func authFieldTitle(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(Color(hex: "52657F"))
+            .padding(.bottom, -7)
+    }
+
+    private func authCheckRow<Content: View>(isOn: Binding<Bool>, @ViewBuilder content: () -> Content) -> some View {
+        HStack(spacing: 7) {
+            Button { isOn.wrappedValue.toggle() } label: {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(isOn.wrappedValue ? AppTokens.flowBrand : Color.white)
+                        .overlay(RoundedRectangle(cornerRadius: 3).stroke(isOn.wrappedValue ? AppTokens.flowBrand : Color(hex: "AAB5C4"), lineWidth: 1.3))
+                    if isOn.wrappedValue {
+                        H5Icon(name: "lucide-check", size: 11).foregroundStyle(.white)
+                    }
+                }
+                .frame(width: 16, height: 16)
+            }
+            .buttonStyle(.plain)
+            content()
+        }
     }
 
     private func sendCode() async {
@@ -2599,56 +4686,218 @@ private struct SaveProjectDialog: View {
     @State private var name = ""
     @State private var folders: [ProjectFolder] = []
     @State private var folderID: String?
+    @State private var shareToCommunity = false
+    @State private var activeProjectShared = false
     @State private var isSaving = false
     @State private var error: String?
     @State private var folderLoadError: String?
     @State private var isLoadingFolders = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text(document.activeProjectID == nil ? "保存作品" : "更新作品").font(.headline)
-                Spacer()
-                Button("关闭", action: onCancel).accessibilityLabel("关闭保存作品").disabled(isSaving)
+        VStack(alignment: .leading, spacing: 14) {
+            ZStack {
+                Text("保存作品")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(Color(hex: "172238"))
+                    .frame(maxWidth: .infinity)
+                HStack {
+                    Spacer()
+                    Button(action: onCancel) {
+                        H5Icon(name: "lucide-x", size: 17)
+                            .foregroundStyle(Color(hex: "667284"))
+                            .frame(width: 35, height: 35)
+                            .background(Color(hex: "F0F2F6"))
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isSaving)
+                    .accessibilityLabel("关闭保存作品")
+                }
             }
-            TextField("作品名称", text: $name).padding(12).background(AppTokens.soft).clipShape(RoundedRectangle(cornerRadius: AppTokens.compactCorner))
-                .accessibilityLabel("作品名称")
-            Picker("文件夹", selection: $folderID) {
-                Text("未分类").tag(String?.none)
-                ForEach(folders) { folder in Text(folder.name).tag(Optional(folder.id)) }
-            }.pickerStyle(.menu).disabled(isSaving || isLoadingFolders)
+            .padding(.bottom, 4)
+
+            VStack(alignment: .leading, spacing: 7) {
+                Text("作品名称")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(hex: "52657F"))
+                HStack(spacing: 4) {
+                    TextField("作品名称", text: $name)
+                        .font(.system(size: 14))
+                        .textInputAutocapitalization(.never)
+                        .onChange(of: name) { _, value in
+                            if value.count > 30 { name = String(value.prefix(30)) }
+                        }
+                        .padding(.leading, 13)
+                        .frame(minHeight: 50)
+                    if !name.isEmpty {
+                        Button { name = "" } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 27, height: 27)
+                                .background(Color(hex: "E4E9F0"))
+                                .clipShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.trailing, 7)
+                    }
+                }
+                .background(Color.white)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: "CBD9EE"), lineWidth: 2))
+                Text("\(name.count)/30")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color(hex: "7A8799"))
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+
+            HStack(alignment: .bottom, spacing: 10) {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("文件夹")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color(hex: "687588"))
+                    Menu {
+                        Button("未分类") { folderID = nil }
+                        ForEach(folders) { folder in
+                            Button(folder.name) { folderID = folder.id }
+                        }
+                    } label: {
+                        HStack {
+                            Text(folderName)
+                                .font(.system(size: 14))
+                                .foregroundStyle(Color(hex: "172238"))
+                                .lineLimit(1)
+                            Spacer()
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(Color(hex: "7A8799"))
+                        }
+                        .padding(.horizontal, 13)
+                        .frame(minHeight: 50)
+                        .background(Color.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: "CBD9EE"), lineWidth: 2))
+                    }
+                    .disabled(isSaving || isLoadingFolders)
+                }
+                Button {
+                    router.overlay = .createProjectFolder
+                } label: {
+                    Text("新建")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Color(hex: "2F6CF6"))
+                        .padding(.horizontal, 14)
+                        .frame(minHeight: 50)
+                        .background(Color.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: "2F74F5"), lineWidth: 2))
+                }
+                .buttonStyle(.plain)
+                .disabled(isSaving)
+            }
+
             if let folderLoadError {
                 Button(folderLoadError) { Task { await loadFolders() } }
-                    .font(.caption).foregroundStyle(Color.orange)
-                    .accessibilityLabel("重新加载保存作品文件夹")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.orange)
+                    .buttonStyle(.plain)
             }
-            if let error { Text(error).font(.caption).foregroundStyle(.red) }
-            Button(isSaving ? "保存中…" : "保存") { Task { await save() } }
-                .frame(maxWidth: .infinity).padding(.vertical, 13).background(AppTokens.flowBrand).foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: AppTokens.controlCorner)).disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
+
+            Button {
+                if !activeProjectShared { shareToCommunity.toggle() }
+            } label: {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: (shareToCommunity || activeProjectShared) ? "checkmark.circle.fill" : "circle.fill")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle((shareToCommunity || activeProjectShared) ? Color(hex: "2F74F5") : Color(hex: "DBE4F0"))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(activeProjectShared ? "已分享到社区" : "分享到社区")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(Color(hex: "25324A"))
+                        Text(activeProjectShared ? "保存不会重复分享或刷新分享时间" : "分享后会出现在发现和热门图纸")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color(hex: "7A8799"))
+                    }
+                    Spacer()
+                }
+                .padding(14)
+                .background((shareToCommunity || activeProjectShared) ? Color(hex: "F2F7FF") : Color(hex: "F4F7FC"))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: "DCE8FB"), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .disabled(isSaving || activeProjectShared)
+
+            if let error {
+                Text(error)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color(hex: "D6455D"))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Button { Task { await save(startBeading: false) } } label: {
+                Label(isSaving ? "保存中…" : "保存到作品", systemImage: "square.and.arrow.down")
+                    .font(.system(size: 15, weight: .bold))
+                    .frame(maxWidth: .infinity, minHeight: 50)
+            }
+            .foregroundStyle(.white)
+            .background(LinearGradient(colors: [Color(hex: "2474F4"), AppTokens.flowBrand], startPoint: .topLeading, endPoint: .bottomTrailing))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .shadow(color: AppTokens.flowBrand.opacity(0.24), radius: 10, y: 5)
+            .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
+
+            Button { Task { await save(startBeading: true) } } label: {
+                Label("保存并开始拼豆", systemImage: "square.and.arrow.down")
+                    .font(.system(size: 15, weight: .bold))
+                    .frame(maxWidth: .infinity, minHeight: 50)
+            }
+            .foregroundStyle(Color(hex: "2F74F5"))
+            .background(Color.white)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: "2F74F5"), lineWidth: 2))
+            .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
         }
-        .padding(22).frame(maxWidth: 360).background(AppTokens.panel).clipShape(RoundedRectangle(cornerRadius: 28)).padding(20)
+        .padding(.horizontal, 24)
+        .padding(.top, 28)
+        .padding(.bottom, 24)
+        .frame(maxWidth: 390)
+        .background(Color.white.opacity(0.99))
+        .clipShape(RoundedRectangle(cornerRadius: 30))
+        .overlay(RoundedRectangle(cornerRadius: 30).stroke(Color(hex: "DDE4EF"), lineWidth: 1))
+        .shadow(color: Color(hex: "1B3D65").opacity(0.22), radius: 28, y: 10)
+        .padding(20)
         .task {
             name = document.projectName
             await loadFolders()
+            await loadActiveProjectState()
         }
-        .accessibilityElement(children: .contain).accessibilityLabel("保存作品")
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("保存作品")
+    }
+
+    private var folderName: String {
+        guard let folderID else { return "未分类" }
+        return folders.first(where: { $0.id == folderID })?.name ?? "未分类"
     }
 
     private func loadFolders() async {
         guard let token = session.token else { return }
-        isLoadingFolders = true
-        folderLoadError = nil
+        isLoadingFolders = true; folderLoadError = nil
         defer { isLoadingFolders = false }
-        do {
-            folders = try await session.projects.folders(token: token)
-        } catch {
-            folders = []
-            folderLoadError = "文件夹列表读取失败，点此重新加载"
+        do { folders = try await session.projects.folders(token: token) }
+        catch { folders = []; folderLoadError = "文件夹列表读取失败，点此重新加载" }
+    }
+
+    private func loadActiveProjectState() async {
+        guard let token = session.token, let id = document.activeProjectID else { return }
+        if let detail = try? await session.projects.detail(id: id, token: token) {
+            folderID = detail.folderId
+            activeProjectShared = detail.sharedToCommunity
+            if activeProjectShared { shareToCommunity = true }
         }
     }
 
-    private func save() async {
+    private func save(startBeading: Bool) async {
         guard let token = session.token else { error = "请先登录后再保存"; return }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed.count <= 30 else { error = "作品名称需为 1–30 个字符"; return }
@@ -2668,7 +4917,13 @@ private struct SaveProjectDialog: View {
                 sourceImagePath: paths.sourceImagePath, thumbnailImagePath: paths.thumbnailImagePath
             ), token: token)
             document.markSaved(id: detail.id, name: detail.name)
+            let summary = ProjectSummary(id: detail.id, folderId: detail.folderId, name: detail.name, rows: detail.rows, cols: detail.cols, tone: detail.tone, thumbnailImage: detail.thumbnailImage, sharedToCommunity: detail.sharedToCommunity, sharedAt: detail.sharedAt, likesCount: detail.likesCount, createdAt: detail.createdAt, updatedAt: detail.updatedAt)
             onSaved(isNewProject ? "作品已保存" : "作品已更新")
+            if shareToCommunity && !detail.sharedToCommunity {
+                router.overlay = .shareProject(summary)
+            } else if startBeading {
+                router.navigate(to: .projectBeading(detail.id))
+            }
         } catch { self.error = error.localizedDescription }
     }
 }
@@ -2703,6 +4958,101 @@ private struct CreateFolderDialog: View {
         defer { isSubmitting = false; router.endOverlaySubmission() }
         do { _ = try await session.projects.createFolder(name: trimmed, token: token); onCreated("文件夹已创建") }
         catch { self.error = error.localizedDescription }
+    }
+}
+
+private struct ProjectActionDialog: View {
+    @EnvironmentObject private var router: AppRouter
+    @ObservedObject var session: AppSession
+    let project: ProjectSummary
+    @State private var hasSession = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 80)
+            VStack(alignment: .leading, spacing: 10) {
+                Capsule()
+                    .fill(AppTokens.sheetHandle)
+                    .frame(width: 38, height: 4)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 2)
+
+                ZStack(alignment: .topTrailing) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("我的作品")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Color(hex: "667085"))
+                        Text(project.name)
+                            .font(.system(size: 22, weight: .bold))
+                            .foregroundStyle(AppTokens.flowText)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Button { router.dismissOverlay() } label: {
+                        H5Icon(name: "lucide-x", size: 18)
+                            .frame(width: 34, height: 34)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color(hex: "6B7280"))
+                    .accessibilityLabel("关闭作品操作")
+                }
+
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                    actionTile(icon: "lucide-play-circle", title: hasSession ? "继续拼豆" : "开始拼豆", primary: true) {
+                        router.dismissOverlay(force: true)
+                        router.navigate(to: .projectBeading(project.id))
+                    }
+                    actionTile(icon: "lucide-pencil", title: "编辑作品") {
+                        router.dismissOverlay(force: true)
+                        router.navigate(to: .projectEdit(project.id))
+                    }
+                    actionTile(icon: "lucide-folder-input", title: "移动到文件夹") {
+                        router.overlay = .moveProject(project)
+                    }
+                    actionTile(icon: "lucide-share-2", title: project.sharedToCommunity ? "编辑标签" : "分享作品") {
+                        router.overlay = project.sharedToCommunity ? .editProjectTags(project) : .shareProject(project)
+                    }
+                    actionTile(icon: "lucide-trash-2", title: "删除作品", danger: true) {
+                        router.overlay = .deleteProject(project)
+                    }
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 10)
+            .padding(.bottom, 18)
+            .frame(maxWidth: AppTokens.sheetWidth)
+            .background(Color.white)
+            .clipShape(UnevenRoundedRectangle(topLeadingRadius: 28, topTrailingRadius: 28))
+            .overlay(UnevenRoundedRectangle(topLeadingRadius: 28, topTrailingRadius: 28).stroke(AppTokens.flowLine, lineWidth: 1))
+            .shadow(color: Color(hex: "1B3D65").opacity(0.18), radius: 24, y: -4)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .ignoresSafeArea(edges: .bottom)
+        .task { await resolveSessionState() }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("作品操作")
+    }
+
+    private func actionTile(icon: String, title: String, primary: Bool = false, danger: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 7) {
+                H5Icon(name: icon, size: 18)
+                Text(title)
+                    .font(.system(size: 14, weight: .bold))
+            }
+            .foregroundStyle(primary ? Color.white : danger ? Color(hex: "D6455D") : Color(hex: "171819"))
+            .frame(maxWidth: .infinity, minHeight: 72)
+            .background(primary ? AppTokens.flowBrand : danger ? Color(hex: "FFF5F6") : Color.white)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(primary ? AppTokens.flowBrand : danger ? Color(hex: "ED8C9A") : Color(hex: "E1E5EA"), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func resolveSessionState() async {
+        guard let token = session.token else { return }
+        hasSession = (try? await session.projects.beadingSession(projectID: project.id, token: token)) != nil
     }
 }
 

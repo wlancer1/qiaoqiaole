@@ -60,6 +60,9 @@ export function BeadingFeatureContent({ requestApi, requireLogin, onCommands }: 
   const [project, setProject] = useState<RecentProject | null>(null);
   const [cells, setCells] = useState<Cell[]>([]);
   const [inventory, setInventory] = useState<InventoryCheck | null>(null);
+  const [pendingStart, setPendingStart] = useState<{ projectId: string; token: string; warehouseId: string } | null>(null);
+  const [startConfirming, setStartConfirming] = useState(false);
+  const startConfirmingRef = useRef(false);
   scopeRef.current = scope;
   tokenRef.current = token;
   const nextSessionIdentity = `${scope}:${token ?? ''}:${session?.id ?? ''}`;
@@ -107,15 +110,39 @@ export function BeadingFeatureContent({ requestApi, requireLogin, onCommands }: 
     if (!nextToken) { requireLogin((authenticated) => { void start(projectId, authenticated); }); return; }
     const capturedScope = scopeRef.current;
     const op = ++operation.current;
+    const warehouseId = activeWarehouseId || warehouses[0]?.id || '';
     try {
-      const created = await requestApi<{ session: BeadingSession }>(`/v1/projects/${encodeURIComponent(projectId)}/beading-session`, { method: 'POST', body: JSON.stringify({ warehouseId: activeWarehouseId || undefined }) }, nextToken);
-      const checked = await requestApi<InventoryCheck>(`/v1/beading-sessions/${encodeURIComponent(created.session.id)}/inventory-check`, { method: 'POST', body: JSON.stringify({}) }, nextToken);
+      const checked = await requestApi<InventoryCheck>(`/v1/projects/${encodeURIComponent(projectId)}/inventory-check`, { method: 'POST', body: JSON.stringify({ warehouseId: warehouseId || undefined }) }, nextToken);
       if (op !== operation.current || capturedScope !== scopeRef.current || nextToken !== tokenRef.current) return;
-      setSession(created.session); setInventory(checked); navigate(`/projects/${encodeURIComponent(projectId)}/beading`);
+      setPendingStart({ projectId, token: nextToken, warehouseId });
+      setInventory(checked);
     } catch (error) {
-      if (op === operation.current && capturedScope === scopeRef.current && nextToken === tokenRef.current) setStatus(error instanceof Error ? error.message : '无法开始拼豆');
+      if (op === operation.current && capturedScope === scopeRef.current && nextToken === tokenRef.current) setStatus(error instanceof Error ? error.message : '库存检测失败');
     }
-  }, [activeWarehouseId, navigate, requestApi, requireLogin, setStatus, token]);
+  }, [activeWarehouseId, requestApi, requireLogin, setStatus, token, warehouses]);
+
+  const confirmStart = useCallback(async () => {
+    const pending = pendingStart;
+    if (!pending) { setInventory(null); return; }
+    if (startConfirmingRef.current) return;
+    startConfirmingRef.current = true;
+    setStartConfirming(true);
+    const capturedScope = scopeRef.current;
+    const op = ++operation.current;
+    try {
+      const created = await requestApi<{ session: BeadingSession }>(`/v1/projects/${encodeURIComponent(pending.projectId)}/beading-session`, { method: 'POST', body: JSON.stringify({ warehouseId: pending.warehouseId || undefined }) }, pending.token);
+      if (op !== operation.current || capturedScope !== scopeRef.current || pending.token !== tokenRef.current) return;
+      setSession(created.session);
+      setInventory(null);
+      setPendingStart(null);
+      navigate(`/projects/${encodeURIComponent(pending.projectId)}/beading`);
+    } catch (error) {
+      if (op === operation.current && capturedScope === scopeRef.current && pending.token === tokenRef.current) setStatus(error instanceof Error ? error.message : '无法开始拼豆');
+    } finally {
+      startConfirmingRef.current = false;
+      setStartConfirming(false);
+    }
+  }, [navigate, pendingStart, requestApi, setStatus]);
   useEffect(() => { onCommands?.({ start, hasSession: (projectId) => session?.projectId === projectId && ['in_progress', 'paused', 'pending_completion'].includes(session.status) }); }, [onCommands, session, start]);
 
   const mutate = useCallback(async (suffix: string, body: Record<string, unknown>, errorText: string): Promise<BeadingSession> => {
@@ -156,21 +183,30 @@ export function BeadingFeatureContent({ requestApi, requireLogin, onCommands }: 
   }, [requestApi, session, setStatus]);
   const changeWarehouse = useCallback(async (warehouseId: string) => {
     if (inventoryChanging.current) return;
-    const active = session; const capturedScope = scopeRef.current; const capturedToken = tokenRef.current; const generation = sessionGeneration.current; const request = ++inventoryRequest.current;
-    if (!active || !capturedToken) return;
+    const capturedScope = scopeRef.current; const capturedToken = tokenRef.current; const generation = sessionGeneration.current; const request = ++inventoryRequest.current;
+    if (!capturedToken) return;
     inventoryChanging.current = true;
-    const isCurrent = () => request === inventoryRequest.current && generation === sessionGeneration.current && capturedScope === scopeRef.current && capturedToken === tokenRef.current && active.id === currentSessionId.current;
+    const active = session;
+    const pending = pendingStart;
+    const isCurrent = () => request === inventoryRequest.current && generation === sessionGeneration.current && capturedScope === scopeRef.current && capturedToken === tokenRef.current;
     try {
-      const payload = await requestApi<InventoryCheck>(`/v1/beading-sessions/${encodeURIComponent(active.id)}/inventory-check`, { method: 'POST', body: JSON.stringify({ warehouseId: warehouseId || undefined }) }, capturedToken);
-      if (isCurrent()) setInventory(payload);
+      const payload = active
+        ? await requestApi<InventoryCheck>(`/v1/beading-sessions/${encodeURIComponent(active.id)}/inventory-check`, { method: 'POST', body: JSON.stringify({ warehouseId: warehouseId || undefined }) }, capturedToken)
+        : pending
+          ? await requestApi<InventoryCheck>(`/v1/projects/${encodeURIComponent(pending.projectId)}/inventory-check`, { method: 'POST', body: JSON.stringify({ warehouseId: warehouseId || undefined }) }, capturedToken)
+          : null;
+      if (payload && isCurrent()) {
+        setInventory(payload);
+        if (pending) setPendingStart({ ...pending, warehouseId });
+      }
     } catch (error) {
       if (isCurrent()) setStatus(error instanceof Error ? error.message : '库存检测失败');
       throw error;
     } finally {
       if (isCurrent()) inventoryChanging.current = false;
     }
-  }, [requestApi, session, setStatus]);
-  useEffect(() => { setOverlaySlot('inventory', inventory ? <InventoryCheckSheet result={inventory} warehouseId={inventory.warehouseId || ''} warehouseOptions={warehouses} onWarehouseChange={changeWarehouse} onClose={() => setInventory(null)} onStart={() => { setInventory(null); }} /> : null); }, [changeWarehouse, inventory, setOverlaySlot, warehouses]);
+  }, [pendingStart, requestApi, session, setStatus]);
+  useEffect(() => { setOverlaySlot('inventory', inventory ? <InventoryCheckSheet result={inventory} warehouseId={inventory.warehouseId || ''} warehouseOptions={warehouses} starting={startConfirming} onWarehouseChange={changeWarehouse} onClose={() => { setInventory(null); setPendingStart(null); }} onStart={() => { void confirmStart(); }} /> : null); }, [changeWarehouse, confirmStart, inventory, setOverlaySlot, startConfirming, warehouses]);
   useEffect(() => () => setOverlaySlot('inventory', null), [setOverlaySlot]);
 
   if (!route) return location.pathname === '/beading' ? <Navigate to="/projects" replace /> : null;

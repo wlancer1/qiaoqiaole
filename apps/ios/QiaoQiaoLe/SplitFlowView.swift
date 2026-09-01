@@ -7,29 +7,60 @@ struct SplitSettingsView: View {
     @ObservedObject var workflow: SplitWorkflow
     @State private var pickerItem: PhotosPickerItem?
     @State private var imageImportError: String?
+    @State private var imageScale: CGFloat = 1
+    @State private var imageOffset = CGPoint.zero
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 18) {
-                if workflow.image == nil {
-                    imagePicker
+        GeometryReader { proxy in
+            let metrics = H5SplitMetrics(viewportWidth: proxy.size.width)
+            VStack(spacing: 0) {
+                SplitH5TopBar(
+                    title: workflow.splitMode == .quick ? "分割设置" : "对格子",
+                    metrics: metrics,
+                    canContinue: workflow.canContinue,
+                    onBack: { router.navigate(to: .home(.home)) },
+                    onNext: { router.navigate(to: .splitCrop) }
+                )
+
+                if let image = workflow.image {
+                    ZStack(alignment: .bottom) {
+                        SplitSetupCanvas(
+                            image: image,
+                            workflow: workflow,
+                            imageScale: $imageScale,
+                            imageOffset: $imageOffset,
+                            metrics: metrics
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(.bottom, metrics.controlsReservedHeight + proxy.safeAreaInsets.bottom)
+
+                        VStack(spacing: metrics.controllerGap) {
+                            SplitModeSegmentedControl(workflow: workflow, metrics: metrics)
+                                .frame(width: metrics.segmentedWidth, height: metrics.segmentedHeight)
+
+                            SplitSettingsControlCard(workflow: workflow, metrics: metrics)
+                                .frame(width: metrics.controllerWidth, height: metrics.controllerHeight)
+                        }
+                        .padding(.bottom, proxy.safeAreaInsets.bottom)
+                        .frame(maxWidth: .infinity)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.white)
                 } else {
-                    gridPreview
-                    Picker("分割模式", selection: Binding(get: { workflow.splitMode }, set: { workflow.setSplitMode($0) })) {
-                        ForEach(SplitMode.allCases) { mode in Text(mode.title).tag(mode) }
+                    ScrollView {
+                        imagePicker.padding(AppTokens.pagePadding)
                     }
-                    .pickerStyle(.segmented).accessibilityLabel("分割模式")
-                    if workflow.splitMode == .quick {
-                        quickControls
-                    } else {
-                        alignmentControls
-                    }
+                    .background(AppTokens.flowBackground)
                 }
-            }.padding(AppTokens.pagePadding)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .background(Color.white)
         }
-        .background(AppTokens.flowBackground)
-        .navigationTitle("分割设置").navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("下一步") { router.navigate(to: .splitCrop) }.disabled(!workflow.canContinue).accessibilityLabel("进入裁剪") } }
+        .toolbar(.hidden, for: .navigationBar)
+        .onChange(of: workflow.sourceName) { _, _ in
+            imageScale = 1
+            imageOffset = .zero
+        }
         .alert("图片导入失败", isPresented: Binding(get: { imageImportError != nil }, set: { if !$0 { imageImportError = nil } })) {
             Button("知道了", role: .cancel) { imageImportError = nil }
         } message: {
@@ -43,7 +74,11 @@ struct SplitSettingsView: View {
                 Image(systemName: "photo.badge.plus").font(.system(size: 34)).foregroundStyle(AppTokens.flowBrand)
                 Text("选择或更换参考图片").font(.headline).foregroundStyle(AppTokens.flowText)
                 Text("支持从系统相册选择图片").font(.subheadline).foregroundStyle(AppTokens.muted)
-            }.frame(maxWidth: .infinity, minHeight: 164).background(AppTokens.panel).overlay(RoundedRectangle(cornerRadius: AppTokens.cardCorner).stroke(AppTokens.line, style: StrokeStyle(lineWidth: 1, dash: [5]))).clipShape(RoundedRectangle(cornerRadius: AppTokens.cardCorner))
+            }
+            .frame(maxWidth: .infinity, minHeight: 164)
+            .background(AppTokens.panel)
+            .overlay(RoundedRectangle(cornerRadius: AppTokens.cardCorner).stroke(AppTokens.line, style: StrokeStyle(lineWidth: 1, dash: [5])))
+            .clipShape(RoundedRectangle(cornerRadius: AppTokens.cardCorner))
         }
         .onChange(of: pickerItem) { _, item in
             guard let item else { return }
@@ -57,54 +92,353 @@ struct SplitSettingsView: View {
         }
         .accessibilityLabel("选择参考图片")
     }
+}
 
-    private var gridPreview: some View {
-        Group {
-            if workflow.splitMode == .align, let image = workflow.image {
-                InteractiveAlignedGridPreview(image: image, workflow: workflow)
-            } else {
-                ZStack {
-                    if let image = workflow.image { Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 280).clipShape(RoundedRectangle(cornerRadius: AppTokens.cardCorner)) }
-                    GridOverlay(columns: workflow.columns, rows: workflow.rows).clipShape(RoundedRectangle(cornerRadius: AppTokens.cardCorner))
+private struct SplitH5TopBar: View {
+    let title: String
+    let metrics: H5SplitMetrics
+    let canContinue: Bool
+    let onBack: () -> Void
+    let onNext: () -> Void
+
+    var body: some View {
+        HStack(spacing: 0) {
+            HStack {
+                Button(action: onBack) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: metrics.r(0.6984), weight: .semibold))
+                        .foregroundStyle(Color(hex: "111315"))
+                        .frame(width: metrics.r(1.2698), height: metrics.r(1.2698))
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("返回首页")
+                Spacer(minLength: 0)
+            }
+            .frame(width: metrics.r(2.65))
+
+            Text(title)
+                .font(.system(size: metrics.r(0.5397), weight: .heavy))
+                .foregroundStyle(Color(hex: "101828"))
+                .lineLimit(1)
                 .frame(maxWidth: .infinity)
+                .accessibilityIdentifier("split-page-title")
+
+            HStack {
+                Spacer(minLength: 0)
+                Button(action: onNext) {
+                    Text("下一步")
+                        .font(.system(size: metrics.r(0.3968), weight: .semibold))
+                        .foregroundStyle(Color.white)
+                        .padding(.horizontal, metrics.r(0.508))
+                        .frame(minWidth: 38, minHeight: 38, maxHeight: 38)
+                        .background(H5SplitStyle.activeBlue)
+                        .clipShape(RoundedRectangle(cornerRadius: metrics.r(0.508)))
+                        .shadow(color: H5SplitStyle.activeBlue.opacity(0.24), radius: metrics.r(0.32), y: metrics.r(0.18))
+                }
+                .buttonStyle(H5PressButtonStyle())
+                .disabled(!canContinue)
+                .opacity(canContinue ? 1 : 0.45)
+                .accessibilityLabel(title == "裁剪" ? "确认裁剪" : "进入裁剪")
+            }
+            .frame(width: metrics.r(2.65))
+        }
+        .padding(.horizontal, metrics.r(0.4444))
+        .frame(height: metrics.r(1.841))
+        .background(Color.white)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Color(hex: "EEF2F7")).frame(height: metrics.r(0.0317))
+        }
+    }
+}
+
+private struct H5SplitMetrics {
+    let viewportWidth: CGFloat
+    let rem: CGFloat
+
+    init(viewportWidth: CGFloat) {
+        self.viewportWidth = max(1, viewportWidth)
+        // H5: html { font-size: clamp(24.32px, 7.6087vw, 31.5px) }
+        self.rem = min(31.5, max(24.32, viewportWidth * 0.076087))
+    }
+
+    func r(_ value: CGFloat) -> CGFloat { value * rem }
+
+    var controllerHeight: CGFloat { r(7.05) }
+    var controllerGap: CGFloat { r(0.19) }
+    var segmentedHeight: CGFloat { 46 }
+    var controlsReservedHeight: CGFloat { controllerHeight + controllerGap + segmentedHeight + r(0.254) }
+    var controllerWidth: CGFloat { min(max(0, viewportWidth - r(1.016)), r(12.14)) }
+    var segmentedWidth: CGFloat { min(max(0, viewportWidth - r(1.524)), r(11.63)) }
+    var cardVerticalPadding: CGFloat { r(viewportWidth <= 360 ? 0.4444 : 0.286) }
+    var quickHorizontalPadding: CGFloat { r(viewportWidth <= 360 ? 0.3175 : 0.444) }
+    var cardRadius: CGFloat { r(0.6349) }
+    var segmentedRadius: CGFloat { r(0.508) }
+    var segmentedItemRadius: CGFloat { r(0.4127) }
+    var alignLeftWidth: CGFloat {
+        if viewportWidth <= 360 { return r(4.3175) }
+        if viewportWidth <= 413 { return r(4.9524) }
+        return r(5.7143)
+    }
+    var nudgeSide: CGFloat {
+        if viewportWidth <= 393 { return 40 }
+        if viewportWidth <= 413 { return 44 }
+        return 52
+    }
+    var nudgeGap: CGFloat { viewportWidth <= 360 ? r(0.0635) : r(0.127) }
+}
+
+private enum H5SplitStyle {
+    static let activeBlue = Color(hex: "0A84FF")
+    static let lineBlue = Color(.sRGB, red: 32 / 255, green: 142 / 255, blue: 220 / 255, opacity: 0.46)
+    static let majorBlue = Color(.sRGB, red: 20 / 255, green: 105 / 255, blue: 180 / 255, opacity: 0.72)
+    static let handleBlue = Color(hex: "208EDC")
+    static let handleOrange = Color(hex: "F77D24")
+    static let checkerDark = Color(hex: "1A1B1D")
+    static let checkerLight = Color(hex: "222426")
+    static let cardLine = Color(hex: "DFE7F2")
+    static let controlFill = Color(hex: "F1F6FC")
+    static let controlLine = Color(hex: "E2EAF4")
+    static let controlText = Color(hex: "526175")
+    static let secondaryText = Color(hex: "94A3B8")
+}
+
+private struct SplitModeSegmentedControl: View {
+    @ObservedObject var workflow: SplitWorkflow
+    let metrics: H5SplitMetrics
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(SplitMode.allCases) { mode in
+                Button {
+                    workflow.setSplitMode(mode)
+                } label: {
+                    Text(mode.title)
+                        .font(.system(size: metrics.r(0.4444), weight: .bold))
+                        .foregroundStyle(workflow.splitMode == mode ? Color.white : Color(hex: "475569"))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(workflow.splitMode == mode ? H5SplitStyle.activeBlue : Color.clear)
+                        .clipShape(RoundedRectangle(cornerRadius: metrics.segmentedItemRadius))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(mode.title)
+            }
+        }
+        .padding(1)
+        .background(Color(hex: "F1F5F9"))
+        .overlay(RoundedRectangle(cornerRadius: metrics.segmentedRadius).stroke(Color(hex: "E2E8F0"), lineWidth: metrics.r(0.0317)))
+        .clipShape(RoundedRectangle(cornerRadius: metrics.segmentedRadius))
+    }
+}
+
+private struct SplitSettingsControlCard: View {
+    @ObservedObject var workflow: SplitWorkflow
+    let metrics: H5SplitMetrics
+
+    var body: some View {
+        Group {
+            if workflow.splitMode == .quick {
+                SplitQuickControlCard(workflow: workflow, metrics: metrics)
+                    .padding(.vertical, metrics.cardVerticalPadding)
+                    .padding(.horizontal, metrics.quickHorizontalPadding)
+            } else {
+                SplitAlignmentControlCard(workflow: workflow, metrics: metrics)
+                    .padding(.vertical, metrics.cardVerticalPadding)
+                    .padding(.leading, metrics.r(0.3175))
+                    .padding(.trailing, metrics.r(0.1587))
+            }
+        }
+        .background(Color.white)
+        .overlay(RoundedRectangle(cornerRadius: metrics.cardRadius).stroke(H5SplitStyle.cardLine, lineWidth: metrics.r(0.0317)))
+        .clipShape(RoundedRectangle(cornerRadius: metrics.cardRadius))
+    }
+}
+
+private struct SplitQuickControlCard: View {
+    @ObservedObject var workflow: SplitWorkflow
+    let metrics: H5SplitMetrics
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .topLeading) {
+                Text("\(workflow.columns) × \(workflow.rows)")
+                    .font(.system(size: metrics.r(0.952), weight: .heavy, design: .rounded))
+                    .foregroundStyle(Color(hex: "172238"))
+                    .monospacedDigit()
+                    .offset(x: 0, y: metrics.r(1.778))
+
+                H5SplitSlider(
+                    value: Binding(
+                        get: { Double(workflow.longSide) },
+                        set: { workflow.updateLongSide(Int($0.rounded())) }
+                    ),
+                    range: 8...Double(workflow.maximumLongSide),
+                    metrics: metrics
+                )
+                .frame(width: proxy.size.width, height: 44)
+                .offset(x: 0, y: metrics.r(2.921))
+
+                HStack {
+                    Text("8")
+                    Spacer()
+                    Text("\(workflow.maximumLongSide)")
+                }
+                .font(.system(size: metrics.r(0.349)))
+                .foregroundStyle(Color(hex: "94A0B1"))
+                .frame(width: proxy.size.width)
+                .offset(x: 0, y: metrics.r(4.160))
+            }
+        }
+    }
+}
+
+private struct H5SplitSlider: View {
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let metrics: H5SplitMetrics
+
+    var body: some View {
+        GeometryReader { proxy in
+            let thumb: CGFloat = metrics.r(0.763)
+            let travel = max(1, proxy.size.width - thumb)
+            let span = max(0.0001, range.upperBound - range.lowerBound)
+            let progress = CGFloat((min(max(value, range.lowerBound), range.upperBound) - range.lowerBound) / span)
+            let centerX = thumb / 2 + progress * travel
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color(hex: "DBE6F5")).frame(height: metrics.r(0.159))
+                Capsule().fill(H5SplitStyle.activeBlue)
+                    .frame(width: max(0, centerX - thumb / 2), height: metrics.r(0.159))
+                Circle()
+                    .fill(H5SplitStyle.activeBlue)
+                    .frame(width: thumb, height: thumb)
+                    .overlay(Circle().stroke(Color.white, lineWidth: metrics.r(0.095)))
+                    .shadow(color: H5SplitStyle.activeBlue.opacity(0.38), radius: 4, y: 2)
+                    .position(x: centerX, y: proxy.size.height / 2)
+            }
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0).onChanged { drag in
+                let x = min(max(thumb / 2, drag.location.x), proxy.size.width - thumb / 2)
+                let nextProgress = Double((x - thumb / 2) / travel)
+                value = (range.lowerBound + nextProgress * span).rounded()
+            })
+        }
+        .accessibilityLabel("长边格数")
+        .accessibilityValue("\(Int(value))")
+    }
+}
+
+private struct SplitAlignmentControlCard: View {
+    @ObservedObject var workflow: SplitWorkflow
+    let metrics: H5SplitMetrics
+
+    var body: some View {
+        GeometryReader { _ in
+            let nudgeSide = metrics.nudgeSide
+            let gap = metrics.nudgeGap
+
+            HStack(spacing: metrics.viewportWidth <= 360 ? metrics.r(0.15875) : 0) {
+                VStack(spacing: metrics.r(0.19)) {
+                    Text("微移")
+                        .font(.system(size: metrics.r(0.4444), weight: .bold))
+                        .foregroundStyle(H5SplitStyle.secondaryText)
+                        .frame(height: metrics.r(0.572))
+                    ZStack(alignment: .topLeading) {
+                        nudgeButton("⌃", x: nudgeSide + gap, y: 0, side: nudgeSide) { workflow.moveGridControlFrame(x: 0, y: -1) }.accessibilityLabel("上移网格")
+                        nudgeButton("‹", x: 0, y: nudgeSide + gap, side: nudgeSide) { workflow.moveGridControlFrame(x: -1, y: 0) }.accessibilityLabel("左移网格")
+                        alignmentReadout
+                            .frame(width: nudgeSide, height: nudgeSide)
+                            .offset(x: nudgeSide + gap, y: nudgeSide + gap)
+                        nudgeButton("›", x: (nudgeSide + gap) * 2, y: nudgeSide + gap, side: nudgeSide) { workflow.moveGridControlFrame(x: 1, y: 0) }.accessibilityLabel("右移网格")
+                        nudgeButton("⌄", x: nudgeSide + gap, y: (nudgeSide + gap) * 2, side: nudgeSide) { workflow.moveGridControlFrame(x: 0, y: 1) }.accessibilityLabel("下移网格")
+                    }
+                    .frame(width: nudgeSide * 3 + gap * 2, height: nudgeSide * 3 + gap * 2)
+                }
+                .frame(width: metrics.alignLeftWidth)
+                .frame(maxHeight: .infinity, alignment: .top)
+
+                Rectangle().fill(Color(hex: "E7EDF5")).frame(width: metrics.r(0.0317))
+
+                VStack(spacing: 0) {
+                    Text("调整格子大小")
+                        .font(.system(size: metrics.r(0.4444), weight: .bold))
+                        .foregroundStyle(H5SplitStyle.secondaryText)
+                        .frame(height: metrics.r(0.572))
+                    Spacer().frame(height: metrics.r(metrics.viewportWidth <= 360 ? 0.6984 : 0.508))
+                    HStack(spacing: metrics.viewportWidth <= 360 ? 0 : metrics.r(0.1746)) {
+                        squareAction("−") { workflow.updateAlignmentCellSize(workflow.alignmentCellSize - 1) }.accessibilityLabel("减小格距")
+                        VStack(spacing: metrics.r(0.0952)) {
+                            Text(workflow.alignmentCellSize, format: .number.precision(.fractionLength(2)))
+                                .font(.system(size: metrics.r(0.7937), weight: .heavy, design: .rounded))
+                                .foregroundStyle(Color(hex: "152238"))
+                                .minimumScaleFactor(0.62)
+                                .lineLimit(1)
+                            Text("格 / PX")
+                                .font(.system(size: metrics.r(0.3175), weight: .semibold))
+                                .foregroundStyle(Color(hex: "8A97A8"))
+                        }
+                        .frame(maxWidth: .infinity)
+                        squareAction("+") { workflow.updateAlignmentCellSize(workflow.alignmentCellSize + 1) }.accessibilityLabel("增大格距")
+                    }
+                    Text("调整网格线间距\n使其与图纸格线对齐")
+                        .font(.system(size: metrics.r(metrics.viewportWidth <= 360 ? 0.3175 : 0.381)))
+                        .foregroundStyle(Color(hex: "8A97A8"))
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(max(0, metrics.r(0.6984) - metrics.r(metrics.viewportWidth <= 360 ? 0.3175 : 0.381)))
+                        .padding(.top, metrics.r(metrics.viewportWidth <= 360 ? 0.4444 : 0.6984))
+                }
+                .padding(.horizontal, metrics.r(0.2222))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
         }
     }
 
-    private var quickControls: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack { Text("长边格数").font(.headline); Spacer(); Text("\(workflow.columns) × \(workflow.rows)").foregroundStyle(AppTokens.flowBrand).font(.subheadline.weight(.semibold)) }
-            Slider(value: Binding(get: { Double(workflow.longSide) }, set: { workflow.updateLongSide(Int($0.rounded())) }), in: 8...120, step: 1)
-            HStack { Text("8"); Spacer(); Text("120") }.font(.caption).foregroundStyle(AppTokens.muted)
-        }.padding(16).background(AppTokens.panel).clipShape(RoundedRectangle(cornerRadius: AppTokens.controlCorner))
+    private var alignmentReadout: some View {
+        VStack(spacing: 0) {
+            Text(workflow.alignedGrid.offsetX, format: .number.precision(.fractionLength(1)))
+            Text(workflow.alignedGrid.offsetY, format: .number.precision(.fractionLength(1)))
+        }
+        .font(.system(size: metrics.r(0.381), weight: .bold, design: .rounded))
+        .foregroundStyle(H5SplitStyle.activeBlue)
+        .background(Color(hex: "EAF4FF"))
+        .overlay(RoundedRectangle(cornerRadius: metrics.r(0.4444)).stroke(Color(hex: "DBEAFF"), lineWidth: metrics.r(0.0317)))
+        .clipShape(RoundedRectangle(cornerRadius: metrics.r(0.4444)))
     }
 
-    private var alignmentControls: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack { Text("对格子").font(.headline); Spacer(); Text("\(workflow.columns) × \(workflow.rows)").foregroundStyle(AppTokens.flowBrand).font(.subheadline.weight(.semibold)) }
-            Text("拖动下方控制或微调网格，使其与原图中的方格对齐。对格子会按格距和偏移分别取样。")
-                .font(.footnote).foregroundStyle(AppTokens.muted)
-            HStack(spacing: 12) {
-                VStack(spacing: 7) {
-                    Button("上移网格") { workflow.moveAlignment(x: 0, y: -1) }
-                    HStack(spacing: 7) {
-                        Button("左移网格") { workflow.moveAlignment(x: -1, y: 0) }
-                        Text("\(Int(workflow.alignmentOffset.x)), \(Int(workflow.alignmentOffset.y))").font(.caption.monospacedDigit()).frame(minWidth: 74)
-                        Button("右移网格") { workflow.moveAlignment(x: 1, y: 0) }
-                    }
-                    Button("下移网格") { workflow.moveAlignment(x: 0, y: 1) }
-                }
-                .buttonStyle(.bordered)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("格距 \(workflow.alignmentCellSize, specifier: "%.1f") px").font(.subheadline.weight(.medium))
-                    HStack {
-                        Button("减小格距") { workflow.updateAlignmentCellSize(workflow.alignmentCellSize - 1) }
-                        Button("增大格距") { workflow.updateAlignmentCellSize(workflow.alignmentCellSize + 1) }
-                    }.buttonStyle(.bordered)
-                }
-            }
-        }.padding(16).background(AppTokens.panel).clipShape(RoundedRectangle(cornerRadius: AppTokens.controlCorner))
+    private func nudgeButton(_ text: String, x: CGFloat, y: CGFloat, side: CGFloat, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(text)
+                .font(.system(size: metrics.r(metrics.viewportWidth <= 360 ? 0.8254 : 0.9524), weight: .medium))
+                .foregroundStyle(H5SplitStyle.controlText)
+                .frame(width: side, height: side)
+                .background(H5SplitStyle.controlFill)
+                .overlay(RoundedRectangle(cornerRadius: metrics.r(metrics.viewportWidth <= 360 ? 0.381 : 0.4444)).stroke(H5SplitStyle.controlLine, lineWidth: metrics.r(0.0317)))
+                .clipShape(RoundedRectangle(cornerRadius: metrics.r(metrics.viewportWidth <= 360 ? 0.381 : 0.4444)))
+        }
+        .buttonStyle(H5PressButtonStyle())
+        .offset(x: x, y: y)
+    }
+
+    private func squareAction(_ text: String, action: @escaping () -> Void) -> some View {
+        let side: CGFloat = metrics.viewportWidth <= 360 ? 44 : 48
+        return Button(action: action) {
+            Text(text)
+                .font(.system(size: metrics.r(0.8889), weight: .medium))
+                .foregroundStyle(H5SplitStyle.controlText)
+                .frame(width: side, height: side)
+                .background(H5SplitStyle.controlFill)
+                .overlay(RoundedRectangle(cornerRadius: metrics.r(metrics.viewportWidth <= 360 ? 0.381 : 0.4444)).stroke(H5SplitStyle.controlLine, lineWidth: metrics.r(0.0317)))
+                .clipShape(RoundedRectangle(cornerRadius: metrics.r(metrics.viewportWidth <= 360 ? 0.381 : 0.4444)))
+        }
+        .buttonStyle(H5PressButtonStyle())
+    }
+}
+
+private struct H5PressButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+            .opacity(configuration.isPressed ? 0.88 : 1)
     }
 }
 
@@ -114,33 +448,100 @@ struct SplitCropView: View {
     @ObservedObject var workflow: SplitWorkflow
     @State private var zoom: CGFloat = 1
     var body: some View {
-        VStack(spacing: 0) {
-            GeometryReader { proxy in
-                if let image = workflow.image {
-                    CropEditorPreview(image: image, workflow: workflow, zoom: zoom)
-                        .frame(width: proxy.size.width, height: proxy.size.height)
+        GeometryReader { pageProxy in
+            let metrics = H5SplitMetrics(viewportWidth: pageProxy.size.width)
+            VStack(spacing: 0) {
+                SplitH5TopBar(
+                    title: "裁剪",
+                    metrics: metrics,
+                    canContinue: workflow.canContinue,
+                    onBack: { if !router.path.isEmpty { router.path.removeLast() } },
+                    onNext: { router.navigate(to: .splitPreview) }
+                )
+
+                VStack(spacing: 12) {
+                    GeometryReader { proxy in
+                        if let image = workflow.image {
+                            CropEditorPreview(image: image, workflow: workflow, zoom: zoom)
+                                .frame(width: proxy.size.width, height: proxy.size.height)
+                        }
+                    }
+                    .background(CropCheckerboard())
+                    .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color(hex: "DCE5F1"), lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: 18))
+                    .shadow(color: Color.black.opacity(0.06), radius: 16, y: 7)
+
+                    HStack(spacing: 10) {
+                        Image(systemName: "crop")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(H5SplitStyle.activeBlue)
+                        Text("拖动边框调整范围，只保留需要识别的格子内容")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(Color(hex: "617086"))
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 14)
+                    .frame(height: 42)
+                    .background(Color(hex: "F7FAFE"))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: "E7EDF5"), lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                    HStack(spacing: 10) {
+                        Button {
+                            workflow.setCrop(CGRect(x: 0, y: 0, width: 1, height: 1))
+                            zoom = 1
+                        } label: {
+                            Label("重置", systemImage: "arrow.counterclockwise")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(Color(hex: "526175"))
+                                .frame(height: 42)
+                                .padding(.horizontal, 14)
+                                .background(Color.white)
+                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: "E1E8F2"), lineWidth: 1))
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        .buttonStyle(H5PressButtonStyle())
+                        .accessibilityLabel("重置裁剪")
+
+                        Spacer(minLength: 8)
+
+                        HStack(spacing: 0) {
+                            Button { zoom = max(0.6, zoom - 0.1) } label: {
+                                Image(systemName: "minus")
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundStyle(H5SplitStyle.activeBlue)
+                                    .frame(width: 42, height: 42)
+                            }
+                            .buttonStyle(H5PressButtonStyle())
+                            .accessibilityLabel("缩小裁剪预览")
+
+                            Text("\(Int(zoom * 100))%")
+                                .font(.system(size: 14, weight: .bold, design: .rounded).monospacedDigit())
+                                .foregroundStyle(Color(hex: "172238"))
+                                .frame(width: 62, height: 42)
+
+                            Button { zoom = min(3, zoom + 0.1) } label: {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundStyle(H5SplitStyle.activeBlue)
+                                    .frame(width: 42, height: 42)
+                            }
+                            .buttonStyle(H5PressButtonStyle())
+                            .accessibilityLabel("放大裁剪预览")
+                        }
+                        .background(Color.white)
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: "E1E8F2"), lineWidth: 1))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
                 }
+                .padding(.horizontal, 14)
+                .padding(.top, 14)
+                .padding(.bottom, max(12, pageProxy.safeAreaInsets.bottom + 8))
             }
-            .background(CropCheckerboard())
-            Text("仅保留格子内容，裁掉清单、坐标轴等无关区域")
-                .font(.footnote.weight(.medium)).foregroundStyle(Color(hex: "16866D"))
-                .frame(maxWidth: .infinity).padding(.vertical, 13)
-                .background(Color(hex: "E6FAF3"))
-            HStack {
-                Button("重置") { workflow.setCrop(CGRect(x: 0, y: 0, width: 1, height: 1)); zoom = 1 }
-                    .accessibilityLabel("重置裁剪")
-                Spacer()
-                Button("−") { zoom = max(0.6, zoom - 0.1) }.accessibilityLabel("缩小裁剪预览")
-                Text("\(Int(zoom * 100))%").font(.headline.monospacedDigit()).frame(minWidth: 64)
-                Button("+") { zoom = min(3, zoom + 0.1) }.accessibilityLabel("放大裁剪预览")
-            }
-            .buttonStyle(.bordered)
-            .padding(.horizontal, AppTokens.pagePadding).padding(.vertical, 12)
-            .background(AppTokens.panel)
+            .frame(width: pageProxy.size.width, height: pageProxy.size.height)
+            .background(AppTokens.flowBackground)
         }
-        .background(AppTokens.flowBackground)
-        .navigationTitle("裁剪").navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("确认裁剪") { router.navigate(to: .splitPreview) }.disabled(!workflow.canContinue).accessibilityLabel("确认裁剪") } }
+        .toolbar(.hidden, for: .navigationBar)
     }
 }
 
@@ -152,37 +553,50 @@ private struct CropEditorPreview: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let aspect = max(0.01, image.size.width / max(1, image.size.height))
-            let baseWidth = proxy.size.width
-            let baseHeight = baseWidth / aspect
+            let imageWidth = max(1, image.size.width)
+            let imageHeight = max(1, image.size.height)
+            let fit = min(proxy.size.width / imageWidth, proxy.size.height / imageHeight)
+            let baseWidth = imageWidth * fit
+            let baseHeight = imageHeight * fit
             let width = baseWidth * zoom
             let height = baseHeight * zoom
+
             ZStack(alignment: .topLeading) {
-                Image(uiImage: image).resizable().frame(width: width, height: height)
-                Color.black.opacity(0.22)
+                Image(uiImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: width, height: height)
+
+                CropDimMask(cropRect: workflow.cropRect)
+                    .fill(Color.black.opacity(0.34), style: FillStyle(eoFill: true))
+                    .frame(width: width, height: height)
+                    .allowsHitTesting(false)
+
                 cropSelection(width: width, height: height)
             }
             .frame(width: width, height: height)
             .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
-            .clipped()
         }
+        .clipped()
         .onAppear { startCrop = workflow.cropRect }
     }
 
     private func cropSelection(width: CGFloat, height: CGFloat) -> some View {
         let rect = workflow.cropRect
         return ZStack(alignment: .topLeading) {
-            Image(uiImage: image).resizable().frame(width: width, height: height)
-                .clipShape(Rectangle())
+            Rectangle()
+                .fill(.clear)
+                .overlay(Rectangle().stroke(Color.white.opacity(0.9), lineWidth: 1))
+                .overlay(Rectangle().stroke(H5SplitStyle.activeBlue, lineWidth: 2.5))
+                .overlay(CropRuleOfThirds().stroke(Color.white.opacity(0.52), lineWidth: 0.8))
                 .frame(width: width * rect.width, height: height * rect.height)
                 .offset(x: width * rect.minX, y: height * rect.minY)
-            Rectangle().fill(.clear).overlay(Rectangle().stroke(AppTokens.flowBrand, lineWidth: 3))
-                .frame(width: width * rect.width, height: height * rect.height)
-                .offset(x: width * rect.minX, y: height * rect.minY)
+                .contentShape(Rectangle())
                 .gesture(DragGesture().onChanged { value in
                     workflow.setCrop(CGRect(x: startCrop.minX + value.translation.width / width, y: startCrop.minY + value.translation.height / height, width: startCrop.width, height: startCrop.height))
                 }.onEnded { _ in startCrop = workflow.cropRect })
                 .accessibilityLabel("裁剪区域，可拖动")
+
             ForEach(CropHandle.allCases) { handle in
                 CropHandleMarker()
                     .position(x: width * (rect.minX + rect.width * handle.x), y: height * (rect.minY + rect.height * handle.y))
@@ -215,20 +629,53 @@ private enum CropHandle: CaseIterable, Identifiable {
 
 private struct CropHandleMarker: View {
     var body: some View {
-        RoundedRectangle(cornerRadius: 5).fill(AppTokens.panel)
-            .frame(width: 26, height: 26)
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(AppTokens.flowBrand, lineWidth: 4))
+        RoundedRectangle(cornerRadius: 4)
+            .fill(Color.white)
+            .frame(width: 20, height: 20)
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(H5SplitStyle.activeBlue, lineWidth: 3))
+            .shadow(color: Color.black.opacity(0.16), radius: 3, y: 1)
             .contentShape(Rectangle())
+    }
+}
+
+private struct CropDimMask: Shape {
+    let cropRect: CGRect
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.addRect(rect)
+        path.addRect(CGRect(
+            x: rect.width * cropRect.minX,
+            y: rect.height * cropRect.minY,
+            width: rect.width * cropRect.width,
+            height: rect.height * cropRect.height
+        ))
+        return path
+    }
+}
+
+private struct CropRuleOfThirds: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        for factor in [CGFloat(1.0 / 3.0), CGFloat(2.0 / 3.0)] {
+            let x = rect.width * factor
+            path.move(to: CGPoint(x: x, y: 0))
+            path.addLine(to: CGPoint(x: x, y: rect.height))
+            let y = rect.height * factor
+            path.move(to: CGPoint(x: 0, y: y))
+            path.addLine(to: CGPoint(x: rect.width, y: y))
+        }
+        return path
     }
 }
 
 private struct CropCheckerboard: View {
     var body: some View {
         Canvas { context, size in
-            let side: CGFloat = 20
+            let side: CGFloat = 18
             for row in 0...Int(size.height / side) {
                 for column in 0...Int(size.width / side) {
-                    let color = (row + column).isMultiple(of: 2) ? Color(hex: "14181D") : Color(hex: "1E2429")
+                    let color = (row + column).isMultiple(of: 2) ? Color(hex: "EEF2F7") : Color(hex: "F8FAFC")
                     context.fill(Path(CGRect(x: CGFloat(column) * side, y: CGFloat(row) * side, width: side, height: side)), with: .color(color))
                 }
             }
@@ -247,53 +694,145 @@ struct SplitPreviewView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 16) {
-                if workflow.isGenerating { ProgressView("正在生成像素图案…") } else { ColorGridView(colors: workflow.previewColors, columns: workflow.columns).frame(maxWidth: 340).aspectRatio(CGFloat(workflow.columns) / CGFloat(max(1, workflow.rows)), contentMode: .fit) }
+            VStack(spacing: 14) {
+                VStack(spacing: 12) {
+                    if workflow.isGenerating {
+                        ProgressView("正在生成像素图案…")
+                            .frame(maxWidth: .infinity, minHeight: 220)
+                    } else {
+                        ColorGridView(colors: workflow.previewColors, columns: workflow.columns)
+                            .frame(maxWidth: 360)
+                            .aspectRatio(CGFloat(workflow.columns) / CGFloat(max(1, workflow.rows)), contentMode: .fit)
+                    }
+                    HStack {
+                        Label("\(workflow.columns) × \(workflow.rows)", systemImage: "square.grid.3x3")
+                        Spacer()
+                        Text("\(workflow.beadList.count) 色 · \(totalBeads) 颗")
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(hex: "617086"))
+                }
+                .padding(16)
+                .background(Color.white)
+                .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color(hex: "E1E8F2"), lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 18))
+                .shadow(color: Color.black.opacity(0.045), radius: 14, y: 6)
+
                 if workflow.backgroundRemoved {
                     Label("已去背景 · 透明区域已标记", systemImage: "checkmark.circle.fill")
-                        .font(.footnote.weight(.medium)).foregroundStyle(.green)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color(hex: "16866D"))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 14)
+                        .frame(height: 42)
+                        .background(Color(hex: "EAF8F3"))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
                         .accessibilityLabel("已去背景，透明区域已标记")
                 }
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack { Text("去杂色合并").font(.headline); Spacer(); Text("≤ \(workflow.mergeThreshold)").foregroundStyle(AppTokens.flowBrand) }
-                    Slider(value: Binding(get: { Double(workflow.mergeThreshold) }, set: { workflow.mergeThreshold = Int($0.rounded()); workflow.generatePreview() }), in: 0...20, step: 1)
-                    Text("低用量颜色会自动并入最接近的常用色，减少成品杂点。")
-                        .font(.footnote).foregroundStyle(AppTokens.muted)
-                }.padding(16).background(AppTokens.panel).clipShape(RoundedRectangle(cornerRadius: AppTokens.controlCorner))
-                VStack(alignment: .leading, spacing: 10) {
+
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("去杂色合并").font(.system(size: 16, weight: .bold))
+                            Text("减少低用量颜色，成品更干净").font(.system(size: 12)).foregroundStyle(Color(hex: "8996A8"))
+                        }
+                        Spacer()
+                        Text("≤ \(workflow.mergeThreshold)")
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
+                            .foregroundStyle(H5SplitStyle.activeBlue)
+                            .padding(.horizontal, 10)
+                            .frame(height: 30)
+                            .background(Color(hex: "EAF4FF"))
+                            .clipShape(Capsule())
+                    }
+                    Slider(value: Binding(get: { Double(workflow.mergeThreshold) }, set: { workflow.updateMergeThreshold(Int($0.rounded())) }), in: 0...20, step: 1)
+                        .tint(H5SplitStyle.activeBlue)
+                }
+                .padding(16)
+                .background(Color.white)
+                .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color(hex: "E1E8F2"), lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+
+                VStack(alignment: .leading, spacing: 12) {
                     Button {
                         workflow.toggleBackgroundRemoval()
                     } label: {
-                        Label(workflow.isBackgroundProcessing ? "处理中…" : workflow.backgroundRemoved ? "恢复原图" : "去除背景", systemImage: workflow.backgroundRemoved ? "arrow.uturn.backward" : "person.crop.rectangle")
-                            .frame(maxWidth: .infinity)
+                        HStack {
+                            Image(systemName: workflow.backgroundRemoved ? "arrow.uturn.backward" : "person.crop.rectangle")
+                            Text(workflow.isBackgroundProcessing ? "处理中…" : workflow.backgroundRemoved ? "恢复原图" : "去除背景")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12, weight: .bold))
+                                .opacity(workflow.backgroundRemoved ? 0 : 1)
+                        }
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(workflow.backgroundRemoved ? Color(hex: "526175") : H5SplitStyle.activeBlue)
+                        .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.bordered).disabled(workflow.isBackgroundProcessing)
+                    .buttonStyle(.plain)
+                    .disabled(workflow.isBackgroundProcessing)
                     .accessibilityLabel(workflow.isBackgroundProcessing ? "背景处理中" : workflow.backgroundRemoved ? "恢复原图" : "去除背景")
+
                     if workflow.backgroundRemoved {
-                        HStack { Text("去背景灵敏度").font(.subheadline.weight(.medium)); Spacer(); Text("\(workflow.backgroundSensitivity)").font(.caption.monospacedDigit()).foregroundStyle(AppTokens.flowBrand) }
+                        Divider().overlay(Color(hex: "EDF1F6"))
+                        HStack {
+                            Text("去背景灵敏度").font(.system(size: 14, weight: .semibold))
+                            Spacer()
+                            Text("\(workflow.backgroundSensitivity)")
+                                .font(.system(size: 13, weight: .bold, design: .rounded).monospacedDigit())
+                                .foregroundStyle(H5SplitStyle.activeBlue)
+                        }
                         Slider(value: Binding(get: { Double(workflow.backgroundSensitivity) }, set: { workflow.updateBackgroundSensitivity(Int($0.rounded())) }), in: 0...100, step: 1)
+                            .tint(H5SplitStyle.activeBlue)
                             .accessibilityLabel("去背景灵敏度")
-                        HStack { Text("保守"); Spacer(); Text("积极") }.font(.caption).foregroundStyle(AppTokens.muted)
+                        HStack { Text("保守"); Spacer(); Text("积极") }
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Color(hex: "94A3B8"))
                     }
-                }.padding(16).background(AppTokens.panel).clipShape(RoundedRectangle(cornerRadius: AppTokens.controlCorner))
-                Button { showBeadList = true } label: {
-                    HStack {
-                        Text("豆子清单").font(.headline)
-                        Spacer()
-                        Text("\(workflow.beadList.count) 色 · \(totalBeads) 颗").font(.subheadline.weight(.medium)).foregroundStyle(AppTokens.flowBrand)
-                        Image(systemName: "chevron.right").font(.footnote.weight(.bold)).foregroundStyle(AppTokens.flowBrand)
-                    }.padding(16).background(AppTokens.panel).clipShape(RoundedRectangle(cornerRadius: AppTokens.controlCorner))
                 }
-                .buttonStyle(.plain)
+                .padding(16)
+                .background(Color.white)
+                .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color(hex: "E1E8F2"), lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+
+                Button { showBeadList = true } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "list.bullet.rectangle")
+                            .foregroundStyle(H5SplitStyle.activeBlue)
+                        Text("豆子清单").font(.system(size: 15, weight: .bold)).foregroundStyle(Color(hex: "172238"))
+                        Spacer()
+                        Text("\(workflow.beadList.count) 色 · \(totalBeads) 颗")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Color(hex: "708095"))
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(Color(hex: "94A3B8"))
+                    }
+                    .padding(.horizontal, 16)
+                    .frame(height: 56)
+                    .background(Color.white)
+                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color(hex: "E1E8F2"), lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                }
+                .buttonStyle(H5PressButtonStyle())
                 .accessibilityLabel("查看豆子清单，\(workflow.beadList.count) 色，\(totalBeads) 颗")
-            }.padding(AppTokens.pagePadding)
+            }
+            .frame(maxWidth: 548)
+            .padding(.horizontal, AppTokens.pagePadding)
+            .padding(.vertical, 16)
+            .frame(maxWidth: .infinity)
         }
         .background(AppTokens.flowBackground)
-        .navigationTitle("浏览").navigationBarTitleDisplayMode(.inline)
+        .navigationTitle("浏览")
+        .navigationBarTitleDisplayMode(.inline)
+        .task(id: workflow.previewRevision) {
+            if workflow.previewColors.isEmpty && !workflow.isGenerating { workflow.generatePreview() }
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("导入画布") { workflow.importTo(document: document); router.navigate(to: .canvas) }
-                    .disabled(!workflow.canContinue)
+                    .fontWeight(.semibold)
+                    .disabled(!workflow.canImport)
                     .accessibilityLabel("导入到画布")
             }
         }
@@ -326,78 +865,297 @@ private struct SplitBeadListSheet: View {
     }
 }
 
-private struct GridOverlay: View {
-    let columns: Int
-    let rows: Int
-    var body: some View { GeometryReader { proxy in Path { path in for column in 0...columns { let x = proxy.size.width * CGFloat(column) / CGFloat(columns); path.move(to: CGPoint(x: x, y: 0)); path.addLine(to: CGPoint(x: x, y: proxy.size.height)) }; for row in 0...rows { let y = proxy.size.height * CGFloat(row) / CGFloat(rows); path.move(to: CGPoint(x: 0, y: y)); path.addLine(to: CGPoint(x: proxy.size.width, y: y)) } }.stroke(.white.opacity(0.8), lineWidth: 0.6) } }
-}
-
-private struct AlignedGridOverlay: View {
-    let grid: AlignedSplitGrid
-    let imageSize: CGSize
-    var body: some View {
-        GeometryReader { proxy in
-            Path { path in
-                let scaleX = proxy.size.width / max(1, imageSize.width)
-                let scaleY = proxy.size.height / max(1, imageSize.height)
-                let cellX = grid.cellSize * scaleX, cellY = grid.cellSize * scaleY
-                let startX = grid.offsetX * scaleX, startY = grid.offsetY * scaleY
-                for column in 0...grid.columns {
-                    let x = startX + CGFloat(column) * cellX
-                    path.move(to: CGPoint(x: x, y: startY)); path.addLine(to: CGPoint(x: x, y: startY + CGFloat(grid.rows) * cellY))
-                }
-                for row in 0...grid.rows {
-                    let y = startY + CGFloat(row) * cellY
-                    path.move(to: CGPoint(x: startX, y: y)); path.addLine(to: CGPoint(x: startX + CGFloat(grid.columns) * cellX, y: y))
-                }
-            }.stroke(AppTokens.flowBrand.opacity(0.9), lineWidth: 1)
-        }
-    }
-}
-
-private struct InteractiveAlignedGridPreview: View {
+private struct SplitSetupCanvas: View {
     let image: UIImage
     @ObservedObject var workflow: SplitWorkflow
-    @State private var initialOffset = CGPoint.zero
-    @State private var initialCellSize: CGFloat = 1
+    @Binding var imageScale: CGFloat
+    @Binding var imageOffset: CGPoint
+    let metrics: H5SplitMetrics
+    @State private var panStart: CGPoint?
+    @State private var zoomStart: CGFloat?
 
     var body: some View {
         GeometryReader { proxy in
-            let width = proxy.size.width
-            let height = width / max(0.01, image.size.width / max(1, image.size.height))
-            ZStack {
+            let imageRect = splitImageRect(container: proxy.size)
+            ZStack(alignment: .topLeading) {
+                SplitCheckerboard()
+
                 Image(uiImage: image)
                     .resizable()
-                    .frame(width: width, height: height)
-                AlignedGridOverlay(grid: workflow.alignedGrid, imageSize: image.size)
-                    .frame(width: width, height: height)
+                    .interpolation(.high)
+                    .frame(width: imageRect.width, height: imageRect.height)
+                    .position(x: imageRect.midX, y: imageRect.midY)
+
+                SplitAttachedGridOverlay(
+                    imageRect: imageRect,
+                    imageSize: image.size,
+                    columns: workflow.columns,
+                    rows: workflow.rows,
+                    alignment: workflow.splitMode == .align ? workflow.alignedGrid : nil
+                )
+
                 Rectangle()
                     .fill(.clear)
                     .contentShape(Rectangle())
-                    .gesture(DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            let offset = CGPoint(
-                                x: initialOffset.x + value.translation.width * image.size.width / max(1, width),
-                                y: initialOffset.y + value.translation.height * image.size.height / max(1, height)
-                            )
-                            workflow.setAlignmentOffset(offset)
-                        }
-                        .onEnded { _ in initialOffset = workflow.alignmentOffset }
+                    .gesture(panGesture)
+                    .simultaneousGesture(zoomGesture)
+                    .onTapGesture {
+                        imageScale = min(8, max(0.5, imageScale * 1.12))
+                    }
+
+                if workflow.splitMode == .align {
+                    H5AlignmentControlOverlay(
+                        workflow: workflow,
+                        imageRect: imageRect,
+                        imageSize: image.size,
+                        metrics: metrics
                     )
-                    .simultaneousGesture(MagnificationGesture()
-                        .onChanged { value in workflow.updateAlignmentCellSize(initialCellSize * value) }
-                        .onEnded { _ in initialCellSize = workflow.alignmentCellSize }
-                    )
-                    .accessibilityLabel("对格子控制框，可拖动网格或双指缩放格距")
+                }
             }
-            .frame(width: width, height: height)
-            .clipShape(RoundedRectangle(cornerRadius: AppTokens.cardCorner))
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .clipped()
+            .overlay(Rectangle().stroke(Color(hex: "E5EAF2"), lineWidth: 1))
         }
-        .aspectRatio(image.size.width / max(1, image.size.height), contentMode: .fit)
-        .frame(maxHeight: 280)
-        .onAppear { initialOffset = workflow.alignmentOffset; initialCellSize = workflow.alignmentCellSize }
+        .accessibilityLabel("切割画布预览")
+    }
+
+    private func splitImageRect(container: CGSize) -> CGRect {
+        let safeWidth = max(1, image.size.width)
+        let safeHeight = max(1, image.size.height)
+        let fit = min(container.width / safeWidth, container.height / safeHeight) * 0.82
+        let baseWidth = max(1, safeWidth * fit)
+        let baseHeight = max(1, safeHeight * fit)
+        let scale = min(8, max(0.5, imageScale))
+        let width = baseWidth * scale
+        let height = baseHeight * scale
+        return CGRect(
+            x: (container.width - width) / 2 + imageOffset.x,
+            y: (container.height - height) / 2 + imageOffset.y,
+            width: width,
+            height: height
+        )
+    }
+
+    private var panGesture: some Gesture {
+        DragGesture(minimumDistance: 1)
+            .onChanged { value in
+                if panStart == nil { panStart = imageOffset }
+                guard let start = panStart else { return }
+                imageOffset = CGPoint(x: start.x + value.translation.width, y: start.y + value.translation.height)
+            }
+            .onEnded { _ in panStart = nil }
+    }
+
+    private var zoomGesture: some Gesture {
+        MagnificationGesture()
+            .onChanged { value in
+                if zoomStart == nil { zoomStart = imageScale }
+                imageScale = min(8, max(0.5, (zoomStart ?? imageScale) * value))
+            }
+            .onEnded { _ in zoomStart = nil }
     }
 }
+
+private struct SplitCheckerboard: View {
+    var body: some View {
+        Canvas { context, size in
+            let tile: CGFloat = 16
+            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(H5SplitStyle.checkerDark))
+            let rows = Int(ceil(size.height / tile))
+            let columns = Int(ceil(size.width / tile))
+            for row in 0..<rows {
+                for column in 0..<columns where (row + column).isMultiple(of: 2) {
+                    context.fill(
+                        Path(CGRect(x: CGFloat(column) * tile, y: CGFloat(row) * tile, width: tile, height: tile)),
+                        with: .color(H5SplitStyle.checkerLight)
+                    )
+                }
+            }
+        }
+    }
+}
+
+private struct SplitAttachedGridOverlay: View {
+    let imageRect: CGRect
+    let imageSize: CGSize
+    let columns: Int
+    let rows: Int
+    let alignment: AlignedSplitGrid?
+
+    var body: some View {
+        Canvas { context, _ in
+            drawGrid(context: &context, majorEvery: 1, color: H5SplitStyle.lineBlue, width: 1)
+            drawGrid(context: &context, majorEvery: 5, color: H5SplitStyle.majorBlue, width: 1.5)
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func drawGrid(context: inout GraphicsContext, majorEvery: Int, color: Color, width: CGFloat) {
+        var path = Path()
+        if let alignment {
+            let cropWidth = max(1, imageSize.width)
+            let cropHeight = max(1, imageSize.height)
+            let startX = imageRect.minX + alignment.offsetX / cropWidth * imageRect.width
+            let startY = imageRect.minY + alignment.offsetY / cropHeight * imageRect.height
+            let stepX = alignment.cellSize / cropWidth * imageRect.width
+            let stepY = alignment.cellSize / cropHeight * imageRect.height
+            appendAlignedLines(path: &path, startX: startX, startY: startY, stepX: stepX, stepY: stepY, majorEvery: majorEvery)
+        } else {
+            guard columns > 0, rows > 0 else { return }
+            if columns > 1 {
+                for column in 1..<columns where column.isMultiple(of: majorEvery) {
+                    let x = imageRect.minX + CGFloat(column) / CGFloat(columns) * imageRect.width
+                    path.move(to: CGPoint(x: x, y: imageRect.minY))
+                    path.addLine(to: CGPoint(x: x, y: imageRect.maxY))
+                }
+            }
+            if rows > 1 {
+                for row in 1..<rows where row.isMultiple(of: majorEvery) {
+                    let y = imageRect.minY + CGFloat(row) / CGFloat(rows) * imageRect.height
+                    path.move(to: CGPoint(x: imageRect.minX, y: y))
+                    path.addLine(to: CGPoint(x: imageRect.maxX, y: y))
+                }
+            }
+        }
+        context.stroke(path, with: .color(color), lineWidth: width)
+    }
+
+    private func appendAlignedLines(path: inout Path, startX: CGFloat, startY: CGFloat, stepX: CGFloat, stepY: CGFloat, majorEvery: Int) {
+        guard stepX > 0, stepY > 0 else { return }
+        var column = Int(ceil((imageRect.minX - startX) / stepX))
+        var x = startX + CGFloat(column) * stepX
+        while x <= imageRect.maxX + 0.01 {
+            if column.isMultiple(of: majorEvery) {
+                path.move(to: CGPoint(x: x, y: imageRect.minY))
+                path.addLine(to: CGPoint(x: x, y: imageRect.maxY))
+            }
+            column += 1
+            x += stepX
+        }
+        var row = Int(ceil((imageRect.minY - startY) / stepY))
+        var y = startY + CGFloat(row) * stepY
+        while y <= imageRect.maxY + 0.01 {
+            if row.isMultiple(of: majorEvery) {
+                path.move(to: CGPoint(x: imageRect.minX, y: y))
+                path.addLine(to: CGPoint(x: imageRect.maxX, y: y))
+            }
+            row += 1
+            y += stepY
+        }
+    }
+}
+
+private struct H5AlignmentControlOverlay: View {
+    @ObservedObject var workflow: SplitWorkflow
+    let imageRect: CGRect
+    let imageSize: CGSize
+    let metrics: H5SplitMetrics
+    @State private var frameDragStart: CGPoint?
+    @State private var scaleDragStart: CGFloat?
+
+    var body: some View {
+        let rect = controlFrameRect
+        ZStack(alignment: .topLeading) {
+            Rectangle()
+                .fill(H5SplitStyle.handleBlue.opacity(0.14))
+                .overlay(Rectangle().stroke(H5SplitStyle.handleBlue.opacity(0.68), lineWidth: metrics.r(0.0317)))
+                .overlay(Rectangle().inset(by: metrics.r(0.0317)).stroke(Color.white.opacity(0.28), lineWidth: metrics.r(0.0317)))
+                .frame(width: rect.width, height: rect.height)
+                .offset(x: rect.minX, y: rect.minY)
+                .contentShape(Rectangle())
+                .gesture(moveGesture)
+                .accessibilityLabel("按住移动网格")
+
+            handleRing(color: H5SplitStyle.handleBlue, kind: .move)
+                .position(x: rect.minX, y: rect.minY)
+                .gesture(moveGesture)
+                .accessibilityLabel("按住移动网格")
+
+            handleLabel("移动", color: H5SplitStyle.handleBlue)
+                .position(x: rect.minX + metrics.r(0.095), y: rect.minY)
+
+            handleRing(color: H5SplitStyle.handleOrange, kind: .scale)
+                .position(x: rect.maxX, y: rect.maxY)
+                .gesture(scaleGesture)
+                .accessibilityLabel("按住缩放网格")
+
+            handleLabel("缩放", color: H5SplitStyle.handleOrange)
+                .position(x: rect.maxX - metrics.r(0.095), y: rect.maxY)
+        }
+    }
+
+    private enum HandleKind { case move, scale }
+
+    private var controlFrameRect: CGRect {
+        let safeWidth = max(1, imageSize.width)
+        let safeHeight = max(1, imageSize.height)
+        let origin = workflow.alignmentFrameOrigin
+        return CGRect(
+            x: imageRect.minX + origin.x / safeWidth * imageRect.width,
+            y: imageRect.minY + origin.y / safeHeight * imageRect.height,
+            width: workflow.alignmentCellSize * 3 / safeWidth * imageRect.width,
+            height: workflow.alignmentCellSize * 3 / safeHeight * imageRect.height
+        )
+    }
+
+    private var moveGesture: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                if frameDragStart == nil { frameDragStart = workflow.alignmentFrameOrigin }
+                guard let start = frameDragStart else { return }
+                let dx = imageRect.width > 0 ? value.translation.width / imageRect.width * imageSize.width : 0
+                let dy = imageRect.height > 0 ? value.translation.height / imageRect.height * imageSize.height : 0
+                workflow.setGridControlFrameOrigin(CGPoint(x: start.x + dx, y: start.y + dy))
+            }
+            .onEnded { _ in frameDragStart = nil }
+    }
+
+    private var scaleGesture: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                if scaleDragStart == nil { scaleDragStart = workflow.alignmentCellSize }
+                let dx = imageRect.width > 0 ? value.translation.width / imageRect.width * imageSize.width : 0
+                let dy = imageRect.height > 0 ? value.translation.height / imageRect.height * imageSize.height : 0
+                workflow.updateAlignmentCellSize((scaleDragStart ?? workflow.alignmentCellSize) + (dx + dy) / 6)
+            }
+            .onEnded { _ in scaleDragStart = nil }
+    }
+
+    private func handleRing(color: Color, kind: HandleKind) -> some View {
+        let ringSide = metrics.r(1.0159)
+        let crossLong = metrics.r(kind == .move ? 0.4127 : 0.381)
+        let crossThick = metrics.r(0.0635)
+        return ZStack {
+            Circle()
+                .fill(Color.white.opacity(0.22))
+                .overlay(Circle().stroke(color, lineWidth: metrics.r(0.0635)))
+                .shadow(color: color.opacity(0.18), radius: metrics.r(0.0635), y: 0)
+                .shadow(color: color.opacity(0.16), radius: metrics.r(0.3175), y: metrics.r(0.127))
+            if kind == .move {
+                Rectangle().fill(color.opacity(0.72)).frame(width: crossLong, height: crossThick)
+                Rectangle().fill(color.opacity(0.72)).frame(width: crossThick, height: crossLong)
+            } else {
+                Rectangle().fill(color.opacity(0.78)).frame(width: crossLong, height: crossThick).rotationEffect(.degrees(45))
+                Rectangle().fill(color.opacity(0.78)).frame(width: crossLong, height: crossThick).rotationEffect(.degrees(-45))
+            }
+        }
+        .frame(width: ringSide, height: ringSide)
+        .contentShape(Rectangle().inset(by: -(max(44, metrics.r(1.3968)) - ringSide) / 2))
+    }
+
+    private func handleLabel(_ text: String, color: Color) -> some View {
+        Text(text)
+            .font(.system(size: metrics.r(0.2857), weight: .heavy))
+            .foregroundStyle(Color.white)
+            .padding(.horizontal, metrics.r(0.127))
+            .padding(.vertical, metrics.r(0.0635))
+            .background(color.opacity(0.96))
+            .clipShape(Capsule())
+            .shadow(color: color.opacity(0.22), radius: metrics.r(0.381), y: metrics.r(0.127))
+            .allowsHitTesting(false)
+    }
+}
+
 
 private struct ColorGridView: View {
     let colors: [ColorToken]

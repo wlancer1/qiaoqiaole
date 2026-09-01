@@ -4,8 +4,23 @@
 
 - 当前阶段：P2 — 原生编辑器与导出（编辑器视口标尺与发布收尾）
 - 目标状态：进行中
-- 最后更新：2026-08-25
+- 最后更新：2026-08-27
 - 当前判定：已有简化编辑器 MVP；尚未达到 H5 一比一迁移标准。
+
+## 当前检查点（已完成）
+
+- P3 视觉还原：仓库详情页手机布局对齐 H5。
+- H5 参考：`apps/h5/src/styles.css` 中 `.warehouse-page`、`.wh-stats-strip`、`.wh-filter-bar`、`.wh-letter-tabs`、`.wh-select-bar`、`.wh-color-grid`、`.wh-action-card`；原生对照：`WarehouseDetailView`。
+- 开始前工作区仅有Xcode 生成的 per-user workspace state 修改，本检查点不触碰该文件。
+- 基线证据：iPhone 17 Pro（402pt）截图 `/tmp/qiaoqiaole-warehouse-detail-before.png` 显示原生固定 4 列大色卡、分散统计卡和独立流水卡，与 H5 手机 6 列紧凑网格及连续分组面板不一致。
+- 验证结果：新增的六列几何回归先以 A1/A6 中线 `478/559pt` 明确失败，修复后定向 UI XCTest 1/1 通过；375pt 与 402pt 截图均确认 A1–A6 同排、筛选与底部操作无裁切；通用 Simulator build 通过；冷启动串行完整 iOS XCTest 112/112 通过；`git diff --check` 通过。
+
+## 当前检查点（已完成）
+
+- P0/P4 视觉还原：个人中心未登录页按 H5 profile 页面结构还原。
+- H5 参考：`HomeShellPage.tsx` 的未登录账户、仓库和设置入口及 `styles.css` 的 profile token；原生对照：`ProfileGuestLandingView`。
+- 设计决策：以 H5 为唯一视觉来源，恢复全宽深蓝 Hero、右侧光晕/轨道、Hero 底部重叠账号卡、仓库进度与元信息、独立设置卡；不再以原生偏好替代 H5 的页面构图。
+- 验证结果：iPhone SE 3（375pt）冷启动截图 `/tmp/qiaoqiaole-profile-guest-h5-375.png` 无裁切；未登录 profile/messages 定向 UI XCTest 1/1 通过（`/tmp/qiaoqiaole-profile-guest-h5-r2.xcresult`）；通用 Simulator build 与 `git diff --check` 通过。
 
 ## 已验证完成
 
@@ -280,6 +295,9 @@
 | 2026-08-25 | H5 作品保存/移动中的文件夹选择；原生 `SaveProjectDialog`、`MoveProjectDialog`；`xcodebuild -quiet ... -only-testing:QiaoQiaoLeUITests/AppOverlayUITests/testEditorWorkspaceFixtureUsesTheNativeH5EquivalentChrome -only-testing:QiaoQiaoLeUITests/AppOverlayUITests/testProjectsWorkspaceFixtureUsesNativeSummaryFoldersAndWorkGrid test CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES -resultBundlePath /tmp/qiaoqiaole-project-folder-load-error-r1.xcresult`；通用 Simulator build；`git diff --check`；随后单一串行完整 XCTest：`/tmp/qiaoqiaole-full-project-folder-load-error-r1.xcresult`。 | 通过：保存作品与移动作品对话框读取文件夹失败时，不再用 `try?` 隐藏错误并将空选择误作成功结果。两个对话框均在保留“未分类”可用选项的同时显示“文件夹列表读取失败，点此重新加载”，并提供各自具名的重试入口；读取期间禁用文件夹选择而不阻止已有有效提交。编辑器与作品列表定向 UI XCTest 2/2、通用 Simulator build 与空白检查通过；单一 runner 完整 iOS XCTest 111/111 通过、0 失败/跳过。真实 API transport 与上传/保存端到端仍需签名真机或 TestFlight 补验。 |
 
 | 2026-08-25 | H5 未登录与稿件详情对照：`apps/h5/src/pages/home/HomeShellPage.tsx`、`apps/h5/src/patterns/H5PatternPages.tsx`；原生 `MessagesGuestLandingView`、`ProfileGuestLandingView`、`BeadSummaryCard`；`xcodebuild -quiet -project apps/ios/QiaoQiaoLe.xcodeproj -scheme QiaoQiaoLe -sdk iphonesimulator -destination 'platform=iOS Simulator,id=129319E3-D5CD-4EDB-A6CE-46D1789B3F27' test -only-testing:QiaoQiaoLeUITests/AppOverlayUITests/testUnauthenticatedProfileAndMessagesUseH5GuestStates -only-testing:QiaoQiaoLeUITests/AppOverlayUITests/testCommunityDetailCopyUsesTheExistingLoginGate CODE_SIGNING_ALLOWED=NO`；通用 Simulator build；`git diff --check` | 通过：个人中心未登录态不再落入通用列表空态，补齐 H5 的渐变头图、账户卡、登录后同步提示、豆子仓库/设置入口；消息未登录态补齐 H5 插画式说明、通知文案和登录按钮；稿件详情豆子清单补齐“查看全部颜色”原生 Sheet。相关定向 UI 回归通过，通用构建与空白检查通过。 |
+| 2026-08-26 | H5 仓库视觉参考：`styles.css` 的 `.warehouse-page`、统计/筛选/选择/六列色卡/底部操作区域；原生 `WarehouseDetailView`；基线 `/tmp/qiaoqiaole-warehouse-detail-before.png`；修复后 402pt `/tmp/qiaoqiaole-warehouse-detail-after.png`、375pt `/tmp/qiaoqiaole-warehouse-detail-375-after.png`；红灯 `/tmp/qiaoqiaole-warehouse-detail-layout-red.xcresult`；定向绿灯 `/tmp/qiaoqiaole-warehouse-detail-layout-green-r1.xcresult`；通用 Simulator build；冷启动完整 `/tmp/qiaoqiaole-full-warehouse-detail-layout-cold-r2.xcresult`；`git diff --check`。 | 通过：仓库详情从固定四列大卡改为 H5 同源的六列紧凑方形色块，补齐缺货降透明/橙色提示和选中角标；三项统计合并为带分隔线的分组卡，搜索、字母筛选、选择操作和网格恢复连续白色面板层级，流水下移避免抢占首屏主任务，底部操作 Dock 统一圆角/阴影且只禁用提交按钮。新增 UI 几何回归断言 402pt 下 A1–A6 同排；375/402pt 截图无横向裁切。定向 1/1、冷启动完整 112/112 通过，0 失败/跳过；通用构建与空白检查通过。首轮完整 111/112 的唯一拼豆排序即时查询失败在冷启动单独复跑 1/1 后消失，未改动拼豆业务。 |
+| 2026-08-26 | H5 未登录个人中心：`HomeShellPage.tsx` 的账号/仓库/设置入口与 profile token；原生 `ProfileGuestLandingView`；375pt 冷启动截图 `/tmp/qiaoqiaole-profile-guest-redesign-375-clean.png`；定向 UI `/tmp/qiaoqiaole-profile-guest-redesign-r2.xcresult`；通用 Simulator build；`git diff --check`。 | 通过：删除原生端过重的渐变横幅、装饰网格和无真实库存数据的伪进度条，重构为轻标题、账号说明卡、唯一蓝色登录按钮及连续的仓库/设置列表组；保留“未登录”“登录后同步项目与豆子库存”、登录拦截和所有原有中文无障碍入口。新增 `-ui-testing-profile-guest` 冷启动夹具，使未登录 profile 回归不再依赖先切换 Tab 的偶发 UI 状态；375pt 无裁切，定向 UI XCTest 1/1 通过，通用构建与空白检查通过。底部 Tab 是共享组件，仍偏重，已列为下一轮独立全局视觉切片。 |
+| 2026-08-27 | 用户明确要求以 H5 页面为参考；H5 `HomeShellPage.tsx` / `styles.css` 的 `.profile-hero`、`.profile-account-card`、`.profile-warehouse-card`、`.profile-menu-card`；原生 `ProfileGuestLandingView`；375pt 冷启动截图 `/tmp/qiaoqiaole-profile-guest-h5-375.png`；定向 UI `/tmp/qiaoqiaole-profile-guest-h5-r2.xcresult`；通用 Simulator build；`git diff --check`。 | 通过：撤回上一条偏离 H5 的“工具型账户入口”构图，重新按 H5 恢复全宽深蓝 Hero、右侧轨道/光晕、叠压账号卡、胶囊登录按钮、仓库进度条和“已入库 0 / 221 色 · 共 0 颗”元信息，以及独立设置卡。未登录夹具与中文无障碍入口保持；375pt 实际截图与 H5 结构一致，定向 UI XCTest 1/1、通用构建和空白检查通过。 |
 
 ## 已知差异与风险
 
@@ -297,3 +315,5 @@
 ## 暂停情况
 
 已命中 `GOAL.md` 的外部暂停条件：Release 配置的 `API_BASE_URL` 和 `DEVELOPMENT_TEAM` 均为空，仓库没有生产 HTTPS API、Apple Developer Team/证书、App Store Connect/TestFlight 或审核演示账号的权限与资料；本机只有 iOS 26.2 runtime，并已由 `simctl create` 证实不能创建 iPhone SE 1（320pt）或 iPhone 8 Plus（414pt）。因此无法在不获取用户提供的外部输入的情况下完成发布签名、真机/TestFlight 端到端和精确 320/414pt 最终视觉证据。已完成的本地代码、定向回归、通用 Simulator build 和冷启动完整 iOS XCTest 111/111 仍有效；恢复条件见“下一步”。
+
+| 2026-08-31 | 用户要求调整 iOS 开始拼豆页面 UI，参考 H5；对照 H5 `BeadingSessionPage` / `beadingSession.css`，修改原生 `BeadingSessionView` 的开始态、工作区分层、进度条边界和色号轨道卡片；验证：`xcodebuild -project apps/ios/QiaoQiaoLe.xcodeproj -scheme QiaoQiaoLe -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' build CODE_SIGNING_ALLOWED=NO`；`xcodebuild -quiet -parallel-testing-enabled NO ... -only-testing:QiaoQiaoLeUITests/AppOverlayUITests/testBeadingWorkspaceFixtureUsesTheNativeH5EquivalentChrome test CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES -resultBundlePath /tmp/qiaoqiaole-beading-ui-r1.xcresult`；`xcrun xcresulttool get test-results summary --path /tmp/qiaoqiaole-beading-ui-r1.xcresult`；`git diff --check`。 | 通过：开始态改为 H5 同源的蓝色引导头 + 白色配置卡 + 主操作按钮；工作区改用统一 flow Token，顶部、进度、画布和底部控制区增加清晰分界，色号卡调整为 56×52pt 并保留现有无障碍名称和会话行为。通用 Simulator build 通过，定向 UI XCTest 1/1 通过，diff 空白检查通过。未改变 API、状态机和用户已有的其他文件修改。 |

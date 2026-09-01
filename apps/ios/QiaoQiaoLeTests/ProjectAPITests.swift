@@ -25,6 +25,16 @@ final class ProjectAPITests: XCTestCase {
         XCTAssertEqual(page.projects.map(\.id), ["p1"])
     }
 
+    func testProjectPageAcceptsSQLiteIntegerBooleanAndOptionalListFields() throws {
+        let data = Data(#"{"projects":[{"id":"p1","name":"真实接口作品","rows":20,"cols":18,"tone":"recent-flower","thumbnailImage":null,"sharedToCommunity":0,"sharedAt":null,"createdAt":"2026-08-31","updatedAt":"2026-08-31"},{"id":"p2","folderId":null,"name":"已分享","rows":12,"cols":12,"tone":"recent-bear","thumbnailImage":null,"sharedToCommunity":1,"sharedAt":"2026-08-31","likesCount":3,"createdAt":"2026-08-31","updatedAt":"2026-08-31"}],"page":1,"pageSize":4,"hasMore":false,"total":2}"#.utf8)
+        let page = try JSONDecoder().decode(ProjectPage.self, from: data)
+        XCTAssertEqual(page.projects.count, 2)
+        XCTAssertFalse(page.projects[0].sharedToCommunity)
+        XCTAssertEqual(page.projects[0].likesCount, 0)
+        XCTAssertTrue(page.projects[1].sharedToCommunity)
+        XCTAssertEqual(page.projects[1].likesCount, 3)
+    }
+
     func testLikedProjectPageUsesItsOwnFolderlessListProjection() throws {
         let data = Data(#"{"projects":[{"id":"liked-1","name":"喜欢的稿件","rows":12,"cols":16,"tone":"recent-bear","thumbnailImage":null,"sharedToCommunity":true,"sharedAt":"2026-08-25","likesCount":12,"createdAt":"2026-08-20","updatedAt":"2026-08-25","likedAt":"2026-08-25T10:00:00.000Z"}],"page":1,"pageSize":50,"hasMore":false,"total":1}"#.utf8)
         let page = try JSONDecoder().decode(LikedProjectPage.self, from: data)
@@ -72,7 +82,11 @@ final class ProjectAPITests: XCTestCase {
     }
 
     func testAssetURLResolvesRelativeAPIAssetAndKeepsAbsoluteCDNURL() {
-        XCTAssertEqual(AppAssetURL.url(for: "/api/project-assets?path=abc")?.absoluteString, "http://127.0.0.1:3000/api/project-assets?path=abc")
+        let local = AppAssetURL.url(for: "/api/project-assets?path=abc")
+        XCTAssertEqual(local?.host, APIBaseURLConfiguration.localDevelopmentDefault.host)
+        XCTAssertEqual(local?.port, APIBaseURLConfiguration.localDevelopmentDefault.port)
+        XCTAssertEqual(local?.path, "/api/project-assets")
+        XCTAssertEqual(local?.query, "path=abc")
         XCTAssertEqual(AppAssetURL.url(for: "https://cdn.example.test/thumbnail.webp")?.absoluteString, "https://cdn.example.test/thumbnail.webp")
     }
 
@@ -109,6 +123,14 @@ final class ProjectAPITests: XCTestCase {
         let detail = try JSONDecoder().decode(CommunityDetailResponse.self, from: data).post
         XCTAssertEqual(detail.beadList, [ProjectBeadCount(color: "F5", count: 12)])
         XCTAssertTrue(detail.likedByMe)
+    }
+
+    func testXiaohongshuExtractResponseKeepsMultipleCandidateImages() throws {
+        let data = Data(#"{"imageUrl":"https://ci.xiaohongshu.com/1","title":"测试图纸","images":[{"imageUrl":"https://ci.xiaohongshu.com/1"},{"imageDataUrl":"data:image/png;base64,AQID"}]}"#.utf8)
+        let result = try JSONDecoder().decode(XiaohongshuExtractResponse.self, from: data)
+        XCTAssertEqual(result.title, "测试图纸")
+        XCTAssertEqual(result.availableImages.count, 2)
+        XCTAssertEqual(result.availableImages.first?.imageUrl, "https://ci.xiaohongshu.com/1")
     }
 
     func testCommunityLikeResponsePreservesServerCount() throws {

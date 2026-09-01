@@ -113,4 +113,12 @@ final class AppRouteTests: XCTestCase {
         router.loginSucceeded()
         XCTAssertEqual(router.currentRoute, .projects)
     }
+    func testDrawingLoginGateReopensCreationSheetAfterSuccess() {
+        let router = AppRouter()
+        router.requireLoginForDrawing()
+        XCTAssertEqual(router.overlay?.id, "login")
+        router.loginSucceeded()
+        XCTAssertEqual(router.overlay, .createDrawing)
+    }
+
 }

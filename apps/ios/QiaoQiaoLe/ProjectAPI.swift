@@ -2,10 +2,25 @@ import Foundation
 import Security
 import CryptoKit
 
+private extension KeyedDecodingContainer {
+    func decodeFlexibleBoolIfPresent(forKey key: Key) -> Bool? {
+        if let value = try? decodeIfPresent(Bool.self, forKey: key) { return value }
+        if let value = try? decodeIfPresent(Int.self, forKey: key) { return value != 0 }
+        if let value = try? decodeIfPresent(String.self, forKey: key) {
+            switch value.lowercased() {
+            case "1", "true", "yes": return true
+            case "0", "false", "no": return false
+            default: return nil
+            }
+        }
+        return nil
+    }
+}
+
 /// Transport and DTOs deliberately separate project summaries from the editable
 /// document response. This mirrors the API's list/detail contract and prevents
 /// a project list from accidentally retaining canvas payloads in memory.
-struct ProjectSummary: Codable, Identifiable, Equatable, Sendable {
+struct ProjectSummary: Decodable, Identifiable, Equatable, Sendable {
     let id: String
     let folderId: String?
     let name: String
@@ -18,9 +33,35 @@ struct ProjectSummary: Codable, Identifiable, Equatable, Sendable {
     let likesCount: Int
     let createdAt: String
     let updatedAt: String
+
+    private enum CodingKeys: String, CodingKey {
+        case id, folderId, name, rows, cols, tone, thumbnailImage, sharedToCommunity, sharedAt, likesCount, createdAt, updatedAt
+    }
+
+    init(id: String, folderId: String?, name: String, rows: Int, cols: Int, tone: String, thumbnailImage: String?, sharedToCommunity: Bool, sharedAt: String?, likesCount: Int, createdAt: String, updatedAt: String) {
+        self.id = id; self.folderId = folderId; self.name = name; self.rows = rows; self.cols = cols; self.tone = tone
+        self.thumbnailImage = thumbnailImage; self.sharedToCommunity = sharedToCommunity; self.sharedAt = sharedAt; self.likesCount = likesCount
+        self.createdAt = createdAt; self.updatedAt = updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        folderId = try c.decodeIfPresent(String.self, forKey: .folderId)
+        name = (try c.decodeIfPresent(String.self, forKey: .name)) ?? "未命名作品"
+        rows = (try c.decodeIfPresent(Int.self, forKey: .rows)) ?? 1
+        cols = (try c.decodeIfPresent(Int.self, forKey: .cols)) ?? 1
+        tone = (try c.decodeIfPresent(String.self, forKey: .tone)) ?? "recent-flower"
+        thumbnailImage = try c.decodeIfPresent(String.self, forKey: .thumbnailImage)
+        sharedToCommunity = c.decodeFlexibleBoolIfPresent(forKey: .sharedToCommunity) ?? false
+        sharedAt = try c.decodeIfPresent(String.self, forKey: .sharedAt)
+        likesCount = (try c.decodeIfPresent(Int.self, forKey: .likesCount)) ?? 0
+        createdAt = (try c.decodeIfPresent(String.self, forKey: .createdAt)) ?? ""
+        updatedAt = (try c.decodeIfPresent(String.self, forKey: .updatedAt)) ?? createdAt
+    }
 }
 
-struct ProjectDetail: Codable, Identifiable, Equatable, Sendable {
+struct ProjectDetail: Decodable, Identifiable, Equatable, Sendable {
     let id: String
     let folderId: String?
     let name: String
@@ -37,6 +78,30 @@ struct ProjectDetail: Codable, Identifiable, Equatable, Sendable {
     let likesCount: Int
     let createdAt: String
     let updatedAt: String
+
+    private enum CodingKeys: String, CodingKey {
+        case id, folderId, name, rows, cols, tone, sourceImage, thumbnailImage, canvasData, beadList, revision, sharedToCommunity, sharedAt, likesCount, createdAt, updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        folderId = try c.decodeIfPresent(String.self, forKey: .folderId)
+        name = (try c.decodeIfPresent(String.self, forKey: .name)) ?? "未命名作品"
+        rows = (try c.decodeIfPresent(Int.self, forKey: .rows)) ?? 1
+        cols = (try c.decodeIfPresent(Int.self, forKey: .cols)) ?? 1
+        tone = (try c.decodeIfPresent(String.self, forKey: .tone)) ?? "recent-flower"
+        sourceImage = try c.decodeIfPresent(String.self, forKey: .sourceImage)
+        thumbnailImage = try c.decodeIfPresent(String.self, forKey: .thumbnailImage)
+        canvasData = (try c.decodeIfPresent(String.self, forKey: .canvasData)) ?? "[]"
+        beadList = try c.decodeIfPresent(String.self, forKey: .beadList)
+        revision = try c.decodeIfPresent(Int.self, forKey: .revision)
+        sharedToCommunity = c.decodeFlexibleBoolIfPresent(forKey: .sharedToCommunity) ?? false
+        sharedAt = try c.decodeIfPresent(String.self, forKey: .sharedAt)
+        likesCount = (try c.decodeIfPresent(Int.self, forKey: .likesCount)) ?? 0
+        createdAt = (try c.decodeIfPresent(String.self, forKey: .createdAt)) ?? ""
+        updatedAt = (try c.decodeIfPresent(String.self, forKey: .updatedAt)) ?? createdAt
+    }
 }
 
 struct ProjectFolder: Codable, Identifiable, Equatable, Sendable {
@@ -84,16 +149,66 @@ struct BeadingSession: Codable, Equatable, Sendable, Identifiable {
     let version: Int
 }
 
-struct InventoryCheck: Codable, Equatable, Sendable {
+struct InventoryCheck: Decodable, Equatable, Sendable {
     let warehouseId: String?
     let warehouseName: String?
     let items: [InventoryCheckItem]
     let summary: InventoryCheckSummary
 }
-struct InventoryCheckItem: Codable, Equatable, Sendable, Identifiable { let colorCode: String; let required: Int; let available: Int; let missing: Int; var id: String { colorCode } }
-struct InventoryCheckSummary: Codable, Equatable, Sendable { let sufficient: Bool; let missingColorCount: Int; let missingBeadCount: Int }
 
-struct ProjectPage: Codable, Equatable, Sendable {
+struct InventoryCheckItem: Decodable, Equatable, Sendable, Identifiable {
+    let colorCode: String
+    let required: Int
+    let available: Int
+    let missing: Int
+    let sufficient: Bool
+    var id: String { colorCode }
+
+    init(colorCode: String, required: Int, available: Int, missing: Int, sufficient: Bool? = nil) {
+        self.colorCode = colorCode
+        self.required = required
+        self.available = available
+        self.missing = missing
+        self.sufficient = sufficient ?? (missing == 0)
+    }
+
+    private enum CodingKeys: String, CodingKey { case colorCode, required, available, missing, sufficient }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        colorCode = try c.decode(String.self, forKey: .colorCode)
+        required = try c.decode(Int.self, forKey: .required)
+        available = try c.decode(Int.self, forKey: .available)
+        missing = try c.decode(Int.self, forKey: .missing)
+        sufficient = try c.decodeIfPresent(Bool.self, forKey: .sufficient) ?? (missing == 0)
+    }
+}
+
+struct InventoryCheckSummary: Decodable, Equatable, Sendable {
+    let sufficient: Bool
+    let required: Int
+    let available: Int
+    let missing: Int
+    var missingColorCount: Int { 0 } // UI derives exact color count from items when needed.
+    var missingBeadCount: Int { missing }
+
+    init(sufficient: Bool, required: Int = 0, available: Int = 0, missing: Int = 0) {
+        self.sufficient = sufficient
+        self.required = required
+        self.available = available
+        self.missing = missing
+    }
+
+    private enum CodingKeys: String, CodingKey { case sufficient, required, available, missing, missingBeadCount }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sufficient = try c.decode(Bool.self, forKey: .sufficient)
+        required = try c.decodeIfPresent(Int.self, forKey: .required) ?? 0
+        available = try c.decodeIfPresent(Int.self, forKey: .available) ?? 0
+        missing = try c.decodeIfPresent(Int.self, forKey: .missing) ?? c.decodeIfPresent(Int.self, forKey: .missingBeadCount) ?? 0
+    }
+}
+
+struct ProjectPage: Decodable, Equatable, Sendable {
     let projects: [ProjectSummary]
     let page: Int
     let pageSize: Int
@@ -104,7 +219,7 @@ struct ProjectPage: Codable, Equatable, Sendable {
 /// `/projects/liked` is a separate list projection: the source project folder
 /// is intentionally not exposed to the viewer, while `likedAt` determines its
 /// ordering. Do not decode it as `ProjectSummary`.
-struct LikedProjectSummary: Codable, Identifiable, Equatable, Sendable {
+struct LikedProjectSummary: Decodable, Identifiable, Equatable, Sendable {
     let id: String
     let name: String
     let rows: Int
@@ -117,8 +232,28 @@ struct LikedProjectSummary: Codable, Identifiable, Equatable, Sendable {
     let createdAt: String
     let updatedAt: String
     let likedAt: String
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, rows, cols, tone, thumbnailImage, sharedToCommunity, sharedAt, likesCount, createdAt, updatedAt, likedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = (try c.decodeIfPresent(String.self, forKey: .name)) ?? "未命名作品"
+        rows = (try c.decodeIfPresent(Int.self, forKey: .rows)) ?? 1
+        cols = (try c.decodeIfPresent(Int.self, forKey: .cols)) ?? 1
+        tone = (try c.decodeIfPresent(String.self, forKey: .tone)) ?? "recent-flower"
+        thumbnailImage = try c.decodeIfPresent(String.self, forKey: .thumbnailImage)
+        sharedToCommunity = c.decodeFlexibleBoolIfPresent(forKey: .sharedToCommunity) ?? true
+        sharedAt = try c.decodeIfPresent(String.self, forKey: .sharedAt)
+        likesCount = (try c.decodeIfPresent(Int.self, forKey: .likesCount)) ?? 0
+        createdAt = (try c.decodeIfPresent(String.self, forKey: .createdAt)) ?? ""
+        updatedAt = (try c.decodeIfPresent(String.self, forKey: .updatedAt)) ?? createdAt
+        likedAt = (try c.decodeIfPresent(String.self, forKey: .likedAt)) ?? updatedAt
+    }
 }
-struct LikedProjectPage: Codable, Equatable, Sendable { let projects: [LikedProjectSummary]; let page: Int; let pageSize: Int; let hasMore: Bool; let total: Int }
+struct LikedProjectPage: Decodable, Equatable, Sendable { let projects: [LikedProjectSummary]; let page: Int; let pageSize: Int; let hasMore: Bool; let total: Int }
 
 /// Community list projection. It intentionally excludes canvasData, beadList,
 /// sourceImage and other detail-only fields returned by GET /community/posts/:id.
@@ -224,6 +359,19 @@ enum CommunityMessageTime {
 }
 
 enum CommunityPostPresentation {
+    static func commentTime(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        let iso = ISO8601DateFormatter()
+        if let date = iso.date(from: trimmed) {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "zh_CN")
+            formatter.dateFormat = "yyyy/M/d HH:mm"
+            return formatter.string(from: date)
+        }
+        return String(trimmed.prefix(16)).replacingOccurrences(of: "T", with: " ")
+    }
+
     static func publicationTime(_ value: String) -> String {
         let parser = ISO8601DateFormatter()
         guard let date = parser.date(from: value) else { return "时间未知" }
@@ -356,7 +504,13 @@ actor APIClient {
             throw APIError(message: payload?.message ?? Self.errorMessage(data) ?? "请求失败（\(http.statusCode)）", status: http.statusCode, code: payload?.error, session: payload?.session)
         }
         do { return try JSONDecoder().decode(Response.self, from: data) }
-        catch { throw APIError(message: "服务器数据格式无效") }
+        catch {
+            #if DEBUG
+            let body = String(data: data.prefix(4_096), encoding: .utf8) ?? "<non-utf8>"
+            print("[API decode] \(path) -> \(Response.self): \(error)\n\(body)")
+            #endif
+            throw APIError(message: "服务器数据格式无效")
+        }
     }
 
     private func url(for path: String) throws -> URL {
@@ -493,6 +647,15 @@ struct ProjectRepository {
         return response
     }
 
+    func extractXiaohongshu(link: String, token: String) async throws -> XiaohongshuExtractResponse {
+        try await client.request("xiaohongshu/extract", method: "POST", token: token, body: XiaohongshuExtractInput(url: link))
+    }
+
+    func downloadXiaohongshuImage(imageURL: String, token: String) async throws -> String {
+        let response: XiaohongshuImageResponse = try await client.request("xiaohongshu/image", method: "POST", token: token, body: XiaohongshuImageInput(imageUrl: imageURL))
+        return response.imageDataUrl
+    }
+
     func shareProject(id: String, tags: [String], token: String) async throws -> ProjectShareResult {
         try await client.request("projects/\(id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id)/share", method: "POST", token: token, body: CommunityTagsInput(tags: tags))
     }
@@ -611,6 +774,13 @@ struct ProjectRepository {
         return session
     }
 
+    func projectInventoryCheck(projectID: String, warehouseID: String? = nil, token: String) async throws -> InventoryCheck {
+        try await client.request(
+            "v1/projects/\(projectID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? projectID)/inventory-check",
+            method: "POST", token: token, body: BeadingInventoryCheckInput(warehouseId: warehouseID)
+        )
+    }
+
     func inventoryCheck(sessionID: String, warehouseID: String? = nil, token: String) async throws -> InventoryCheck {
         let response: InventoryCheck = try await client.request("v1/beading-sessions/\(sessionID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sessionID)/inventory-check", method: "POST", token: token, body: BeadingInventoryCheckInput(warehouseId: warehouseID))
         return response
@@ -663,6 +833,29 @@ struct ProjectUploadImage: Encodable {
 
 private struct ProjectUploadRequest: Encodable { let images: [ProjectUploadImage] }
 struct ProjectImagePaths: Decodable { let sourceImagePath: String?; let thumbnailImagePath: String? }
+
+struct XiaohongshuExtractedImage: Decodable, Equatable, Sendable, Identifiable {
+    let imageUrl: String?
+    let imageDataUrl: String?
+    var id: String { imageUrl ?? String((imageDataUrl ?? "embedded-image").prefix(96)) }
+}
+
+struct XiaohongshuExtractResponse: Decodable, Equatable, Sendable {
+    let imageUrl: String?
+    let imageDataUrl: String?
+    let title: String?
+    let images: [XiaohongshuExtractedImage]?
+
+    var availableImages: [XiaohongshuExtractedImage] {
+        if let images, !images.isEmpty { return images.filter { !($0.imageUrl ?? "").isEmpty || !($0.imageDataUrl ?? "").isEmpty } }
+        let fallback = XiaohongshuExtractedImage(imageUrl: imageUrl, imageDataUrl: imageDataUrl)
+        return ((imageUrl ?? "").isEmpty && (imageDataUrl ?? "").isEmpty) ? [] : [fallback]
+    }
+}
+
+private struct XiaohongshuExtractInput: Encodable { let url: String }
+private struct XiaohongshuImageInput: Encodable { let imageUrl: String }
+private struct XiaohongshuImageResponse: Decodable { let imageDataUrl: String }
 struct ProjectShareResult: Decodable { let shared: Bool; let sharedAt: String?; let projectId: String; let tags: [String] }
 struct CommunityPostResponse: Decodable { let post: CommunityPostTags }
 struct CommunityPostTags: Decodable { let tags: [String] }
@@ -787,6 +980,8 @@ final class AppSession: ObservableObject {
 final class ProjectListStore: ObservableObject {
     @Published private(set) var projects: [ProjectSummary] = []
     @Published private(set) var folders: [ProjectFolder] = []
+    @Published private(set) var total = 0
+    @Published private(set) var overallTotal = 0
     @Published private(set) var isLoading = false
     @Published private(set) var hasMore = false
     @Published private(set) var error: String?
@@ -804,11 +999,12 @@ final class ProjectListStore: ObservableObject {
             let (result, folderResult) = try await (pageResult, foldersResult)
             guard requestID == id else { return }
             projects = reset ? result.projects : projects + result.projects
-            folders = folderResult; page = result.page; hasMore = result.hasMore
+            folders = folderResult; page = result.page; hasMore = result.hasMore; total = result.total
+            if selectedFolderID == nil || selectedFolderID == "all" { overallTotal = result.total }
         } catch {
             guard requestID == id else { return }
             self.error = error.localizedDescription
-            if reset { projects = []; hasMore = false }
+            if reset { projects = []; hasMore = false; total = 0 }
         }
         if requestID == id { isLoading = false }
     }

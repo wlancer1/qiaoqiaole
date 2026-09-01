@@ -1,6 +1,19 @@
 import Foundation
 import SwiftUI
 
+struct H5Icon: View {
+    let name: String
+    var size: CGFloat = 20
+
+    var body: some View {
+        Image(name)
+            .renderingMode(.template)
+            .resizable()
+            .scaledToFit()
+            .frame(width: size, height: size)
+    }
+}
+
 /// Native counterpart of apps/h5/src/app/h5Routes.ts. Every H5 route receives a
 /// stable, shareable route value before its feature screen is implemented.
 enum HomeTab: String, CaseIterable, Hashable, Identifiable {
@@ -120,10 +133,12 @@ enum AppRoute: Hashable, Identifiable {
 }
 
 enum AppOverlay: Identifiable, Equatable {
+    case createDrawing
     case login(returnTo: AppRoute?)
     case confirm(Confirmation)
     case saveProject
     case createProjectFolder
+    case projectActions(ProjectSummary)
     case moveProject(ProjectSummary)
     case deleteProject(ProjectSummary)
     case deleteWarehouse(WarehouseSummary)
@@ -136,10 +151,12 @@ enum AppOverlay: Identifiable, Equatable {
 
     var id: String {
         switch self {
+        case .createDrawing: "create-drawing"
         case .login: "login"
         case .confirm(let confirmation): "confirm-\(confirmation.id)"
         case .saveProject: "save-project"
         case .createProjectFolder: "create-project-folder"
+        case .projectActions(let project): "project-actions-\(project.id)"
         case .moveProject(let project): "move-project-\(project.id)"
         case .deleteProject(let project): "delete-project-\(project.id)"
         case .deleteWarehouse(let warehouse): "delete-warehouse-\(warehouse.id)"
@@ -218,6 +235,7 @@ final class AppRouter: ObservableObject {
     @Published private(set) var warehouseRevision = 0
 
     private var pendingProtectedRoute: AppRoute?
+    private var reopenDrawingAfterLogin = false
 
     init() {
         if ProcessInfo.processInfo.arguments.contains("-ui-testing-confirmation") {
@@ -228,11 +246,24 @@ final class AppRouter: ObservableObject {
                 isDestructive: false
             ))
         }
+        if ProcessInfo.processInfo.arguments.contains("-ui-testing-login-dialog") {
+            overlay = .login(returnTo: nil)
+        }
+        if ProcessInfo.processInfo.arguments.contains("-ui-testing-create-drawing-dialog") {
+            overlay = .createDrawing
+        }
+        if ProcessInfo.processInfo.arguments.contains("-ui-testing-save-project-dialog") {
+            path = [.canvas]
+            overlay = .saveProject
+        }
         if ProcessInfo.processInfo.arguments.contains("-ui-testing-beading-workspace") || ProcessInfo.processInfo.arguments.contains("-ui-testing-beading-warehouse-error") {
             path = [.beading]
         }
         if ProcessInfo.processInfo.arguments.contains("-ui-testing-editor-workspace") {
             path = [.canvas]
+        }
+        if ProcessInfo.processInfo.arguments.contains("-ui-testing-split-workspace") || ProcessInfo.processInfo.arguments.contains("-ui-testing-split-align-workspace") {
+            path = [.split]
         }
         if ProcessInfo.processInfo.arguments.contains("-ui-testing-split-crop-workspace") {
             path = [.splitCrop]
@@ -258,7 +289,7 @@ final class AppRouter: ObservableObject {
         if ProcessInfo.processInfo.arguments.contains("-ui-testing-warehouse-detail-workspace") {
             path = [.warehouseDetail("warehouse-detail-fixture")]
         }
-        if ProcessInfo.processInfo.arguments.contains("-ui-testing-profile-workspace") || ProcessInfo.processInfo.arguments.contains("-ui-testing-profile-summary-error") {
+        if ProcessInfo.processInfo.arguments.contains("-ui-testing-profile-workspace") || ProcessInfo.processInfo.arguments.contains("-ui-testing-profile-summary-error") || ProcessInfo.processInfo.arguments.contains("-ui-testing-profile-guest") {
             selectedTab = .profile
         }
         if ProcessInfo.processInfo.arguments.contains("-ui-testing-discover-workspace") {
@@ -291,7 +322,14 @@ final class AppRouter: ObservableObject {
 
     func requireLogin(returnTo route: AppRoute) {
         pendingProtectedRoute = route
+        reopenDrawingAfterLogin = false
         overlay = .login(returnTo: route)
+    }
+
+    func requireLoginForDrawing() {
+        pendingProtectedRoute = nil
+        reopenDrawingAfterLogin = true
+        overlay = .login(returnTo: nil)
     }
 
     /// Replaces the current deep-link route while preserving the normal login gate.
@@ -325,6 +363,11 @@ final class AppRouter: ObservableObject {
         isAuthenticated = true
         isOverlaySubmitting = false
         overlay = nil
+        if reopenDrawingAfterLogin {
+            reopenDrawingAfterLogin = false
+            overlay = .createDrawing
+            return
+        }
         if let pendingProtectedRoute { self.pendingProtectedRoute = nil; apply(route: pendingProtectedRoute) }
     }
 
@@ -334,6 +377,7 @@ final class AppRouter: ObservableObject {
 
     func loginCancelled() {
         pendingProtectedRoute = nil
+        reopenDrawingAfterLogin = false
         overlay = nil
     }
 
@@ -370,5 +414,70 @@ final class AppRouter: ObservableObject {
         clearRouteStatus()
         if case .home(let tab) = route { select(tab: tab); return }
         path.append(route)
+    }
+}
+
+
+/// Matches H5 `RouteLoadingFallback`: a compact 3×3 pixel pulse on the flow background.
+/// The content is delayed by 300 ms so fast route transitions do not flash a spinner.
+struct H5RouteLoadingView: View {
+    let label: String
+    let description: String
+    @State private var reveal = false
+    @State private var pulse = false
+
+    init(label: String = "正在准备页面", description: String = "拼出精彩，只差一点点") {
+        self.label = label
+        self.description = description
+    }
+
+    private let delays: [Double] = [0, 0.10, 0.20, 0.10, 0.20, 0.30, 0.20, 0.30, 0.40]
+
+    var body: some View {
+        ZStack {
+            AppTokens.flowBackground.ignoresSafeArea()
+            if reveal {
+                VStack(spacing: 4) {
+                    LazyVGrid(columns: Array(repeating: GridItem(.fixed(13), spacing: 5), count: 3), spacing: 5) {
+                        ForEach(0..<9, id: \.self) { index in
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(AppTokens.flowBrand)
+                                .frame(width: 13, height: 13)
+                                .opacity(pulse ? 0.2 : 1)
+                                .scaleEffect(pulse ? 0.78 : 1)
+                                .animation(
+                                    .easeInOut(duration: 0.525)
+                                        .repeatForever(autoreverses: true)
+                                        .delay(delays[index]),
+                                    value: pulse
+                                )
+                        }
+                    }
+                    .frame(width: 49, height: 49)
+                    .padding(.bottom, 12)
+
+                    Text(label)
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(AppTokens.flowText)
+                    Text(description)
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(Color(hex: "667085"))
+                        .padding(.top, 1)
+                }
+                .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(.updatesFrequently)
+        .task {
+            do {
+                try await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeOut(duration: 0.12)) { reveal = true }
+                pulse = true
+            } catch { }
+        }
     }
 }

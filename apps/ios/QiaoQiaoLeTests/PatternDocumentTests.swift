@@ -100,14 +100,14 @@ final class PatternDocumentTests: XCTestCase {
         XCTAssertEqual(document.cell(at: 0, 0).color, Palette.default[2])
         XCTAssertEqual(document.cell(at: 0, 1).color, Palette.default[2])
         XCTAssertEqual(document.cell(at: 1, 0).color, Palette.default[2])
-        XCTAssertEqual(document.cell(at: 0, 2).color, Palette.default[1])
-        XCTAssertEqual(document.cell(at: 1, 1).color, Palette.default[1])
-        XCTAssertEqual(document.cell(at: 1, 2).color, Palette.default[0])
+        XCTAssertEqual(document.cell(at: 0, 2).color, Palette.token(for: "#F04B4C"))
+        XCTAssertEqual(document.cell(at: 1, 1).color, Palette.token(for: "#F04B4C"))
+        XCTAssertEqual(document.cell(at: 1, 2).color, Palette.token(for: "#146CFF"))
 
         document.undo()
-        XCTAssertEqual(document.cell(at: 0, 0).color, Palette.default[0])
-        XCTAssertEqual(document.cell(at: 0, 1).color, Palette.default[0])
-        XCTAssertEqual(document.cell(at: 1, 0).color, Palette.default[0])
+        XCTAssertEqual(document.cell(at: 0, 0).color, Palette.token(for: "#146CFF"))
+        XCTAssertEqual(document.cell(at: 0, 1).color, Palette.token(for: "#146CFF"))
+        XCTAssertEqual(document.cell(at: 1, 0).color, Palette.token(for: "#146CFF"))
     }
     func testNoopBrushAndEraserDoNotCreateHistory() {
         let document = PatternDocument()
@@ -173,13 +173,13 @@ final class PatternDocumentTests: XCTestCase {
         XCTAssertTrue(document.loadProject(id: "p1", name: "旧作品", columns: 2, rows: 2, canvasData: payload))
         XCTAssertEqual(document.activeProjectID, "p1")
         XCTAssertEqual(document.projectName, "旧作品")
-        XCTAssertEqual(document.cell(at: 0, 0).color, Palette.default[0])
+        XCTAssertEqual(document.cell(at: 0, 0).color, Palette.token(for: "#146CFF"))
         XCTAssertEqual(document.cell(at: 0, 1).color, Palette.empty)
     }
     func testSharedH5CanvasParserKeepsCoordinatesAndTransparency() {
         let payload = ##"[{"x":1,"y":0,"color":"#F04B4C","transparent":false},{"x":0,"y":0,"color":"#ffffff","transparent":true},{"x":0,"y":1,"color":"#31A36A","transparent":false},{"x":1,"y":1,"color":"#146CFF","transparent":false}]"##
         let parsed = PatternDocument.parseH5Canvas(columns: 2, rows: 2, canvasData: payload)
-        XCTAssertEqual(parsed?.cells.map(\.color), [Palette.empty, Palette.default.first { $0.hex == "F04B4C" }!, Palette.default.first { $0.hex == "31A36A" }!, Palette.default[0]])
+        XCTAssertEqual(parsed?.cells.map(\.color), [Palette.empty, Palette.token(for: "#F04B4C"), Palette.token(for: "#31A36A"), Palette.token(for: "#146CFF")])
     }
     func testBeadingDraftsAreIsolatedByAccountAndSession() {
         let suite = "BeadingDraftStoreTests.\(UUID().uuidString)"
@@ -215,6 +215,18 @@ final class PatternDocumentTests: XCTestCase {
         XCTAssertTrue(matchingC8.allSatisfy { $0.code.lowercased().contains("c8") || "#\($0.hex)".lowercased().contains("c8") })
         XCTAssertEqual(document.paletteColors(matching: "#FAF4").map(\.code), ["A1"])
     }
+    func testStartingBlankProjectClearsExistingProjectIdentity() {
+        let document = PatternDocument()
+        let payload = ##"[{"x":0,"y":0,"color":"#faf4c8","transparent":false},{"x":1,"y":0,"color":"#ffffff","transparent":true},{"x":0,"y":1,"color":"#ffffff","transparent":true},{"x":1,"y":1,"color":"#ffffff","transparent":true}]"##
+        XCTAssertTrue(document.loadProject(id: "old", name: "旧作品", columns: 2, rows: 2, canvasData: payload))
+        document.startBlankProject(columns: 24, rows: 18)
+        XCTAssertNil(document.activeProjectID)
+        XCTAssertEqual(document.projectName, "未命名作品")
+        XCTAssertEqual(document.columns, 24)
+        XCTAssertEqual(document.rows, 18)
+        XCTAssertTrue(document.cells.allSatisfy { $0.color == Palette.empty })
+    }
+
     func testRendersProjectThumbnail() {
         XCTAssertFalse(PatternDocument().projectThumbnailPNG()?.isEmpty ?? true)
     }

@@ -12,3 +12,6 @@ playwright-report
 data/*.sqlite
 data/*.sqlite-*
 data
+# Xcode per-user workspace state
+**/xcuserdata/
+*.xcuserstate

@@ -4,17 +4,22 @@ import XCTest
 
 @MainActor
 final class SplitWorkflowTests: XCTestCase {
-    func testImageCreatesAspectMatchedGridAndImportsIntoEditor() {
+    func testImageCreatesAspectMatchedGridAndImportsIntoEditor() async {
         let workflow = SplitWorkflow()
         workflow.load(image: solidImage(width: 8, height: 4, color: .red), name: "fixture")
         workflow.updateLongSide(8)
 
         XCTAssertEqual(workflow.columns, 8)
         XCTAssertEqual(workflow.rows, 4)
-        XCTAssertEqual(workflow.previewColors.count, 32)
+        XCTAssertTrue(workflow.previewColors.isEmpty, "H5 defers pixel sampling until preview")
         XCTAssertTrue(workflow.canContinue)
+        XCTAssertFalse(workflow.canImport)
+        workflow.generatePreview()
+        await waitForPreview(workflow)
+        XCTAssertEqual(workflow.previewColors.count, 32)
         XCTAssertEqual(workflow.previewColors.first?.code, "F5")
         XCTAssertEqual(workflow.beadList, [ProjectBeadCount(color: "F5", count: 32)])
+        XCTAssertTrue(workflow.canImport)
 
         let document = PatternDocument()
         workflow.importTo(document: document)
@@ -32,8 +37,8 @@ final class SplitWorkflowTests: XCTestCase {
 
         XCTAssertEqual(workflow.image?.imageOrientation, .up)
         XCTAssertEqual(workflow.image?.size, CGSize(width: 8, height: 4))
-        XCTAssertEqual(workflow.columns, 32)
-        XCTAssertEqual(workflow.rows, 16)
+        XCTAssertEqual(workflow.columns, 8)
+        XCTAssertEqual(workflow.rows, 4)
     }
 
     func testSplitUsesCompleteMard221Palette() {
@@ -41,6 +46,13 @@ final class SplitWorkflowTests: XCTestCase {
         XCTAssertEqual(Mard221Palette.colors.first, ColorToken(hex: "FAF4C8", code: "A1"))
         XCTAssertEqual(Mard221Palette.colors.last, ColorToken(hex: "757D78", code: "M15"))
         XCTAssertEqual(Mard221Palette.nearest(red: 250, green: 2, blue: 0).code, "F5")
+    }
+
+    func testMard221ResolverMatchesH5HexAndCodeBehavior() {
+        XCTAssertEqual(Mard221Palette.resolve("A1"), ColorToken(hex: "FAF4C8", code: "A1"))
+        XCTAssertEqual(Mard221Palette.resolve("#faf4c8")?.code, "A1")
+        XCTAssertEqual(Mard221Palette.resolve("#146cff")?.code, "C7")
+        XCTAssertNil(Mard221Palette.resolve("not-a-color"))
     }
 
     func testEachCellUsesItsDominantMappedColorInsteadOfCenterPixel() {
@@ -65,7 +77,7 @@ final class SplitWorkflowTests: XCTestCase {
         XCTAssertEqual(grid, AlignedSplitGrid(columns: 3, rows: 1, cellSize: 5, offsetX: 3, offsetY: 4))
 
         let clamped = AlignedSplitGeometry.grid(cropWidth: 20, cropHeight: 12, cellSize: 5, offsetX: 99, offsetY: -3)
-        XCTAssertEqual(clamped, AlignedSplitGrid(columns: 1, rows: 2, cellSize: 5, offsetX: 15, offsetY: 0))
+        XCTAssertEqual(clamped, AlignedSplitGrid(columns: 3, rows: 2, cellSize: 5, offsetX: 4, offsetY: 2))
     }
 
     func testDirectAlignmentOffsetUsesSameClampingAsFineAdjustment() {
@@ -73,9 +85,55 @@ final class SplitWorkflowTests: XCTestCase {
         workflow.load(image: solidImage(width: 20, height: 12, color: .red), name: "fixture")
         workflow.setSplitMode(.align)
         workflow.updateAlignmentCellSize(5)
+        let effectiveCellSize = workflow.alignmentCellSize
+        let expected = AlignedSplitGeometry.grid(
+            cropWidth: 20,
+            cropHeight: 12,
+            cellSize: effectiveCellSize,
+            offsetX: 99,
+            offsetY: -4
+        )
         workflow.setAlignmentOffset(CGPoint(x: 99, y: -4))
-        XCTAssertEqual(workflow.alignmentOffset, CGPoint(x: 15, y: 0))
-        XCTAssertEqual(workflow.alignedGrid, AlignedSplitGrid(columns: 1, rows: 2, cellSize: 5, offsetX: 15, offsetY: 0))
+        XCTAssertEqual(workflow.alignmentOffset.x, expected.offsetX, accuracy: 0.0001)
+        XCTAssertEqual(workflow.alignmentOffset.y, expected.offsetY, accuracy: 0.0001)
+        XCTAssertEqual(workflow.alignedGrid.columns, expected.columns)
+        XCTAssertEqual(workflow.alignedGrid.rows, expected.rows)
+        XCTAssertEqual(workflow.alignedGrid.cellSize, expected.cellSize, accuracy: 0.0001)
+    }
+
+    func testAlignmentControlFrameMovesGridWithoutGeneratingPreview() {
+        let workflow = SplitWorkflow()
+        workflow.load(image: solidImage(width: 100, height: 75, color: .red), name: "fixture")
+        workflow.updateLongSide(10)
+        workflow.setSplitMode(.align)
+
+        let origin = workflow.alignmentFrameOrigin
+        let offset = workflow.alignedGrid
+        workflow.moveGridControlFrame(x: 1, y: 1)
+
+        XCTAssertEqual(workflow.alignmentFrameOrigin.x, origin.x + 1, accuracy: 0.001)
+        XCTAssertEqual(workflow.alignmentFrameOrigin.y, origin.y + 1, accuracy: 0.001)
+        XCTAssertEqual(workflow.alignedGrid.offsetX, offset.offsetX + 1, accuracy: 0.001)
+        XCTAssertEqual(workflow.alignedGrid.offsetY, offset.offsetY + 1, accuracy: 0.001)
+        XCTAssertTrue(workflow.previewColors.isEmpty, "对格子拖动只应更新几何，不应同步重新取色")
+    }
+
+    func testAlignmentScalingUsesThreeByThreeControlFrameAsAnchor() {
+        let workflow = SplitWorkflow()
+        workflow.load(image: solidImage(width: 100, height: 75, color: .red), name: "fixture")
+        workflow.updateLongSide(10)
+        workflow.setSplitMode(.align)
+
+        let origin = workflow.alignmentFrameOrigin
+        let originalCellSize = workflow.alignmentCellSize
+        workflow.updateAlignmentCellSize(originalCellSize + 1)
+
+        XCTAssertEqual(workflow.alignmentFrameOrigin.x, origin.x, accuracy: 0.001)
+        XCTAssertEqual(workflow.alignmentFrameOrigin.y, origin.y, accuracy: 0.001)
+        XCTAssertEqual(workflow.alignmentOffset.x, origin.x, accuracy: 0.001)
+        XCTAssertEqual(workflow.alignmentOffset.y, origin.y, accuracy: 0.001)
+        XCTAssertGreaterThan(workflow.alignmentCellSize, originalCellSize)
+        XCTAssertTrue(workflow.previewColors.isEmpty)
     }
 
     func testAlignedSamplingStartsAtConfiguredGridOffset() {
@@ -198,7 +256,7 @@ final class SplitWorkflowTests: XCTestCase {
         XCTAssertEqual(result.height, 512)
     }
 
-    func testCropChangesGridAspectAndIsClampedToImage() {
+    func testCropChangesGridAspectAndIsClampedToImage() async {
         let workflow = SplitWorkflow()
         workflow.load(image: solidImage(width: 8, height: 4, color: .red), name: "fixture")
         workflow.updateLongSide(8)
@@ -206,9 +264,43 @@ final class SplitWorkflowTests: XCTestCase {
         XCTAssertEqual(workflow.cropRect, CGRect(x: 0.5, y: 0, width: 0.5, height: 1))
         XCTAssertEqual(workflow.columns, 8)
         XCTAssertEqual(workflow.rows, 8)
+        XCTAssertTrue(workflow.previewColors.isEmpty, "Cropping must not synchronously resample the source image")
+        workflow.generatePreview()
+        await waitForPreview(workflow)
         XCTAssertEqual(workflow.previewColors.count, 64)
         workflow.setCrop(CGRect(x: -1, y: -1, width: 2, height: 2))
         XCTAssertEqual(workflow.cropRect, CGRect(x: 0, y: 0, width: 1, height: 1))
+    }
+
+    func testQuickGeometryMatchesH5LongSideRulesWithoutGeneratingPixels() {
+        let workflow = SplitWorkflow()
+        workflow.load(image: solidImage(width: 300, height: 150, color: .red), name: "large")
+        XCTAssertEqual(workflow.longSide, 144)
+        XCTAssertEqual(workflow.maximumLongSide, 144)
+        XCTAssertEqual(workflow.columns, 144)
+        XCTAssertEqual(workflow.rows, 72)
+        XCTAssertTrue(workflow.previewColors.isEmpty)
+
+        workflow.updateLongSide(80)
+        XCTAssertEqual(workflow.columns, 80)
+        XCTAssertEqual(workflow.rows, 40)
+        XCTAssertTrue(workflow.previewColors.isEmpty)
+    }
+
+    func testAlignedGridNormalizesOffsetModuloCellSizeLikeH5() {
+        let grid = AlignedSplitGeometry.grid(cropWidth: 20, cropHeight: 12, cellSize: 5, offsetX: 99, offsetY: -4)
+        XCTAssertEqual(grid, AlignedSplitGrid(columns: 3, rows: 2, cellSize: 5, offsetX: 4, offsetY: 1))
+    }
+
+    private func waitForPreview(_ workflow: SplitWorkflow, timeoutNanoseconds: UInt64 = 2_000_000_000) async {
+        let started = DispatchTime.now().uptimeNanoseconds
+        while workflow.isGenerating || workflow.previewColors.isEmpty {
+            if DispatchTime.now().uptimeNanoseconds - started > timeoutNanoseconds {
+                XCTFail("Timed out waiting for split preview")
+                return
+            }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
     }
 
     private func solidImage(width: Int, height: Int, color: UIColor) -> UIImage {
