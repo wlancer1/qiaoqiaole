@@ -16,6 +16,8 @@ struct SplitSettingsView: View {
             VStack(spacing: 0) {
                 SplitH5TopBar(
                     title: workflow.splitMode == .quick ? "分割设置" : "对格子",
+                    backLabel: "返回首页",
+                    actionTitle: "下一步",
                     metrics: metrics,
                     canContinue: workflow.canContinue,
                     onBack: { router.navigate(to: .home(.home)) },
@@ -96,6 +98,8 @@ struct SplitSettingsView: View {
 
 private struct SplitH5TopBar: View {
     let title: String
+    let backLabel: String
+    let actionTitle: String
     let metrics: H5SplitMetrics
     let canContinue: Bool
     let onBack: () -> Void
@@ -105,14 +109,13 @@ private struct SplitH5TopBar: View {
         HStack(spacing: 0) {
             HStack {
                 Button(action: onBack) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: metrics.r(0.6984), weight: .semibold))
+                    H5Icon(name: "lucide-arrow-left", size: metrics.r(0.6984))
                         .foregroundStyle(Color(hex: "111315"))
                         .frame(width: metrics.r(1.2698), height: metrics.r(1.2698))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("返回首页")
+                .accessibilityLabel(backLabel)
                 Spacer(minLength: 0)
             }
             .frame(width: metrics.r(2.65))
@@ -120,6 +123,7 @@ private struct SplitH5TopBar: View {
             Text(title)
                 .font(.system(size: metrics.r(0.5397), weight: .heavy))
                 .foregroundStyle(Color(hex: "101828"))
+                .tracking(-0.1)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
                 .accessibilityIdentifier("split-page-title")
@@ -127,7 +131,7 @@ private struct SplitH5TopBar: View {
             HStack {
                 Spacer(minLength: 0)
                 Button(action: onNext) {
-                    Text("下一步")
+                    Text(actionTitle)
                         .font(.system(size: metrics.r(0.3968), weight: .semibold))
                         .foregroundStyle(Color.white)
                         .padding(.horizontal, metrics.r(0.508))
@@ -138,8 +142,8 @@ private struct SplitH5TopBar: View {
                 }
                 .buttonStyle(H5PressButtonStyle())
                 .disabled(!canContinue)
-                .opacity(canContinue ? 1 : 0.45)
-                .accessibilityLabel(title == "裁剪" ? "确认裁剪" : "进入裁剪")
+                .opacity(canContinue ? 1 : 0.46)
+                .accessibilityLabel(actionTitle)
             }
             .frame(width: metrics.r(2.65))
         }
@@ -181,7 +185,7 @@ private struct H5SplitMetrics {
         return r(5.7143)
     }
     var nudgeSide: CGFloat {
-        if viewportWidth <= 393 { return 40 }
+        // H5 uses 44px through the <=413px breakpoint and 52px above it.
         if viewportWidth <= 413 { return 44 }
         return 52
     }
@@ -338,24 +342,30 @@ private struct SplitAlignmentControlCard: View {
             let gap = metrics.nudgeGap
 
             HStack(spacing: metrics.viewportWidth <= 360 ? metrics.r(0.15875) : 0) {
-                VStack(spacing: metrics.r(0.19)) {
+                VStack(alignment: .leading, spacing: metrics.r(0.19)) {
+                    // H5 centers only the section title. The 3×3 nudge pad itself
+                    // uses `place-content: start`, so it begins at the left edge
+                    // of the fixed-width nudge column rather than being centered.
                     Text("微移")
                         .font(.system(size: metrics.r(0.4444), weight: .bold))
                         .foregroundStyle(H5SplitStyle.secondaryText)
-                        .frame(height: metrics.r(0.572))
+                        .frame(width: metrics.alignLeftWidth, height: metrics.r(0.572), alignment: .center)
                     ZStack(alignment: .topLeading) {
                         nudgeButton("⌃", x: nudgeSide + gap, y: 0, side: nudgeSide) { workflow.moveGridControlFrame(x: 0, y: -1) }.accessibilityLabel("上移网格")
                         nudgeButton("‹", x: 0, y: nudgeSide + gap, side: nudgeSide) { workflow.moveGridControlFrame(x: -1, y: 0) }.accessibilityLabel("左移网格")
                         alignmentReadout
-                            .frame(width: nudgeSide, height: nudgeSide)
                             .offset(x: nudgeSide + gap, y: nudgeSide + gap)
                         nudgeButton("›", x: (nudgeSide + gap) * 2, y: nudgeSide + gap, side: nudgeSide) { workflow.moveGridControlFrame(x: 1, y: 0) }.accessibilityLabel("右移网格")
                         nudgeButton("⌄", x: nudgeSide + gap, y: (nudgeSide + gap) * 2, side: nudgeSide) { workflow.moveGridControlFrame(x: 0, y: 1) }.accessibilityLabel("下移网格")
                     }
-                    .frame(width: nudgeSide * 3 + gap * 2, height: nudgeSide * 3 + gap * 2)
+                    .frame(
+                        width: nudgeSide * 3 + gap * 2,
+                        height: nudgeSide * 3 + gap * 2,
+                        alignment: .topLeading
+                    )
                 }
-                .frame(width: metrics.alignLeftWidth)
-                .frame(maxHeight: .infinity, alignment: .top)
+                .frame(width: metrics.alignLeftWidth, alignment: .leading)
+                .frame(maxHeight: .infinity, alignment: .topLeading)
 
                 Rectangle().fill(Color(hex: "E7EDF5")).frame(width: metrics.r(0.0317))
 
@@ -394,15 +404,23 @@ private struct SplitAlignmentControlCard: View {
     }
 
     private var alignmentReadout: some View {
-        VStack(spacing: 0) {
+        let side = metrics.nudgeSide
+        let radius = metrics.r(metrics.viewportWidth <= 360 ? 0.381 : 0.4444)
+        let fontSize = metrics.r(metrics.viewportWidth <= 360 ? 0.3175 : 0.381)
+        return VStack(spacing: 0) {
             Text(workflow.alignedGrid.offsetX, format: .number.precision(.fractionLength(1)))
             Text(workflow.alignedGrid.offsetY, format: .number.precision(.fractionLength(1)))
         }
-        .font(.system(size: metrics.r(0.381), weight: .bold, design: .rounded))
+        .font(.system(size: fontSize, weight: .bold))
         .foregroundStyle(H5SplitStyle.activeBlue)
+        .multilineTextAlignment(.center)
+        .frame(width: side, height: side)
         .background(Color(hex: "EAF4FF"))
-        .overlay(RoundedRectangle(cornerRadius: metrics.r(0.4444)).stroke(Color(hex: "DBEAFF"), lineWidth: metrics.r(0.0317)))
-        .clipShape(RoundedRectangle(cornerRadius: metrics.r(0.4444)))
+        .overlay(
+            RoundedRectangle(cornerRadius: radius)
+                .stroke(Color(hex: "DBEAFF"), lineWidth: metrics.r(0.0317))
+        )
+        .clipShape(RoundedRectangle(cornerRadius: radius))
     }
 
     private func nudgeButton(_ text: String, x: CGFloat, y: CGFloat, side: CGFloat, action: @escaping () -> Void) -> some View {
@@ -447,174 +465,267 @@ struct SplitCropView: View {
     @EnvironmentObject private var router: AppRouter
     @ObservedObject var workflow: SplitWorkflow
     @State private var zoom: CGFloat = 1
+
     var body: some View {
         GeometryReader { pageProxy in
             let metrics = H5SplitMetrics(viewportWidth: pageProxy.size.width)
             VStack(spacing: 0) {
                 SplitH5TopBar(
                     title: "裁剪",
+                    backLabel: "返回分割设置",
+                    actionTitle: "确认裁剪",
                     metrics: metrics,
                     canContinue: workflow.canContinue,
                     onBack: { if !router.path.isEmpty { router.path.removeLast() } },
                     onNext: { router.navigate(to: .splitPreview) }
                 )
 
-                VStack(spacing: 12) {
-                    GeometryReader { proxy in
-                        if let image = workflow.image {
-                            CropEditorPreview(image: image, workflow: workflow, zoom: zoom)
-                                .frame(width: proxy.size.width, height: proxy.size.height)
-                        }
-                    }
-                    .background(CropCheckerboard())
-                    .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color(hex: "DCE5F1"), lineWidth: 1))
-                    .clipShape(RoundedRectangle(cornerRadius: 18))
-                    .shadow(color: Color.black.opacity(0.06), radius: 16, y: 7)
-
-                    HStack(spacing: 10) {
-                        Image(systemName: "crop")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(H5SplitStyle.activeBlue)
-                        Text("拖动边框调整范围，只保留需要识别的格子内容")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(Color(hex: "617086"))
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 14)
-                    .frame(height: 42)
-                    .background(Color(hex: "F7FAFE"))
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: "E7EDF5"), lineWidth: 1))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-
-                    HStack(spacing: 10) {
-                        Button {
-                            workflow.setCrop(CGRect(x: 0, y: 0, width: 1, height: 1))
-                            zoom = 1
-                        } label: {
-                            Label("重置", systemImage: "arrow.counterclockwise")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(Color(hex: "526175"))
-                                .frame(height: 42)
-                                .padding(.horizontal, 14)
-                                .background(Color.white)
-                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: "E1E8F2"), lineWidth: 1))
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                        }
-                        .buttonStyle(H5PressButtonStyle())
-                        .accessibilityLabel("重置裁剪")
-
-                        Spacer(minLength: 8)
-
-                        HStack(spacing: 0) {
-                            Button { zoom = max(0.6, zoom - 0.1) } label: {
-                                Image(systemName: "minus")
-                                    .font(.system(size: 14, weight: .bold))
-                                    .foregroundStyle(H5SplitStyle.activeBlue)
-                                    .frame(width: 42, height: 42)
-                            }
-                            .buttonStyle(H5PressButtonStyle())
-                            .accessibilityLabel("缩小裁剪预览")
-
-                            Text("\(Int(zoom * 100))%")
-                                .font(.system(size: 14, weight: .bold, design: .rounded).monospacedDigit())
-                                .foregroundStyle(Color(hex: "172238"))
-                                .frame(width: 62, height: 42)
-
-                            Button { zoom = min(3, zoom + 0.1) } label: {
-                                Image(systemName: "plus")
-                                    .font(.system(size: 14, weight: .bold))
-                                    .foregroundStyle(H5SplitStyle.activeBlue)
-                                    .frame(width: 42, height: 42)
-                            }
-                            .buttonStyle(H5PressButtonStyle())
-                            .accessibilityLabel("放大裁剪预览")
-                        }
-                        .background(Color.white)
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: "E1E8F2"), lineWidth: 1))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                GeometryReader { proxy in
+                    if let image = workflow.image {
+                        CropEditorPreview(
+                            image: image,
+                            workflow: workflow,
+                            zoom: $zoom,
+                            metrics: metrics
+                        )
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                    } else {
+                        SplitCropWorkspaceBackground(metrics: metrics)
                     }
                 }
-                .padding(.horizontal, 14)
-                .padding(.top, 14)
-                .padding(.bottom, max(12, pageProxy.safeAreaInsets.bottom + 8))
+                .background(SplitCropWorkspaceBackground(metrics: metrics))
+                .clipped()
+
+                Text("仅保留格子内容，裁掉清单、坐标轴等无关区域")
+                    .font(.system(size: metrics.r(0.34), weight: .bold))
+                    .foregroundStyle(Color(hex: "158467"))
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(0)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, metrics.r(0.55))
+                    .padding(.vertical, metrics.r(0.35))
+                    .background(Color(hex: "E9FFF7"))
+                    .accessibilityLabel("仅保留格子内容，裁掉清单、坐标轴等无关区域")
+
+                HStack(spacing: 0) {
+                    Button {
+                        workflow.setCrop(CGRect(x: 0, y: 0, width: 1, height: 1))
+                        zoom = 1
+                    } label: {
+                        Text("重置")
+                            .font(.system(size: metrics.r(0.42), weight: .bold))
+                            .foregroundStyle(Color(hex: "344054"))
+                            .padding(.horizontal, metrics.r(0.48))
+                            .frame(minWidth: 44, minHeight: 44)
+                            .background(Color(hex: "F1F5FB"))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(H5PressButtonStyle())
+                    .accessibilityLabel("重置")
+
+                    Spacer(minLength: 12)
+
+                    HStack(spacing: metrics.r(0.24)) {
+                        cropZoomButton("−", label: "缩小裁剪预览", metrics: metrics) {
+                            zoom = min(4, max(0.5, zoom * 0.9))
+                        }
+
+                        Text("\(Int((zoom * 100).rounded()))%")
+                            .font(.system(size: metrics.r(0.42), weight: .heavy, design: .rounded))
+                            .foregroundStyle(Color(hex: "344054"))
+                            .monospacedDigit()
+                            .frame(minWidth: metrics.r(1.7))
+
+                        cropZoomButton("+", label: "放大裁剪预览", metrics: metrics) {
+                            zoom = min(4, max(0.5, zoom * 1.1))
+                        }
+                    }
+                }
+                .padding(.horizontal, metrics.r(0.55))
+                .padding(.vertical, metrics.r(0.35))
+                .frame(minHeight: metrics.r(2.05))
+                .background(Color.white)
+                .overlay(alignment: .top) {
+                    Rectangle().fill(Color(hex: "EDF0F5")).frame(height: 1)
+                }
             }
             .frame(width: pageProxy.size.width, height: pageProxy.size.height)
-            .background(AppTokens.flowBackground)
+            .background(Color.white)
         }
         .toolbar(.hidden, for: .navigationBar)
+    }
+
+    private func cropZoomButton(_ text: String, label: String, metrics: H5SplitMetrics, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(text)
+                .font(.system(size: metrics.r(0.42), weight: .bold))
+                .foregroundStyle(Color(hex: "344054"))
+                .frame(width: 44, height: 44)
+                .background(Color(hex: "F1F5FB"))
+                .clipShape(Circle())
+        }
+        .buttonStyle(H5PressButtonStyle())
+        .accessibilityLabel(label)
     }
 }
 
 private struct CropEditorPreview: View {
     let image: UIImage
     @ObservedObject var workflow: SplitWorkflow
-    let zoom: CGFloat
-    @State private var startCrop = CGRect(x: 0, y: 0, width: 1, height: 1)
+    @Binding var zoom: CGFloat
+    let metrics: H5SplitMetrics
+    @State private var dragStartCrop: CGRect?
+    @State private var pinchStartZoom: CGFloat?
 
     var body: some View {
         GeometryReader { proxy in
-            let imageWidth = max(1, image.size.width)
-            let imageHeight = max(1, image.size.height)
-            let fit = min(proxy.size.width / imageWidth, proxy.size.height / imageHeight)
-            let baseWidth = imageWidth * fit
-            let baseHeight = imageHeight * fit
-            let width = baseWidth * zoom
-            let height = baseHeight * zoom
+            let imageRect = fittedImageRect(in: proxy.size)
+            let selection = selectionRect(in: imageRect)
 
             ZStack(alignment: .topLeading) {
                 Image(uiImage: image)
                     .resizable()
                     .interpolation(.high)
-                    .frame(width: width, height: height)
+                    .frame(width: imageRect.width, height: imageRect.height)
+                    .position(x: imageRect.midX, y: imageRect.midY)
 
-                CropDimMask(cropRect: workflow.cropRect)
-                    .fill(Color.black.opacity(0.34), style: FillStyle(eoFill: true))
-                    .frame(width: width, height: height)
+                SplitAttachedGridOverlay(
+                    imageRect: imageRect,
+                    imageSize: image.size,
+                    columns: workflow.columns,
+                    rows: workflow.rows,
+                    alignment: workflow.splitMode == .align ? workflow.alignedGrid : nil
+                )
+
+                CropWorkspaceDimMask(selectionRect: selection)
+                    .fill(Color(red: 4 / 255, green: 8 / 255, blue: 14 / 255).opacity(0.58), style: FillStyle(eoFill: true))
                     .allowsHitTesting(false)
 
-                cropSelection(width: width, height: height)
+                cropSelection(selection: selection, imageRect: imageRect)
+
+                Text("\(workflow.columns)列 × \(workflow.rows)行")
+                    .font(.system(size: 14, weight: .heavy))
+                    .foregroundStyle(Color(hex: "22C7FF"))
+                    .padding(.horizontal, 7)
+                    .frame(height: 22)
+                    .background(Color(hex: "07121E").opacity(0.76))
+                    .clipShape(RoundedRectangle(cornerRadius: 5))
+                    .frame(
+                        width: max(1, selection.width - 12),
+                        height: max(1, selection.height - 12),
+                        alignment: .bottomTrailing
+                    )
+                    .offset(x: selection.minX + 6, y: selection.minY + 6)
+                    .allowsHitTesting(false)
+
+                Text("\(Int((zoom * 100).rounded()))%")
+                    .font(.system(size: 14, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Color.white)
+                    .monospacedDigit()
+                    .padding(.horizontal, 12)
+                    .frame(height: 32)
+                    .background(Color.black.opacity(0.68))
+                    .clipShape(Capsule())
+                    .padding(.trailing, 18)
+                    .padding(.bottom, 16)
+                    .frame(width: proxy.size.width, height: proxy.size.height, alignment: .bottomTrailing)
+                    .allowsHitTesting(false)
             }
-            .frame(width: width, height: height)
-            .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                MagnificationGesture()
+                    .onChanged { value in
+                        if pinchStartZoom == nil { pinchStartZoom = zoom }
+                        zoom = min(4, max(0.5, (pinchStartZoom ?? zoom) * value))
+                    }
+                    .onEnded { _ in pinchStartZoom = nil }
+            )
         }
         .clipped()
-        .onAppear { startCrop = workflow.cropRect }
     }
 
-    private func cropSelection(width: CGFloat, height: CGFloat) -> some View {
+    private func fittedImageRect(in viewport: CGSize) -> CGRect {
+        let safeWidth = max(1, image.size.width)
+        let safeHeight = max(1, image.size.height)
+        let padding = min(24, max(12, min(viewport.width, viewport.height) * 0.05))
+        let fit = min(
+            max(1, viewport.width - padding * 2) / safeWidth,
+            max(1, viewport.height - padding * 2) / safeHeight
+        )
+        let safeZoom = min(4, max(0.5, zoom))
+        let width = safeWidth * fit * safeZoom
+        let height = safeHeight * fit * safeZoom
+        return CGRect(
+            x: (viewport.width - width) / 2,
+            y: (viewport.height - height) / 2,
+            width: width,
+            height: height
+        )
+    }
+
+    private func selectionRect(in imageRect: CGRect) -> CGRect {
         let rect = workflow.cropRect
-        return ZStack(alignment: .topLeading) {
+        return CGRect(
+            x: imageRect.minX + imageRect.width * rect.minX,
+            y: imageRect.minY + imageRect.height * rect.minY,
+            width: imageRect.width * rect.width,
+            height: imageRect.height * rect.height
+        )
+    }
+
+    private func cropSelection(selection: CGRect, imageRect: CGRect) -> some View {
+        ZStack(alignment: .topLeading) {
             Rectangle()
                 .fill(.clear)
-                .overlay(Rectangle().stroke(Color.white.opacity(0.9), lineWidth: 1))
-                .overlay(Rectangle().stroke(H5SplitStyle.activeBlue, lineWidth: 2.5))
-                .overlay(CropRuleOfThirds().stroke(Color.white.opacity(0.52), lineWidth: 0.8))
-                .frame(width: width * rect.width, height: height * rect.height)
-                .offset(x: width * rect.minX, y: height * rect.minY)
+                .overlay(Rectangle().stroke(H5SplitStyle.activeBlue, lineWidth: 2))
+                .frame(width: selection.width, height: selection.height)
+                .offset(x: selection.minX, y: selection.minY)
                 .contentShape(Rectangle())
-                .gesture(DragGesture().onChanged { value in
-                    workflow.setCrop(CGRect(x: startCrop.minX + value.translation.width / width, y: startCrop.minY + value.translation.height / height, width: startCrop.width, height: startCrop.height))
-                }.onEnded { _ in startCrop = workflow.cropRect })
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            if dragStartCrop == nil { dragStartCrop = workflow.cropRect }
+                            guard let start = dragStartCrop else { return }
+                            workflow.setCrop(CGRect(
+                                x: start.minX + value.translation.width / max(1, imageRect.width),
+                                y: start.minY + value.translation.height / max(1, imageRect.height),
+                                width: start.width,
+                                height: start.height
+                            ))
+                        }
+                        .onEnded { _ in dragStartCrop = nil }
+                )
                 .accessibilityLabel("裁剪区域，可拖动")
 
             ForEach(CropHandle.allCases) { handle in
                 CropHandleMarker()
-                    .position(x: width * (rect.minX + rect.width * handle.x), y: height * (rect.minY + rect.height * handle.y))
-                    .gesture(DragGesture().onChanged { value in resize(handle, translation: value.translation, width: width, height: height) }
-                        .onEnded { _ in startCrop = workflow.cropRect })
+                    .position(
+                        x: selection.minX + selection.width * handle.x,
+                        y: selection.minY + selection.height * handle.y
+                    )
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                if dragStartCrop == nil { dragStartCrop = workflow.cropRect }
+                                resize(handle, start: dragStartCrop ?? workflow.cropRect, translation: value.translation, imageRect: imageRect)
+                            }
+                            .onEnded { _ in dragStartCrop = nil }
+                    )
                     .accessibilityLabel(handle.label)
             }
         }
     }
 
-    private func resize(_ handle: CropHandle, translation: CGSize, width: CGFloat, height: CGFloat) {
-        let minimum: CGFloat = 0.08
-        let dx = translation.width / max(1, width), dy = translation.height / max(1, height)
-        var minX = startCrop.minX, maxX = startCrop.maxX, minY = startCrop.minY, maxY = startCrop.maxY
-        if handle.x == 0 { minX = min(max(0, startCrop.minX + dx), startCrop.maxX - minimum) }
-        if handle.x == 1 { maxX = max(min(1, startCrop.maxX + dx), startCrop.minX + minimum) }
-        if handle.y == 0 { minY = min(max(0, startCrop.minY + dy), startCrop.maxY - minimum) }
-        if handle.y == 1 { maxY = max(min(1, startCrop.maxY + dy), startCrop.minY + minimum) }
+    private func resize(_ handle: CropHandle, start: CGRect, translation: CGSize, imageRect: CGRect) {
+        let dx = translation.width / max(1, imageRect.width)
+        let dy = translation.height / max(1, imageRect.height)
+        var minX = start.minX, maxX = start.maxX, minY = start.minY, maxY = start.maxY
+        let minimum: CGFloat = 1 / 144
+        if handle.x == 0 { minX = min(max(0, start.minX + dx), start.maxX - minimum) }
+        if handle.x == 1 { maxX = max(min(1, start.maxX + dx), start.minX + minimum) }
+        if handle.y == 0 { minY = min(max(0, start.minY + dy), start.maxY - minimum) }
+        if handle.y == 1 { maxY = max(min(1, start.maxY + dy), start.minY + minimum) }
         workflow.setCrop(CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY))
     }
 }
@@ -631,52 +742,44 @@ private struct CropHandleMarker: View {
     var body: some View {
         RoundedRectangle(cornerRadius: 4)
             .fill(Color.white)
-            .frame(width: 20, height: 20)
+            .frame(width: 16, height: 16)
             .overlay(RoundedRectangle(cornerRadius: 4).stroke(H5SplitStyle.activeBlue, lineWidth: 3))
-            .shadow(color: Color.black.opacity(0.16), radius: 3, y: 1)
-            .contentShape(Rectangle())
+            .contentShape(Rectangle().inset(by: -16))
     }
 }
 
-private struct CropDimMask: Shape {
-    let cropRect: CGRect
+private struct CropWorkspaceDimMask: Shape {
+    let selectionRect: CGRect
 
     func path(in rect: CGRect) -> Path {
         var path = Path()
         path.addRect(rect)
-        path.addRect(CGRect(
-            x: rect.width * cropRect.minX,
-            y: rect.height * cropRect.minY,
-            width: rect.width * cropRect.width,
-            height: rect.height * cropRect.height
-        ))
+        path.addRect(selectionRect)
         return path
     }
 }
 
-private struct CropRuleOfThirds: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        for factor in [CGFloat(1.0 / 3.0), CGFloat(2.0 / 3.0)] {
-            let x = rect.width * factor
-            path.move(to: CGPoint(x: x, y: 0))
-            path.addLine(to: CGPoint(x: x, y: rect.height))
-            let y = rect.height * factor
-            path.move(to: CGPoint(x: 0, y: y))
-            path.addLine(to: CGPoint(x: rect.width, y: y))
-        }
-        return path
-    }
-}
+private struct SplitCropWorkspaceBackground: View {
+    let metrics: H5SplitMetrics
 
-private struct CropCheckerboard: View {
     var body: some View {
         Canvas { context, size in
-            let side: CGFloat = 18
-            for row in 0...Int(size.height / side) {
-                for column in 0...Int(size.width / side) {
-                    let color = (row + column).isMultiple(of: 2) ? Color(hex: "EEF2F7") : Color(hex: "F8FAFC")
-                    context.fill(Path(CGRect(x: CGFloat(column) * side, y: CGFloat(row) * side, width: side, height: side)), with: .color(color))
+            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Color(hex: "111318")))
+            let side = max(8, metrics.r(0.32))
+            let subtle = Color.white.opacity(0.025)
+            let rows = Int(ceil(size.height / side))
+            let columns = Int(ceil(size.width / side))
+            for row in 0..<rows {
+                for column in 0..<columns where (row + column).isMultiple(of: 2) {
+                    context.fill(
+                        Path(CGRect(
+                            x: CGFloat(column) * side,
+                            y: CGFloat(row) * side,
+                            width: side,
+                            height: side
+                        )),
+                        with: .color(subtle)
+                    )
                 }
             }
         }
@@ -1072,7 +1175,7 @@ private struct H5AlignmentControlOverlay: View {
                 .accessibilityLabel("按住移动网格")
 
             handleLabel("移动", color: H5SplitStyle.handleBlue)
-                .position(x: rect.minX + metrics.r(0.095), y: rect.minY)
+                .position(x: rect.minX + metrics.r(0.254), y: rect.minY)
 
             handleRing(color: H5SplitStyle.handleOrange, kind: .scale)
                 .position(x: rect.maxX, y: rect.maxY)
@@ -1080,7 +1183,7 @@ private struct H5AlignmentControlOverlay: View {
                 .accessibilityLabel("按住缩放网格")
 
             handleLabel("缩放", color: H5SplitStyle.handleOrange)
-                .position(x: rect.maxX - metrics.r(0.095), y: rect.maxY)
+                .position(x: rect.maxX - metrics.r(0.254), y: rect.maxY)
         }
     }
 

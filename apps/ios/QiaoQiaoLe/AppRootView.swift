@@ -67,8 +67,17 @@ struct AppRootView: View {
                     splitWorkflow.setSplitMode(.align)
                 }
             }
-            if ProcessInfo.processInfo.arguments.contains("-ui-testing-editor-workspace") {
-                document.replaceGrid(columns: 32, rows: 32, colors: Array(repeating: Palette.empty, count: 32 * 32))
+            if launchArguments.contains("-ui-testing-editor-workspace") {
+                if launchArguments.contains("-ui-testing-editor-zoomed") {
+                    let fixtureColors = (0..<(32 * 32)).map { index -> ColorToken in
+                        let x = index % 32
+                        let y = index / 32
+                        return (x + y).isMultiple(of: 4) ? Mard221Palette.colors[(x / 3 + y / 3) % 8] : Palette.empty
+                    }
+                    document.replaceGrid(columns: 32, rows: 32, colors: fixtureColors)
+                } else {
+                    document.replaceGrid(columns: 32, rows: 32, colors: Array(repeating: Palette.empty, count: 32 * 32))
+                }
             }
             if session.token != nil { router.restoreAuthenticatedSession() }
         }
@@ -110,9 +119,9 @@ private struct H5BottomTabBar: View {
 
             Button(action: onCreate) {
                 Image(systemName: "plus")
-                    .font(.system(size: 28, weight: .medium))
+                    .font(.system(size: 32, weight: .medium))
                     .foregroundStyle(.white)
-                    .frame(width: 62, height: 62)
+                    .frame(width: 48, height: 48)
                     .background(AppTokens.flowBrand)
                     .clipShape(Circle())
                     .shadow(color: AppTokens.flowBrand.opacity(0.28), radius: 10, y: 4)
@@ -120,7 +129,7 @@ private struct H5BottomTabBar: View {
             .buttonStyle(.plain)
             .accessibilityLabel("创建")
             .frame(maxWidth: .infinity)
-            .offset(y: -18)
+            .offset(y: -22)
 
             tab(.messages)
             tab(.profile)
@@ -153,7 +162,7 @@ private struct H5BottomTabBar: View {
                 Text(tab.title)
                     .font(.system(size: 11, weight: selected == tab ? .bold : .semibold))
             }
-            .foregroundStyle(selected == tab ? AppTokens.flowBrand : Color(hex: "202224"))
+            .foregroundStyle(selected == tab ? AppTokens.flowBrand : AppTokens.flowMuted)
             .frame(maxWidth: .infinity, minHeight: 48)
             .contentShape(Rectangle())
         }
@@ -311,6 +320,7 @@ private struct BeadingSessionVisualFixture {
 
 private struct BeadingSessionView: View {
     @EnvironmentObject private var router: AppRouter
+    @EnvironmentObject private var ledBoard: LEDMatrixBluetoothController
     @ObservedObject var session: AppSession
     let projectID: String
     let fixture: BeadingSessionVisualFixture?
@@ -344,6 +354,11 @@ private struct BeadingSessionView: View {
     @State private var highlightEnabled = true
     @State private var markMode = false
     @State private var fitCanvasRequest = UUID()
+    @State private var showLEDBoardSheet = false
+    /// Forces a fresh viewport state whenever the beading workspace is entered.
+    /// SwiftUI can preserve child @State when navigating back into the same project,
+    /// which otherwise restores an old pan/zoom offset on "继续拼豆".
+    @State private var workspaceEntryToken = UUID()
 
     init(session: AppSession, projectID: String, fixture: BeadingSessionVisualFixture? = nil) {
         let initialHighlight = fixture.flatMap { value -> String? in
@@ -374,10 +389,24 @@ private struct BeadingSessionView: View {
         }
         .navigationTitle("开始拼豆").navigationBarTitleDisplayMode(.inline)
         .task(id: projectID) { guard fixture == nil else { return }; await bootstrapWorkspace() }
-        .onDisappear { timerTask?.cancel() }
-        .onChange(of: markedCellIndexes) { _, _ in persistToolDraft() }
-        .onChange(of: highlightedColorCode) { _, _ in persistToolDraft() }
-        .onChange(of: highlightEnabled) { _, _ in persistToolDraft() }
+        .onAppear {
+            // Re-entering the same project can reuse this NavigationStack destination.
+            // Force the canvas child to discard any previous pan/zoom @State.
+            workspaceEntryToken = UUID()
+            fitCanvasRequest = UUID()
+            if ledBoard.isReady { syncLEDBoard() }
+        }
+        .onDisappear {
+            timerTask?.cancel()
+            ledBoard.clearBoardImmediately()
+        }
+        .onChange(of: canvas) { _, _ in syncLEDBoard() }
+        .onChange(of: markedCellIndexes) { _, _ in persistToolDraft(); syncLEDBoard() }
+        .onChange(of: highlightedColorCode) { _, _ in persistToolDraft(); syncLEDBoard() }
+        .onChange(of: highlightEnabled) { _, _ in persistToolDraft(); syncLEDBoard() }
+        .onChange(of: ledBoard.isReady) { _, ready in
+            if ready { syncLEDBoard() }
+        }
         .onChange(of: codesVisible) { _, _ in persistToolDraft() }
         .onChange(of: gridVisible) { _, _ in persistToolDraft() }
         .onChange(of: canvasLocked) { _, _ in persistToolDraft() }
@@ -419,6 +448,9 @@ private struct BeadingSessionView: View {
                 showColorSearch = false
             }, onClose: { showColorSearch = false })
         }
+        .sheet(isPresented: $showLEDBoardSheet) {
+            LEDMatrixBluetoothSheet(controller: ledBoard)
+        }
         .confirmationDialog("清除单格标记？", isPresented: $showClearMarksConfirmation, titleVisibility: .visible) {
             Button("清除标记", role: .destructive) { markedCellIndexes = [] }
             Button("取消", role: .cancel) {}
@@ -442,6 +474,8 @@ private struct BeadingSessionView: View {
                         fitRequest: fitCanvasRequest,
                         onCellTap: handleCanvasCellTap
                     )
+                    .id(workspaceEntryToken)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     ProgressView("正在加载拼豆画布…")
                 }
@@ -449,6 +483,8 @@ private struct BeadingSessionView: View {
                     Text(error).font(.caption.weight(.medium)).foregroundStyle(.red).padding(9).background(AppTokens.panel).clipShape(Capsule()).frame(maxHeight: .infinity, alignment: .top)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .layoutPriority(1)
             workspaceControls(current)
         }
         .background(AppTokens.flowBackground)
@@ -458,7 +494,8 @@ private struct BeadingSessionView: View {
     private func workspaceHeader(_ current: BeadingSession) -> some View {
         HStack(spacing: 4) {
             Button { showExitChoice = true } label: {
-                H5Icon(name: "lucide-arrow-left", size: 20).frame(width: 44, height: 44)
+                H5Icon(name: "lucide-arrow-left", size: 20)
+                    .frame(width: 44, height: 44)
             }
             .buttonStyle(.plain)
             .foregroundStyle(Color(hex: "52657F"))
@@ -473,12 +510,13 @@ private struct BeadingSessionView: View {
                         Text("库存")
                     }
                     .font(.system(size: 12, weight: .bold))
-                    .padding(.horizontal, 10)
-                    .frame(minHeight: 44)
                     .foregroundStyle(Color(hex: "52657F"))
+                    .padding(.horizontal, 10)
+                    .frame(height: 32)
                     .background(Color(hex: "F7F9FC"))
                     .clipShape(Capsule())
                     .overlay(Capsule().stroke(Color(hex: "DCE4EF"), lineWidth: 1))
+                    .frame(minHeight: 44)
                 }
                 .buttonStyle(.plain)
                 .disabled(isSubmitting)
@@ -487,15 +525,20 @@ private struct BeadingSessionView: View {
                 Button { Task { await current.status == "paused" ? transition(.resume) : transition(.pause) } } label: {
                     HStack(spacing: 5) {
                         Text(timeText).monospacedDigit()
-                        H5Icon(name: current.status == "paused" ? "lucide-play" : "lucide-pause", size: 16)
+                        H5Icon(name: current.status == "paused" ? "lucide-play" : "lucide-pause", size: 12)
+                            .frame(width: 16, height: 16)
+                            .background(Color(hex: "FFF3B3"))
+                            .foregroundStyle(Color(hex: "6F4C00"))
+                            .clipShape(RoundedRectangle(cornerRadius: 5))
                     }
                     .font(.system(size: 12, weight: .bold))
-                    .padding(.horizontal, 10)
-                    .frame(minWidth: 82, minHeight: 44)
                     .foregroundStyle(Color(hex: "34465F"))
+                    .padding(.horizontal, 9)
+                    .frame(minWidth: 82, minHeight: 32, maxHeight: 32)
                     .background(Color(hex: "F7F9FC"))
                     .clipShape(Capsule())
                     .overlay(Capsule().stroke(Color(hex: "DCE4EF"), lineWidth: 1))
+                    .frame(minHeight: 44)
                 }
                 .buttonStyle(.plain)
                 .disabled(isSubmitting || current.status != "in_progress" && current.status != "paused")
@@ -507,29 +550,54 @@ private struct BeadingSessionView: View {
                         Text("保存")
                     }
                     .font(.system(size: 12, weight: .bold))
-                    .padding(.horizontal, 10)
-                    .frame(minHeight: 44)
                     .foregroundStyle(Color(hex: "087058"))
+                    .padding(.horizontal, 10)
+                    .frame(height: 32)
                     .background(Color(hex: "EDFBF7"))
                     .clipShape(Capsule())
                     .overlay(Capsule().stroke(Color(hex: "9FE3D4"), lineWidth: 1))
+                    .frame(minHeight: 44)
                 }
                 .buttonStyle(.plain)
                 .disabled(isSubmitting)
                 .accessibilityLabel("保存")
 
-                Button { showMoreTools = true } label: {
-                    H5Icon(name: "lucide-settings", size: 20).frame(width: 44, height: 44)
+                Button { showLEDBoardSheet = true } label: {
+                    ZStack(alignment: .topTrailing) {
+                        Image(systemName: "antenna.radiowaves.left.and.right")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(ledBoard.isReady ? Color(hex: "087058") : Color(hex: "52657F"))
+                            .frame(width: 32, height: 32)
+                            .background(ledBoard.isReady ? Color(hex: "EDFBF7") : Color(hex: "F7F9FC"))
+                            .clipShape(RoundedRectangle(cornerRadius: 7))
+                            .overlay(RoundedRectangle(cornerRadius: 7).stroke(ledBoard.isReady ? Color(hex: "9FE3D4") : Color(hex: "DCE4EF"), lineWidth: 1))
+                        if ledBoard.isReady {
+                            Circle().fill(Color.green).frame(width: 7, height: 7).offset(x: 2, y: -2)
+                        }
+                    }
+                    .frame(width: 44, height: 44)
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(Color(hex: "52657F"))
+                .accessibilityLabel(ledBoard.isReady ? "智能拼豆板已连接" : "连接智能拼豆板")
+
+                Button { showMoreTools = true } label: {
+                    H5Icon(name: "lucide-settings", size: 19)
+                        .foregroundStyle(Color(hex: "52657F"))
+                        .frame(width: 32, height: 32)
+                        .background(Color(hex: "F7F9FC"))
+                        .clipShape(RoundedRectangle(cornerRadius: 7))
+                        .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color(hex: "DCE4EF"), lineWidth: 1))
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
                 .disabled(isSubmitting)
                 .accessibilityLabel("设置")
             }
         }
         .padding(.horizontal, 8)
+        .frame(minHeight: 52)
         .background(AppTokens.panel)
-        .overlay(alignment: .bottom) { Rectangle().fill(AppTokens.flowLine).frame(height: 1) }
+        .overlay(alignment: .bottom) { Rectangle().fill(Color(hex: "E8EDF5")).frame(height: 1) }
     }
 
     private func workspaceProgress(_ current: BeadingSession) -> some View {
@@ -621,7 +689,7 @@ private struct BeadingSessionView: View {
                         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: "E0E7F1"), lineWidth: 1))
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("切换排序，当前\(colorSortMode.title)")
+                    .accessibilityLabel("切换排序，当前\(colorSortMode == .code ? "色号顺序" : "剩余数量")")
 
                     let terminal = current.progress.completed == current.progress.total
                     let currentDone = highlightedColorCode.map { current.completedColorCodes.contains($0) } ?? false
@@ -636,6 +704,7 @@ private struct BeadingSessionView: View {
                     .shadow(color: Color(hex: "1268D7").opacity(0.22), radius: 6, y: 3)
                     .disabled(isSubmitting || (!terminal && (highlightedColorCode == nil || currentDone)))
                     .accessibilityLabel(terminal ? "确认完成拼豆" : "完成当前色")
+                    .accessibilityValue("\(current.progress.completed)/\(current.progress.total)")
                 }
                 .padding(.trailing, 8)
             }
@@ -756,22 +825,58 @@ private struct BeadingSessionView: View {
     }
 
     private func completeCurrentColor() async {
-        guard let current = beading, let code = highlightedColorCode, !current.completedColorCodes.contains(code) else { return }
-        await toggle(code)
+        guard let current = beading,
+              let code = highlightedColorCode,
+              !current.completedColorCodes.contains(code) else { return }
+
+        // “下一个”严格按照用户当前看到的颜色排序往后走，
+        // 不再回退到 requirements 的原始顺序，避免看起来随机跳色。
+        let ordered = sortedRequirements(in: current)
+        let nextCode: String? = {
+            guard let currentIndex = ordered.firstIndex(where: { $0.colorCode == code }) else {
+                return ordered.first(where: {
+                    $0.colorCode != code && !current.completedColorCodes.contains($0.colorCode)
+                })?.colorCode
+            }
+
+            let after = ordered.dropFirst(currentIndex + 1)
+            if let item = after.first(where: {
+                $0.colorCode != code && !current.completedColorCodes.contains($0.colorCode)
+            }) {
+                return item.colorCode
+            }
+
+            // 当前色已经在末尾时，从列表开头继续找尚未完成的颜色。
+            return ordered.prefix(currentIndex).first(where: {
+                !current.completedColorCodes.contains($0.colorCode)
+            })?.colorCode
+        }()
+
+        await toggle(code, preferredHighlight: nextCode)
     }
-    private func toggle(_ code: String) async {
+
+    private func toggle(_ code: String, preferredHighlight: String? = nil) async {
         guard let current = beading else { return }
         var next = current.completedColorCodes
         if next.contains(code) { next.removeAll { $0 == code } } else { next.append(code) }
+
         if fixture != nil {
             let progress = BeadingProgress(completed: next.count, total: current.requirements.count, percent: current.requirements.isEmpty ? 0 : next.count * 100 / current.requirements.count)
+            highlightedColorCode = preferredHighlight
             apply(BeadingSession(id: current.id, projectId: current.projectId, projectName: current.projectName, requirements: current.requirements, warehouseId: current.warehouseId, warehouseName: current.warehouseName, status: current.status, completedColorCodes: next, progress: progress, elapsedSeconds: elapsed, timerStartedAt: current.timerStartedAt, inventoryDeducted: current.inventoryDeducted, version: current.version + 1))
             return
         }
+
         guard let token = session.token else { return }
         isSubmitting = true
         defer { isSubmitting = false }
-        do { apply(try await session.projects.patchBeadingSession(current, completedCodes: next, elapsedSeconds: elapsed, token: token)) } catch { recoverConflict(error) }
+        do {
+            let updated = try await session.projects.patchBeadingSession(current, completedCodes: next, elapsedSeconds: elapsed, token: token)
+            highlightedColorCode = preferredHighlight
+            apply(updated)
+        } catch {
+            recoverConflict(error)
+        }
     }
     private func saveProgress() async { guard let current = beading, let token = session.token else { return }; isSubmitting = true; defer { isSubmitting = false }; do { apply(try await session.projects.patchBeadingSession(current, completedCodes: current.completedColorCodes, elapsedSeconds: elapsed, token: token)); router.showNotice("拼豆进度已保存", kind: .success) } catch { recoverConflict(error) } }
     private func saveAndExit() async {
@@ -789,7 +894,21 @@ private struct BeadingSessionView: View {
     private func transition(_ action: BeadingTransitionInput.Action) async { guard let current = beading, let token = session.token else { return }; isSubmitting = true; defer { isSubmitting = false }; do { apply(try await session.projects.transitionBeadingSession(current, action: action, token: token)) } catch { recoverConflict(error) } }
     private func prepareCompletion() async { guard let current = beading, let token = session.token else { return }; isSubmitting = true; defer { isSubmitting = false }; do { apply(try await session.projects.transitionBeadingSession(current, action: .prepareCompletion, token: token)); showCompletionChoice = true } catch { self.error = error.localizedDescription } }
     private func complete(deduct: Bool) async { guard let current = beading, let token = session.token else { return }; isSubmitting = true; defer { isSubmitting = false }; do { let result = try await session.projects.completeBeadingSession(current, deductInventory: deduct, warehouseID: selectedWarehouseID, idempotencyKey: completionKey, token: token); apply(result.session); router.showNotice(result.deducted ? "拼豆完成，库存已扣减" : "拼豆已完成", kind: .success) } catch { self.error = error.localizedDescription } }
-    private func abandon() async { guard let current = beading, let token = session.token else { return }; isSubmitting = true; defer { isSubmitting = false }; do { _ = try await session.projects.transitionBeadingSession(current, action: .abandon, token: token); router.showNotice("已放弃当前拼豆会话", kind: .success); exitWorkspace() } catch { self.error = error.localizedDescription } }
+    private func abandon() async {
+        guard let current = beading, let token = session.token else { return }
+        isSubmitting = true
+        defer { isSubmitting = false }
+        do {
+            _ = try await session.projects.transitionBeadingSession(current, action: .abandon, token: token)
+            // 先发送熄屏指令，再离开页面，避免蓝牙控制器随页面释放导致最后一条指令来不及发出。
+            ledBoard.clearBoardImmediately()
+            try? await Task.sleep(for: .milliseconds(100))
+            router.showNotice("已放弃当前拼豆会话", kind: .success)
+            exitWorkspace()
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
     private func refreshInventoryCheck() async {
         if let fixture {
             inventory = fixture.inventory
@@ -859,12 +978,33 @@ private struct BeadingSessionView: View {
             }
         }
     }
-    private func exitWorkspace() { if !router.path.isEmpty { router.path.removeLast() } else { router.navigate(to: .projects) } }
+    private func exitWorkspace() {
+        ledBoard.clearBoardImmediately()
+        if !router.path.isEmpty {
+            router.path.removeLast()
+        } else {
+            router.navigate(to: .projects)
+        }
+    }
     private func resetTools() { codesVisible = true; gridVisible = true; canvasLocked = false; markMode = false; highlightEnabled = true; colorSortMode = .remaining; colorSearchQuery = ""; markedCellIndexes = []; if let beading { highlightedColorCode = beading.requirements.first(where: { !beading.completedColorCodes.contains($0.colorCode) })?.colorCode }; fitCanvasRequest = UUID(); showMoreTools = false }
     private func toggleMark(_ index: Int) { if markedCellIndexes.contains(index) { markedCellIndexes.remove(index) } else { markedCellIndexes.insert(index) } }
     private func persistToolDraft() {
         guard fixture == nil, let ownerID = session.user?.id, let sessionID = beading?.id else { return }
         BeadingDraftStore.write(BeadingToolDraft(markedCellIndexes: markedCellIndexes, highlightedColorCode: highlightedColorCode, highlightEnabled: highlightEnabled, codesVisible: codesVisible, gridVisible: gridVisible, canvasLocked: canvasLocked, colorSortMode: colorSortMode), ownerID: ownerID, sessionID: sessionID)
+    }
+    private func syncLEDBoard() {
+        guard ledBoard.isReady else { return }
+        guard highlightEnabled, let canvas else {
+            ledBoard.clearBoard()
+            return
+        }
+        ledBoard.sendGuide(
+            columns: canvas.columns,
+            rows: canvas.rows,
+            cells: canvas.cells,
+            highlightedColorCode: highlightedColorCode,
+            markedIndexes: markedCellIndexes
+        )
     }
     private func recoverConflict(_ failure: Error) { if let api = failure as? APIError, api.status == 409, api.code == "BEADING_VERSION_CONFLICT", let latest = api.session { apply(latest); error = "会话已在其他设备更新，已恢复最新进度。" } else { error = failure.localizedDescription } }
 }
@@ -901,6 +1041,34 @@ enum BeadingColorSortMode: String, Equatable {
     }
 }
 
+struct BeadingViewportFit: Equatable {
+    let x: CGFloat
+    let y: CGFloat
+    let scale: CGFloat
+}
+
+/// Mirrors H5 `calculateViewportFit()` exactly. `x`/`y` are the transformed
+/// top-left coordinates of the artboard inside the viewport.
+func calculateBeadingViewportFit(viewportSize: CGSize, artboardSize: CGSize) -> BeadingViewportFit? {
+    let padding: CGFloat = 16
+    let availableWidth = viewportSize.width - padding * 2
+    let availableHeight = viewportSize.height - padding * 2
+    guard viewportSize.width.isFinite, viewportSize.height.isFinite,
+          artboardSize.width.isFinite, artboardSize.height.isFinite,
+          availableWidth > 0, availableHeight > 0,
+          artboardSize.width > 0, artboardSize.height > 0 else { return nil }
+
+    let contentWidth = artboardSize.width + EditorCanvasMetrics.rulerGutter
+    let contentHeight = artboardSize.height + EditorCanvasMetrics.rulerTopGutter
+    let naturalScale = min(availableWidth / contentWidth, availableHeight / contentHeight)
+    let scale = min(8, max(0.25, naturalScale))
+    return BeadingViewportFit(
+        x: padding + (availableWidth - contentWidth * scale) / 2 + EditorCanvasMetrics.rulerGutter * scale,
+        y: padding + (availableHeight - contentHeight * scale) / 2 + EditorCanvasMetrics.rulerTopGutter * scale,
+        scale: scale
+    )
+}
+
 private struct BeadingCanvasView: View {
     private let naturalCellSize: CGFloat = 18
     let canvas: BeadingCanvas
@@ -915,8 +1083,8 @@ private struct BeadingCanvasView: View {
 
     @State private var scale: CGFloat = 1
     @State private var storedScale: CGFloat = 1
-    @State private var offset: CGSize = .zero
-    @State private var storedOffset: CGSize = .zero
+    @State private var origin: CGPoint = .zero
+    @State private var storedOrigin: CGPoint = .zero
     @State private var rulerBaselineScale: CGFloat = 1
 
     var body: some View {
@@ -925,11 +1093,11 @@ private struct BeadingCanvasView: View {
                 width: CGFloat(max(1, canvas.columns)) * naturalCellSize,
                 height: CGFloat(max(1, canvas.rows)) * naturalCellSize
             )
-            let center = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+            let viewportCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
             let displayedSize = CGSize(width: artboardSize.width * scale, height: artboardSize.height * scale)
             let artboardFrame = CGRect(
-                x: center.x - displayedSize.width / 2 + offset.width,
-                y: center.y - displayedSize.height / 2 + offset.height,
+                x: origin.x,
+                y: origin.y,
                 width: displayedSize.width,
                 height: displayedSize.height
             )
@@ -942,7 +1110,7 @@ private struct BeadingCanvasView: View {
                 minimumStickyScale: rulerBaselineScale
             )
 
-            ZStack {
+            ZStack(alignment: .topLeading) {
                 Color(hex: "F2F5FD")
 
                 ZStack {
@@ -958,8 +1126,8 @@ private struct BeadingCanvasView: View {
                 }
                 .frame(width: artboardSize.width, height: artboardSize.height)
                 .shadow(color: Color(hex: "2A3F60").opacity(0.16), radius: 11, y: 5)
-                .scaleEffect(scale)
-                .offset(offset)
+                .scaleEffect(scale, anchor: .topLeading)
+                .offset(x: origin.x, y: origin.y)
 
                 if rulerGeometry.sticky {
                     H5ViewportRulers(geometry: rulerGeometry)
@@ -968,33 +1136,62 @@ private struct BeadingCanvasView: View {
             }
             .contentShape(Rectangle())
             .clipped()
-            .onAppear { fit(to: proxy.size, artboardSize: artboardSize) }
+            .onAppear {
+                fit(to: proxy.size, artboardSize: artboardSize)
+                // Run one layout-cycle later as well. This prevents a bottom-sheet
+                // dismissal from leaving the newly inserted workspace with a stale viewport.
+                Task { @MainActor in
+                    await Task.yield()
+                    fit(to: proxy.size, artboardSize: artboardSize)
+                    // NavigationStack / sheet dismissal animations can settle the
+                    // final viewport a little later on real devices. Re-fit once
+                    // after that transition instead of preserving a stale offset.
+                    try? await Task.sleep(for: .milliseconds(100))
+                    guard !Task.isCancelled else { return }
+                    fit(to: proxy.size, artboardSize: artboardSize)
+                }
+            }
             .onChange(of: proxy.size) { _, next in fit(to: next, artboardSize: artboardSize) }
             .onChange(of: fitRequest) { _, _ in fit(to: proxy.size, artboardSize: artboardSize) }
+            .onChange(of: canvas) { _, _ in fit(to: proxy.size, artboardSize: artboardSize) }
             .simultaneousGesture(
                 MagnifyGesture()
                     .onChanged { value in
                         guard !locked else { return }
-                        scale = min(8, max(0.25, storedScale * value.magnification))
+                        let nextScale = min(8, max(0.25, storedScale * value.magnification))
+                        let ratio = nextScale / max(storedScale, 0.001)
+                        // Keep the viewport center stable while zooming. The fitted origin
+                        // itself follows H5's explicit top-left transform model.
+                        origin = CGPoint(
+                            x: viewportCenter.x - (viewportCenter.x - storedOrigin.x) * ratio,
+                            y: viewportCenter.y - (viewportCenter.y - storedOrigin.y) * ratio
+                        )
+                        scale = nextScale
                     }
-                    .onEnded { _ in storedScale = scale }
+                    .onEnded { _ in
+                        storedScale = scale
+                        storedOrigin = origin
+                    }
             )
             .simultaneousGesture(
                 DragGesture(minimumDistance: 4, coordinateSpace: .local)
                     .onChanged { value in
                         guard !locked, !markMode else { return }
-                        offset = CGSize(width: storedOffset.width + value.translation.width, height: storedOffset.height + value.translation.height)
+                        origin = CGPoint(
+                            x: storedOrigin.x + value.translation.width,
+                            y: storedOrigin.y + value.translation.height
+                        )
                     }
                     .onEnded { _ in
                         guard !locked, !markMode else { return }
-                        storedOffset = offset
+                        storedOrigin = origin
                     }
             )
             .simultaneousGesture(
                 SpatialTapGesture()
                     .onEnded { value in
                         guard !locked else { return }
-                        if let index = cellIndex(at: value.location, viewportCenter: center, artboardSize: artboardSize) {
+                        if let index = cellIndex(at: value.location, artboardSize: artboardSize) {
                             onCellTap(index)
                         }
                     }
@@ -1005,27 +1202,17 @@ private struct BeadingCanvasView: View {
     }
 
     private func fit(to viewport: CGSize, artboardSize: CGSize) {
-        let availableWidth = max(1, viewport.width - 32)
-        let availableHeight = max(1, viewport.height - 32)
-        // H5 fits the artwork together with the 22pt left and 20pt top ruler gutters.
-        let contentWidth = artboardSize.width + EditorCanvasMetrics.rulerGutter
-        let contentHeight = artboardSize.height + EditorCanvasMetrics.rulerTopGutter
-        let fitted = min(availableWidth / contentWidth, availableHeight / contentHeight)
-        let nextScale = min(8, max(0.25, fitted))
-        let centeredOffset = CGSize(
-            width: EditorCanvasMetrics.rulerGutter * nextScale / 2,
-            height: EditorCanvasMetrics.rulerTopGutter * nextScale / 2
-        )
-        scale = nextScale
-        storedScale = nextScale
-        rulerBaselineScale = nextScale
-        offset = centeredOffset
-        storedOffset = centeredOffset
+        guard let fitted = calculateBeadingViewportFit(viewportSize: viewport, artboardSize: artboardSize) else { return }
+        scale = fitted.scale
+        storedScale = fitted.scale
+        rulerBaselineScale = fitted.scale
+        origin = CGPoint(x: fitted.x, y: fitted.y)
+        storedOrigin = origin
     }
 
-    private func cellIndex(at point: CGPoint, viewportCenter: CGPoint, artboardSize: CGSize) -> Int? {
-        let localX = (point.x - viewportCenter.x - offset.width) / max(scale, 0.001) + artboardSize.width / 2
-        let localY = (point.y - viewportCenter.y - offset.height) / max(scale, 0.001) + artboardSize.height / 2
+    private func cellIndex(at point: CGPoint, artboardSize: CGSize) -> Int? {
+        let localX = (point.x - origin.x) / max(scale, 0.001)
+        let localY = (point.y - origin.y) / max(scale, 0.001)
         guard localX >= 0, localY >= 0, localX < artboardSize.width, localY < artboardSize.height else { return nil }
         let col = Int(localX / naturalCellSize)
         let row = Int(localY / naturalCellSize)
@@ -3182,6 +3369,9 @@ private struct UserAvatarView: View {
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
+        .overlay(Circle().stroke(Color.white, lineWidth: 2.5))
+        .overlay(Circle().stroke(Color(hex: "DCE9FF"), lineWidth: 2).padding(-4))
+        .shadow(color: AppTokens.flowBrand.opacity(0.24), radius: 6, y: 3)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
     }
@@ -3489,10 +3679,10 @@ private struct ProfileLandingView: View {
                         onFollowing: { router.navigate(to: .following) },
                         onFollowers: { router.navigate(to: .followers) }
                     )
-                    .padding(.horizontal, 20)
-                    .padding(.top, 104)
+                    .padding(.horizontal, ProfileH5Metrics.pageInset)
+                    .padding(.top, ProfileH5Metrics.accountTop)
                 }
-                .frame(height: 286)
+                .frame(height: ProfileH5Metrics.signedHeroStackHeight)
 
                 Button { router.navigate(to: .warehouses) } label: {
                     HStack(alignment: .top, spacing: 14) {
@@ -3531,15 +3721,15 @@ private struct ProfileLandingView: View {
                             .foregroundStyle(Color(hex: "9AA8BD"))
                             .padding(.top, 14)
                     }
-                    .padding(18)
-                    .frame(minHeight: 136, alignment: .top)
+                    .padding(ProfileH5Metrics.warehousePadding)
+                    .frame(minHeight: ProfileH5Metrics.warehouseHeight, alignment: .top)
                     .background(Color.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 22))
-                    .overlay(RoundedRectangle(cornerRadius: 22).stroke(AppTokens.flowLine, lineWidth: 1))
-                    .shadow(color: Color(hex: "2C4A80").opacity(0.10), radius: 14, y: 6)
+                    .clipShape(RoundedRectangle(cornerRadius: ProfileH5Metrics.cardCorner))
+                    .overlay(RoundedRectangle(cornerRadius: ProfileH5Metrics.cardCorner).stroke(AppTokens.flowLine, lineWidth: 1))
+                    .shadow(color: Color(hex: "2C4A80").opacity(0.10), radius: 17, y: 6)
                 }
                 .buttonStyle(.plain)
-                .padding(.horizontal, 20)
+                .padding(.horizontal, ProfileH5Metrics.pageInset)
 
                 if let summaryError {
                     Button { Task { await load() } } label: {
@@ -3552,7 +3742,7 @@ private struct ProfileLandingView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
                     .buttonStyle(.plain)
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, ProfileH5Metrics.pageInset)
                 }
 
                 Button {
@@ -3561,9 +3751,9 @@ private struct ProfileLandingView: View {
                     HStack(spacing: 14) {
                         H5Icon(name: "lucide-settings", size: 20)
                             .foregroundStyle(AppTokens.flowBrand)
-                            .frame(width: 36, height: 36)
+                            .frame(width: ProfileH5Metrics.menuIconSide, height: ProfileH5Metrics.menuIconSide)
                             .background(AppTokens.flowBrandSoft)
-                            .clipShape(RoundedRectangle(cornerRadius: 11))
+                            .clipShape(RoundedRectangle(cornerRadius: ProfileH5Metrics.menuIconCorner))
                         VStack(alignment: .leading, spacing: 4) {
                             Text("设置").font(.system(size: 15, weight: .bold)).foregroundStyle(AppTokens.flowText)
                             Text("账号、安全与偏好").font(.system(size: 12, weight: .medium)).foregroundStyle(AppTokens.flowMuted)
@@ -3571,15 +3761,15 @@ private struct ProfileLandingView: View {
                         Spacer()
                         H5Icon(name: "lucide-chevron-right", size: 18).foregroundStyle(Color(hex: "9AA8BD"))
                     }
-                    .padding(.horizontal, 18)
-                    .frame(minHeight: 70)
+                    .padding(.horizontal, ProfileH5Metrics.menuHorizontalPadding)
+                    .frame(minHeight: ProfileH5Metrics.menuHeight)
                     .background(Color.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 22))
-                    .overlay(RoundedRectangle(cornerRadius: 22).stroke(AppTokens.flowLine, lineWidth: 1))
-                    .shadow(color: Color(hex: "2C4A80").opacity(0.08), radius: 12, y: 5)
+                    .clipShape(RoundedRectangle(cornerRadius: ProfileH5Metrics.cardCorner))
+                    .overlay(RoundedRectangle(cornerRadius: ProfileH5Metrics.cardCorner).stroke(AppTokens.flowLine, lineWidth: 1))
+                    .shadow(color: Color(hex: "2C4A80").opacity(0.08), radius: 17, y: 5)
                 }
                 .buttonStyle(.plain)
-                .padding(.horizontal, 20)
+                .padding(.horizontal, ProfileH5Metrics.pageInset)
 
                 Button(role: .destructive) {
                     session.logout()
@@ -3591,12 +3781,13 @@ private struct ProfileLandingView: View {
                     }
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(Color(hex: "D6455D"))
-                    .frame(maxWidth: .infinity, minHeight: 38)
+                    .frame(maxWidth: .infinity, minHeight: ProfileH5Metrics.logoutHeight)
                     .background(Color.white)
                     .clipShape(RoundedRectangle(cornerRadius: 14))
                     .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: "F1D8DC"), lineWidth: 1))
                 }
                 .buttonStyle(.plain)
+                .padding(.horizontal, ProfileH5Metrics.pageInset)
             }
             .padding(.bottom, 112)
             .frame(maxWidth: 548)
@@ -3652,8 +3843,14 @@ private struct ProfileSignedInAccountCard: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            HStack(spacing: 14) {
+            HStack(spacing: ProfileH5Metrics.accountGap) {
                 UserAvatarView(avatarURL: profile.user.avatarUrl, size: 64, accessibilityLabel: "我的头像")
+                    .overlay(Circle().stroke(Color.white, lineWidth: 2.5))
+                    .overlay(Circle().stroke(Color(hex: "DCE9FF"), lineWidth: 2.5).padding(-2.5))
+                    .shadow(color: AppTokens.flowBrand.opacity(0.24), radius: 6, y: 2)
+                    .overlay(Circle().stroke(Color.white, lineWidth: 2.5))
+                    .overlay(Circle().stroke(Color(hex: "DCE9FF"), lineWidth: 2.5).padding(-2.5))
+                    .shadow(color: AppTokens.flowBrand.opacity(0.24), radius: 6, y: 2)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(profile.user.nickname)
                         .font(.system(size: 18, weight: .bold))
@@ -3692,13 +3889,13 @@ private struct ProfileSignedInAccountCard: View {
                 ProfileMetric(value: profile.followersCount, title: "粉丝", action: onFollowers)
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 18)
-        .frame(minHeight: 170)
-        .background(Color.white)
-        .clipShape(RoundedRectangle(cornerRadius: 23))
-        .overlay(RoundedRectangle(cornerRadius: 23).stroke(Color(hex: "E6EDF7"), lineWidth: 1))
-        .shadow(color: Color(hex: "2C4A80").opacity(0.13), radius: 18, y: 8)
+        .padding(.horizontal, ProfileH5Metrics.accountHorizontalPadding)
+        .padding(.vertical, ProfileH5Metrics.accountVerticalPadding)
+        .frame(minHeight: ProfileH5Metrics.signedAccountMinHeight)
+        .background(Color.white.opacity(0.98))
+        .clipShape(RoundedRectangle(cornerRadius: ProfileH5Metrics.accountCorner))
+        .overlay(RoundedRectangle(cornerRadius: ProfileH5Metrics.accountCorner).stroke(Color.white.opacity(0.78), lineWidth: 1))
+        .shadow(color: Color(hex: "1B3D65").opacity(0.12), radius: 20, y: 9)
     }
 }
 
@@ -3735,10 +3932,10 @@ private struct ProfileGuestLandingView: View {
                 ZStack(alignment: .top) {
                     ProfileGuestHero()
                     ProfileGuestAccountCard(onLogin: onLogin)
-                        .padding(.horizontal, 20)
-                        .padding(.top, 104)
+                        .padding(.horizontal, ProfileH5Metrics.pageInset)
+                        .padding(.top, ProfileH5Metrics.accountTop)
                 }
-                .frame(height: 246)
+                .frame(height: ProfileH5Metrics.guestHeroStackHeight)
 
                 Button(action: onLogin) {
                     HStack(alignment: .top, spacing: 14) {
@@ -3766,22 +3963,24 @@ private struct ProfileGuestLandingView: View {
                             .foregroundStyle(AppTokens.flowMuted)
                             .padding(.top, 4)
                     }
-                    .padding(18)
-                    .frame(minHeight: 136, alignment: .top)
-                    .background(AppTokens.panel)
-                    .clipShape(RoundedRectangle(cornerRadius: AppTokens.cardCorner))
-                    .overlay(RoundedRectangle(cornerRadius: AppTokens.cardCorner).stroke(AppTokens.flowLine, lineWidth: 1))
-                    .shadow(color: AppTokens.flowCardShadow, radius: 12, y: 5)
+                    .padding(ProfileH5Metrics.warehousePadding)
+                    .frame(minHeight: ProfileH5Metrics.warehouseHeight, alignment: .top)
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: ProfileH5Metrics.cardCorner))
+                    .overlay(RoundedRectangle(cornerRadius: ProfileH5Metrics.cardCorner).stroke(AppTokens.flowLine, lineWidth: 1))
+                    .shadow(color: Color(hex: "2C4A80").opacity(0.10), radius: 17, y: 6)
                 }
                 .buttonStyle(.plain)
-                .padding(.horizontal, 20)
+                .padding(.horizontal, ProfileH5Metrics.pageInset)
                 .accessibilityLabel("登录后查看豆子仓库")
 
                 Button(action: onLogin) {
                     HStack(spacing: 14) {
-                        H5Icon(name: "lucide-settings", size: 19)
+                        H5Icon(name: "lucide-settings", size: 18)
                             .foregroundStyle(AppTokens.flowBrand)
-                            .frame(width: 30, height: 30)
+                            .frame(width: ProfileH5Metrics.menuIconSide, height: ProfileH5Metrics.menuIconSide)
+                            .background(AppTokens.flowBrandSoft)
+                            .clipShape(RoundedRectangle(cornerRadius: ProfileH5Metrics.menuIconCorner))
                         VStack(alignment: .leading, spacing: 3) {
                             Text("设置").font(.body.weight(.semibold)).foregroundStyle(AppTokens.flowText)
                             Text("账号、安全与偏好").font(.caption).foregroundStyle(AppTokens.flowMuted)
@@ -3789,15 +3988,15 @@ private struct ProfileGuestLandingView: View {
                         Spacer()
                         H5Icon(name: "lucide-chevron-right", size: 18).foregroundStyle(AppTokens.flowMuted)
                     }
-                    .padding(.horizontal, 18)
-                    .frame(minHeight: 72)
-                    .background(AppTokens.panel)
-                    .clipShape(RoundedRectangle(cornerRadius: AppTokens.cardCorner))
-                    .overlay(RoundedRectangle(cornerRadius: AppTokens.cardCorner).stroke(AppTokens.flowLine, lineWidth: 1))
-                    .shadow(color: AppTokens.flowCardShadow, radius: 10, y: 4)
+                    .padding(.horizontal, ProfileH5Metrics.menuHorizontalPadding)
+                    .frame(minHeight: ProfileH5Metrics.menuHeight)
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: ProfileH5Metrics.cardCorner))
+                    .overlay(RoundedRectangle(cornerRadius: ProfileH5Metrics.cardCorner).stroke(AppTokens.flowLine, lineWidth: 1))
+                    .shadow(color: Color(hex: "2C4A80").opacity(0.08), radius: 17, y: 5)
                 }
                 .buttonStyle(.plain)
-                .padding(.horizontal, 20)
+                .padding(.horizontal, ProfileH5Metrics.pageInset)
                 .accessibilityLabel("打开设置，需要登录")
             }
             .padding(.bottom, 112)
@@ -3810,23 +4009,78 @@ private struct ProfileGuestLandingView: View {
     }
 }
 
+private enum ProfileH5Metrics {
+    static let pageInset: CGFloat = 20
+    static let sectionGap: CGFloat = 16
+    static let heroHeight: CGFloat = 212
+    static let accountTop: CGFloat = 120
+    static let guestHeroStackHeight: CGFloat = 256
+    static let signedHeroStackHeight: CGFloat = 296
+    static let accountHorizontalPadding: CGFloat = 20
+    static let accountVerticalPadding: CGFloat = 22
+    static let accountGap: CGFloat = 18
+    static let guestAccountHeight: CGFloat = 136
+    static let signedAccountMinHeight: CGFloat = 168
+    static let accountCorner: CGFloat = 24
+    static let warehouseHeight: CGFloat = 136
+    static let warehousePadding: CGFloat = 18
+    static let warehouseIconCorner: CGFloat = 14
+    static let cardCorner: CGFloat = 22
+    static let menuHeight: CGFloat = 69
+    static let menuHorizontalPadding: CGFloat = 23
+    static let menuIconSide: CGFloat = 29
+    static let menuIconCorner: CGFloat = 10
+    static let logoutHeight: CGFloat = 43
+}
+
 private struct ProfileGuestHero: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
-            LinearGradient(colors: [Color(hex: "061943"), Color(hex: "0B2D78"), Color(hex: "1455BE")], startPoint: .topLeading, endPoint: .bottomTrailing)
-            Circle().fill(Color(hex: "6AA6FF").opacity(0.45)).frame(width: 142, height: 142).blur(radius: 8).offset(x: 248, y: -56)
-            Circle().stroke(.white.opacity(0.22), lineWidth: 1).frame(width: 78, height: 78)
-                .overlay(Circle().fill(.white.opacity(0.12)).padding(23))
+            LinearGradient(
+                colors: [Color(hex: "051639"), Color(hex: "071C48"), Color(hex: "092765")],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            Circle()
+                .fill(Color(hex: "3A84FF").opacity(0.34))
+                .frame(width: 190, height: 190)
+                .blur(radius: 18)
+                .offset(x: 246, y: -72)
+
+            Circle()
+                .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                .frame(width: 76, height: 76)
+                .overlay(Circle().fill(Color.white.opacity(0.12)).padding(22))
                 .shadow(color: Color(hex: "5B9DFF").opacity(0.55), radius: 20)
-                .offset(x: 272, y: 58)
-            VStack(alignment: .leading, spacing: 8) {
-                Text("我的").font(.system(size: 38, weight: .black)).foregroundStyle(.white)
-                Text("管理你的拼豆世界").font(.subheadline).foregroundStyle(.white.opacity(0.7))
+                .offset(x: 272, y: 50)
+
+            VStack(alignment: .leading, spacing: 7) {
+                Text("我的")
+                    .font(.system(size: 38, weight: .black))
+                    .foregroundStyle(.white)
+                Text("管理你的拼豆世界")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.70))
             }
-            .padding(.leading, AppTokens.pagePadding + 4)
-            .padding(.top, 50)
+            .padding(.leading, 24)
+            .padding(.top, 48)
+
+            LinearGradient(
+                stops: [
+                    .init(color: Color(hex: "081F4A").opacity(0), location: 0),
+                    .init(color: Color(hex: "4087F2").opacity(0.46), location: 0.38),
+                    .init(color: Color(hex: "CCE2FF").opacity(0.82), location: 0.72),
+                    .init(color: AppTokens.flowBackground, location: 1),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: 96)
+            .frame(maxHeight: .infinity, alignment: .bottom)
+            .allowsHitTesting(false)
         }
-        .frame(maxWidth: .infinity, minHeight: 210, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: ProfileH5Metrics.heroHeight, maxHeight: ProfileH5Metrics.heroHeight, alignment: .topLeading)
         .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 30, bottomTrailingRadius: 30))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("我的，管理你的拼豆世界")
@@ -3837,8 +4091,14 @@ private struct ProfileGuestAccountCard: View {
     let onLogin: () -> Void
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: ProfileH5Metrics.accountGap) {
             UserAvatarView(avatarURL: nil, size: 64, accessibilityLabel: "未登录头像")
+                .overlay(Circle().stroke(Color.white, lineWidth: 2.5))
+                .overlay(Circle().stroke(Color(hex: "DCE9FF"), lineWidth: 2.5).padding(-2.5))
+                .shadow(color: AppTokens.flowBrand.opacity(0.24), radius: 6, y: 2)
+                .overlay(Circle().stroke(Color.white, lineWidth: 2.5))
+                .overlay(Circle().stroke(Color(hex: "DCE9FF"), lineWidth: 2.5).padding(-2.5))
+                .shadow(color: AppTokens.flowBrand.opacity(0.24), radius: 6, y: 2)
             VStack(alignment: .leading, spacing: 3) {
                 Text("未登录").font(.title3.weight(.bold)).foregroundStyle(AppTokens.flowText)
                 Text("登录后同步项目与豆子库存").font(.caption).foregroundStyle(AppTokens.flowMuted)
@@ -3860,13 +4120,13 @@ private struct ProfileGuestAccountCard: View {
             .buttonStyle(.plain)
             .accessibilityLabel("立即登录")
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 18)
-        .frame(minHeight: 128)
-        .background(Color.white)
-        .clipShape(RoundedRectangle(cornerRadius: 23))
-        .overlay(RoundedRectangle(cornerRadius: 23).stroke(Color(hex: "E6EDF7"), lineWidth: 1))
-        .shadow(color: Color(hex: "2C4A80").opacity(0.13), radius: 18, y: 8)
+        .padding(.horizontal, ProfileH5Metrics.accountHorizontalPadding)
+        .padding(.vertical, ProfileH5Metrics.accountVerticalPadding)
+        .frame(minHeight: ProfileH5Metrics.guestAccountHeight)
+        .background(Color.white.opacity(0.98))
+        .clipShape(RoundedRectangle(cornerRadius: ProfileH5Metrics.accountCorner))
+        .overlay(RoundedRectangle(cornerRadius: ProfileH5Metrics.accountCorner).stroke(Color.white.opacity(0.78), lineWidth: 1))
+        .shadow(color: Color(hex: "1B3D65").opacity(0.12), radius: 20, y: 9)
     }
 }
 

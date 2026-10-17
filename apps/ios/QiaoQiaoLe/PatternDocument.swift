@@ -56,6 +56,7 @@ final class PatternDocument: ObservableObject {
     @Published var settings = PrintSettings()
     @Published private(set) var activeProjectID: String?
     @Published private(set) var projectName = "未命名作品"
+    @Published private(set) var sourceImagePresent = false
 
     private struct Snapshot: Equatable {
         let columns: Int
@@ -69,6 +70,7 @@ final class PatternDocument: ObservableObject {
 
     var canUndo: Bool { !undoStack.isEmpty }
     var canRedo: Bool { !redoStack.isEmpty }
+    var canRemoveBackground: Bool { sourceImagePresent || activeProjectID != nil }
 
     func cell(at row: Int, _ column: Int) -> BeadCell { cells[row * columns + column] }
 
@@ -143,7 +145,7 @@ final class PatternDocument: ObservableObject {
         }
     }
 
-    func startNewProject(columns: Int, rows: Int, colors: [ColorToken]) {
+    func startNewProject(columns: Int, rows: Int, colors: [ColorToken], sourceImagePresent: Bool = false) {
         let safeColumns = min(max(columns, 2), 120)
         let safeRows = min(max(rows, 2), 120)
         let requiredCount = safeColumns * safeRows
@@ -153,6 +155,7 @@ final class PatternDocument: ObservableObject {
         self.cells = colors.prefix(requiredCount).enumerated().map { BeadCell(id: $0.offset, color: $0.element) }
         activeProjectID = nil
         projectName = "未命名作品"
+        self.sourceImagePresent = sourceImagePresent
         undoStack.removeAll()
         redoStack.removeAll()
     }
@@ -160,7 +163,11 @@ final class PatternDocument: ObservableObject {
     func startBlankProject(columns: Int, rows: Int) {
         let safeColumns = min(max(columns, 2), 120)
         let safeRows = min(max(rows, 2), 120)
-        startNewProject(columns: safeColumns, rows: safeRows, colors: Array(repeating: Palette.empty, count: safeColumns * safeRows))
+        startNewProject(columns: safeColumns, rows: safeRows, colors: Array(repeating: Palette.empty, count: safeColumns * safeRows), sourceImagePresent: false)
+    }
+
+    func startImportedProject(columns: Int, rows: Int, colors: [ColorToken]) {
+        startNewProject(columns: columns, rows: rows, colors: colors, sourceImagePresent: true)
     }
 
     /// Reads the H5 `serializeProjectCells` payload. Invalid or incomplete input
@@ -172,7 +179,64 @@ final class PatternDocument: ObservableObject {
         self.columns = safeColumns; self.rows = safeRows
         self.cells = colors.enumerated().map { BeadCell(id: $0.offset, color: $0.element) }
         self.activeProjectID = id; self.projectName = name.isEmpty ? "未命名作品" : name
+        sourceImagePresent = false
         undoStack.removeAll(); redoStack.removeAll()
+        return true
+    }
+
+    /// Mirrors H5 `removeGridEdgeBackground`: remove only the dominant (>50%)
+    /// edge color that is connected to the outer border. Enclosed pixels using
+    /// the same color remain untouched. The whole removal is one undo step.
+    @discardableResult
+    func removeGridEdgeBackground() -> Bool {
+        guard canRemoveBackground, rows > 0, columns > 0 else { return false }
+
+        var counts: [String: Int] = [:]
+        for index in cells.indices {
+            let cell = cells[index]
+            guard cell.color != Palette.empty else { continue }
+            let x = index % columns
+            let y = index / columns
+            guard x == 0 || x == columns - 1 || y == 0 || y == rows - 1 else { continue }
+            counts[cell.color.hex.lowercased(), default: 0] += 1
+        }
+        let edgeCount = counts.values.reduce(0, +)
+        guard let dominant = counts.max(by: { $0.value < $1.value }),
+              edgeCount > 0,
+              Double(dominant.value) / Double(edgeCount) > 0.5 else { return false }
+
+        var visited = Set<Int>()
+        var queue: [Int] = []
+        queue.reserveCapacity(columns * 2 + max(0, rows - 2) * 2)
+        for x in 0..<columns {
+            queue.append(x)
+            if rows > 1 { queue.append((rows - 1) * columns + x) }
+        }
+        if rows > 2 {
+            for y in 1..<(rows - 1) {
+                queue.append(y * columns)
+                if columns > 1 { queue.append(y * columns + columns - 1) }
+            }
+        }
+
+        var head = 0
+        while head < queue.count {
+            let index = queue[head]
+            head += 1
+            guard cells.indices.contains(index), visited.insert(index).inserted else { continue }
+            let cell = cells[index]
+            guard cell.color != Palette.empty, cell.color.hex.lowercased() == dominant.key else { continue }
+            let x = index % columns
+            let y = index / columns
+            if x > 0 { queue.append(index - 1) }
+            if x + 1 < columns { queue.append(index + 1) }
+            if y > 0 { queue.append(index - columns) }
+            if y + 1 < rows { queue.append(index + columns) }
+        }
+
+        let changed = visited.filter { cells[$0].color != Palette.empty && cells[$0].color.hex.lowercased() == dominant.key }
+        guard !changed.isEmpty else { return false }
+        commit { changed.forEach { cells[$0].color = Palette.empty } }
         return true
     }
 
@@ -202,6 +266,13 @@ final class PatternDocument: ObservableObject {
     func projectBeadList() -> [ProjectBeadCount] {
         let counts = cells.filter { $0.color != Palette.empty }.reduce(into: [ColorToken: Int]()) { $0[$1.color, default: 0] += 1 }
         return counts.map { ProjectBeadCount(color: $0.key.code, count: $0.value) }.sorted { $0.color < $1.color }
+    }
+
+    func beadCountsByCode() -> [String: Int] {
+        cells.reduce(into: [String: Int]()) { counts, cell in
+            guard cell.color != Palette.empty else { return }
+            counts[cell.color.code, default: 0] += 1
+        }
     }
 
     /// Mirrors H5 `filterPaletteByUsage`: used MARD colors come first by

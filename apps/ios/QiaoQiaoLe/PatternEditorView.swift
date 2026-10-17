@@ -11,13 +11,15 @@ struct PatternEditorView: View {
     @State private var exportURL: URL?
     @State private var exportError: String?
     @State private var referenceImportError: String?
-    @State private var canvasScale: CGFloat = 1
+    @State private var canvasScale: CGFloat = ProcessInfo.processInfo.arguments.contains("-ui-testing-editor-zoomed") ? 2 : 1
     @State private var pinchStartScale: CGFloat?
     @State private var referencePickerItem: PhotosPickerItem?
     @State private var referenceImage: UIImage?
     @State private var isReferenceMinimized = false
     @State private var showPaletteSearch = false
     @State private var showBeadList = false
+    @State private var backgroundRemovalStatus: String?
+    @State private var isBackgroundProcessing = false
     @State private var viewportSize: CGSize = .zero
     @State private var artboardFrame: CGRect = .zero
 
@@ -53,7 +55,7 @@ struct PatternEditorView: View {
                     ZStack(alignment: .topTrailing) {
                         EditorStageBackground()
                         ScrollView([.horizontal, .vertical]) {
-                            GridCanvas(document: document, scale: effectiveCanvasScale, hidesStaticRulers: rulerGeometry.sticky)
+                            GridCanvas(document: document, scale: effectiveCanvasScale, hidesStaticRulers: rulerGeometry.sticky, showsCodes: canvasScale >= 1.5)
                                 .padding(.horizontal, 12)
                                 .padding(.top, 28)
                                 .padding(.bottom, 170)
@@ -85,6 +87,18 @@ struct PatternEditorView: View {
                                 onClose: { self.referenceImage = nil; referencePickerItem = nil }
                             )
                             .padding(12)
+                        }
+                        if let backgroundRemovalStatus {
+                            Text(backgroundRemovalStatus)
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(AppTokens.flowText)
+                                .padding(.horizontal, 12)
+                                .frame(height: 30)
+                                .background(Color.white.opacity(0.94))
+                                .clipShape(RoundedRectangle(cornerRadius: 7))
+                                .shadow(color: .black.opacity(0.08), radius: 5, y: 2)
+                                .padding(.bottom, 158)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                         }
                         zoomControls
                             .padding(.leading, 12)
@@ -216,6 +230,23 @@ struct PatternEditorView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
                 .accessibilityLabel("打开豆子清单")
+                if document.canRemoveBackground {
+                    Button { removeBackground() } label: {
+                        Group {
+                            if isBackgroundProcessing {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                H5Icon(name: "lucide-sparkles", size: 21)
+                            }
+                        }
+                        .frame(width: 42, height: 42)
+                        .background(Color.white)
+                        .foregroundStyle(Color(hex: "171819"))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+                    .disabled(isBackgroundProcessing)
+                    .accessibilityLabel(isBackgroundProcessing ? "背景处理中" : "去除背景")
+                }
             }
             .padding(7)
         }
@@ -228,11 +259,12 @@ struct PatternEditorView: View {
     }
 
     private var palette: some View {
-        HStack(spacing: 0) {
+        let counts = document.beadCountsByCode()
+        return HStack(spacing: 0) {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 7) {
                     ForEach(document.paletteColors(), id: \.self) { color in
-                        EditorPaletteColorButton(color: color, isSelected: document.selectedColor == color) {
+                        EditorPaletteColorButton(color: color, count: counts[color.code, default: 0], isSelected: document.selectedColor == color) {
                             document.selectedColor = color
                         }
                     }
@@ -263,6 +295,19 @@ struct PatternEditorView: View {
         .shadow(color: .black.opacity(0.10), radius: 10, y: 4)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("底部色卡，共 \(Mard221Palette.colors.count) 色")
+    }
+
+    private func removeBackground() {
+        guard !isBackgroundProcessing else { return }
+        isBackgroundProcessing = true
+        Task { @MainActor in
+            await Task.yield()
+            let changed = document.removeGridEdgeBackground()
+            backgroundRemovalStatus = changed ? "已去除边缘背景，可撤销恢复" : "未检测到可去除的边缘背景"
+            isBackgroundProcessing = false
+            try? await Task.sleep(for: .seconds(1.4))
+            backgroundRemovalStatus = nil
+        }
     }
 
     private func exportSTL() {
@@ -304,6 +349,7 @@ private struct EditorStageBackground: View {
 
 private struct EditorPaletteColorButton: View {
     let color: ColorToken
+    let count: Int
     let isSelected: Bool
     let action: () -> Void
 
@@ -322,22 +368,27 @@ private struct EditorPaletteColorButton: View {
             ZStack(alignment: .bottom) {
                 RoundedRectangle(cornerRadius: 9)
                     .fill(color.swiftUIColor)
-                Text(color.code)
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
-                    .foregroundStyle(foreground)
-                    .shadow(color: usesDarkForeground ? .clear : .black.opacity(0.18), radius: 1)
-                    .padding(.bottom, 7)
+                VStack(spacing: 2) {
+                    Text(color.code)
+                        .font(.system(size: 11, weight: .black, design: .rounded))
+                    Text("\(count)")
+                        .font(.system(size: 9, weight: .bold, design: .rounded))
+                        .opacity(0.82)
+                }
+                .foregroundStyle(foreground)
+                .shadow(color: usesDarkForeground ? .clear : .black.opacity(0.18), radius: 1)
+                .padding(.bottom, 6)
                 Capsule()
                     .fill(isSelected ? foreground : .clear)
                     .frame(width: 16, height: 2.5)
-                    .padding(.bottom, 3)
+                    .padding(.bottom, 2)
             }
             .frame(width: 42, height: 48)
             .overlay(RoundedRectangle(cornerRadius: 9).stroke(isSelected ? AppTokens.flowBrand : Color.black.opacity(0.08), lineWidth: isSelected ? 2.5 : 1))
         }
         .buttonStyle(.plain)
         .accessibilityLabel("选择色号 \(color.code)")
-        .accessibilityValue("#\(color.hex)")
+        .accessibilityValue("#\(color.hex)，\(count) 颗")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
@@ -589,17 +640,33 @@ struct EditorViewportRulerGeometry: Equatable {
     }
 
     private static func visibleTicks(size: Int, cellSize: CGFloat, artboardOffset: CGFloat, viewportSize: CGFloat) -> [EditorViewportRulerTick] {
-        guard cellSize > 0, viewportSize > 0 else { return [] }
+        guard cellSize.isFinite, cellSize > 0, viewportSize.isFinite, viewportSize > 0 else { return [] }
         let interval = tickInterval(cellSize: cellSize)
         let regular = stride(from: 1, through: size, by: interval).map { tick in
             EditorViewportRulerTick(tick: tick, offset: artboardOffset + (CGFloat(tick) - 0.5) * cellSize)
         }.filter { $0.offset >= 0 && $0.offset <= viewportSize }
         if !regular.isEmpty { return regular }
 
-        let firstVisible = max(1, min(size, Int(floor((-artboardOffset) / cellSize)) + 1))
-        let naturalOffset = artboardOffset + (CGFloat(firstVisible) - 0.5) * cellSize
+        // Exact native port of H5 visibleRulerTicks: first prefer a cell whose
+        // centre is visible, then fall back to a partially intersecting edge cell.
+        let firstVisible = max(1, Int(ceil(0.5 - artboardOffset / cellSize)))
+        let lastVisible = min(size, Int(floor(0.5 + (viewportSize - artboardOffset) / cellSize)))
+        if firstVisible <= lastVisible {
+            return [EditorViewportRulerTick(
+                tick: firstVisible,
+                offset: artboardOffset + (CGFloat(firstVisible) - 0.5) * cellSize
+            )]
+        }
+
+        let firstIntersecting = max(1, Int(floor(-artboardOffset / cellSize)) + 1)
+        let lastIntersecting = min(size, Int(ceil((viewportSize - artboardOffset) / cellSize)))
+        guard firstIntersecting <= lastIntersecting else { return [] }
+        let naturalOffset = artboardOffset + (CGFloat(firstIntersecting) - 0.5) * cellSize
         let edgeInset = min(7, viewportSize / 2)
-        return [EditorViewportRulerTick(tick: firstVisible, offset: max(edgeInset, min(viewportSize - edgeInset, naturalOffset)))]
+        return [EditorViewportRulerTick(
+            tick: firstIntersecting,
+            offset: max(edgeInset, min(viewportSize - edgeInset, naturalOffset))
+        )]
     }
 }
 
@@ -651,66 +718,116 @@ private struct GridCanvas: View {
     @ObservedObject var document: PatternDocument
     let scale: CGFloat
     let hidesStaticRulers: Bool
+    let showsCodes: Bool
     @State private var activeStroke = Set<GridCoordinate>()
     @State private var previousStrokeCoordinate: GridCoordinate?
 
     var body: some View {
         let cellSide = EditorCanvasMetrics.cellSide * scale
-        let gutter = EditorCanvasMetrics.rulerGutter * scale
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                Color.clear.frame(width: gutter, height: gutter)
-                HStack(spacing: 0) {
-                    ForEach(0..<document.columns, id: \.self) { column in
-                        Text("\(column + 1)").font(.system(size: max(7, 8 * scale), weight: .medium, design: .monospaced))
-                            .foregroundStyle(AppTokens.muted).frame(width: cellSide, height: gutter, alignment: .center)
-                            .opacity(hidesStaticRulers ? 0 : 1)
-                    }
-                }
+        let leftGutter = EditorCanvasMetrics.rulerGutter * scale
+        let topGutter = EditorCanvasMetrics.rulerTopGutter * scale
+        let artboardWidth = CGFloat(document.columns) * cellSide
+        let artboardHeight = CGFloat(document.rows) * cellSide
+        let contentWidth = leftGutter + artboardWidth
+        let contentHeight = topGutter + artboardHeight
+
+        ZStack(alignment: .topLeading) {
+            Canvas(rendersAsynchronously: true) { context, _ in
+                draw(
+                    context: &context,
+                    cellSide: cellSide,
+                    leftGutter: leftGutter,
+                    topGutter: topGutter,
+                    artboardWidth: artboardWidth,
+                    artboardHeight: artboardHeight
+                )
             }
-            HStack(spacing: 0) {
-                VStack(spacing: 0) {
-                    ForEach(0..<document.rows, id: \.self) { row in
-                        Text("\(row + 1)").font(.system(size: max(7, 8 * scale), weight: .medium, design: .monospaced))
-                            .foregroundStyle(AppTokens.muted).frame(width: gutter, height: cellSide, alignment: .center)
-                            .opacity(hidesStaticRulers ? 0 : 1)
-                    }
-                }
-                VStack(spacing: 0) {
-                    ForEach(0..<document.rows, id: \.self) { row in
-                        HStack(spacing: 0) {
-                            ForEach(0..<document.columns, id: \.self) { column in
-                                let cell = document.cell(at: row, column)
-                                Rectangle().fill(cell.color.swiftUIColor)
-                                    .overlay(Rectangle().stroke(AppTokens.gridLine, lineWidth: max(0.35, 0.5 * scale)))
-                                    .frame(width: cellSide, height: cellSide)
-                                    .contentShape(Rectangle())
-                                    .accessibilityLabel("第 \(row + 1) 行第 \(column + 1) 列，\(cell.color.code)")
-                                    .accessibilityAddTraits(.isButton)
-                                    .accessibilityAction { document.applyTool(at: row, column) }
-                            }
-                        }
-                    }
-                }
-                .background(AppTokens.panel)
-                .overlay(Rectangle().stroke(AppTokens.line, lineWidth: 1))
+            .frame(width: contentWidth, height: contentHeight)
+
+            Color.clear
+                .frame(width: artboardWidth, height: artboardHeight)
                 .background(GeometryReader { proxy in
-                    Color.clear.preference(key: EditorArtboardFramePreferenceKey.self, value: proxy.frame(in: .named("editor-canvas-viewport")))
+                    Color.clear.preference(
+                        key: EditorArtboardFramePreferenceKey.self,
+                        value: proxy.frame(in: .named("editor-canvas-viewport"))
+                    )
                 })
-                .overlay(alignment: .bottomTrailing) {
-                    Color.clear
-                        .contentShape(Rectangle())
-                        .frame(width: CGFloat(document.columns) * cellSide, height: CGFloat(document.rows) * cellSide)
-                        .gesture(strokeGesture(cellSide: cellSide))
-                        .allowsHitTesting(document.tool != .pan)
-                        .accessibilityHidden(true)
-                }
-            }
+                .contentShape(Rectangle())
+                .gesture(strokeGesture(cellSide: cellSide))
+                .allowsHitTesting(document.tool != .pan)
+                .accessibilityHidden(true)
+                .offset(x: leftGutter, y: topGutter)
         }
+        .frame(width: contentWidth, height: contentHeight, alignment: .topLeading)
         .background(AppTokens.flowBackground)
-        .accessibilityElement(children: .contain)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel("拼豆编辑画布，缩放 \(Int(scale * 100))%")
         .accessibilityIdentifier("拼豆编辑画布")
+    }
+
+    private func draw(
+        context: inout GraphicsContext,
+        cellSide: CGFloat,
+        leftGutter: CGFloat,
+        topGutter: CGFloat,
+        artboardWidth: CGFloat,
+        artboardHeight: CGFloat
+    ) {
+        let artboard = CGRect(x: leftGutter, y: topGutter, width: artboardWidth, height: artboardHeight)
+        context.fill(Path(artboard), with: .color(Color.white))
+
+        if !hidesStaticRulers {
+            drawStaticRulers(context: &context, cellSide: cellSide, leftGutter: leftGutter, topGutter: topGutter)
+        }
+
+        let gridLine = Color(hex: "AAB4BE").opacity(0.42)
+        for (index, cell) in document.cells.enumerated() {
+            let column = index % document.columns
+            let row = index / document.columns
+            let rect = CGRect(
+                x: leftGutter + CGFloat(column) * cellSide,
+                y: topGutter + CGFloat(row) * cellSide,
+                width: cellSide,
+                height: cellSide
+            )
+            if cell.color == Palette.empty {
+                let checker = (row + column).isMultiple(of: 2) ? Color.white : Color(hex: "E8EFF2")
+                context.fill(Path(rect), with: .color(checker))
+            } else {
+                context.fill(Path(rect), with: .color(cell.color.swiftUIColor))
+            }
+            context.stroke(Path(rect), with: .color(gridLine), lineWidth: 0.5)
+
+            if showsCodes, cell.color != Palette.empty {
+                let fontSize = cellSide * (cell.color.code.count >= 3 ? 0.50 : 0.52)
+                let label = Text(cell.color.code)
+                    .font(.system(size: max(6, fontSize), weight: .semibold, design: .monospaced))
+                    .foregroundStyle(textColor(for: cell.color))
+                context.draw(label, at: CGPoint(x: rect.midX, y: rect.midY), anchor: .center)
+            }
+        }
+        context.stroke(Path(artboard), with: .color(Color(hex: "82909C").opacity(0.45)), lineWidth: 1)
+    }
+
+    private func drawStaticRulers(context: inout GraphicsContext, cellSide: CGFloat, leftGutter: CGFloat, topGutter: CGFloat) {
+        let labelColor = Color(hex: "65727D")
+        let fontSize = max(6, 7 * scale)
+        for tick in stride(from: 1, through: max(1, document.columns), by: 5) {
+            let label = Text("\(tick)").font(.system(size: fontSize, weight: .bold, design: .monospaced)).foregroundStyle(labelColor)
+            context.draw(label, at: CGPoint(x: leftGutter + (CGFloat(tick) - 0.5) * cellSide, y: topGutter / 2), anchor: .center)
+        }
+        for tick in stride(from: 1, through: max(1, document.rows), by: 5) {
+            let label = Text("\(tick)").font(.system(size: fontSize, weight: .bold, design: .monospaced)).foregroundStyle(labelColor)
+            context.draw(label, at: CGPoint(x: leftGutter / 2, y: topGutter + (CGFloat(tick) - 0.5) * cellSide), anchor: .center)
+        }
+    }
+
+    private func textColor(for color: ColorToken) -> Color {
+        let value = Int(color.hex, radix: 16) ?? 0
+        let red = Double((value >> 16) & 0xff)
+        let green = Double((value >> 8) & 0xff)
+        let blue = Double(value & 0xff)
+        return red * 0.299 + green * 0.587 + blue * 0.114 > 155 ? Color(hex: "1E3048") : .white
     }
 
     private func strokeGesture(cellSide: CGFloat) -> some Gesture {

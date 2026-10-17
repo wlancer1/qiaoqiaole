@@ -41,6 +41,18 @@ final class SplitWorkflowTests: XCTestCase {
         XCTAssertEqual(workflow.rows, 4)
     }
 
+    func testInitialAlignmentGeometryMatchesH5BeforeQuickGridAdjustment() {
+        let workflow = SplitWorkflow()
+        workflow.load(image: solidImage(width: 300, height: 151, color: .red), name: "initial-align")
+
+        XCTAssertEqual(workflow.columns, 144)
+        XCTAssertEqual(workflow.rows, 72)
+        let expectedCellSize = max(300.0 / 144.0, 151.0 / 72.0)
+        XCTAssertEqual(workflow.alignmentCellSize, expectedCellSize, accuracy: 0.0001)
+        XCTAssertEqual(workflow.alignmentOffset.x, (300 - floor(300 / expectedCellSize) * expectedCellSize) / 2, accuracy: 0.0001)
+        XCTAssertEqual(workflow.alignmentOffset.y, (151 - floor(151 / expectedCellSize) * expectedCellSize) / 2, accuracy: 0.0001)
+    }
+
     func testSplitUsesCompleteMard221Palette() {
         XCTAssertEqual(Mard221Palette.colors.count, 221)
         XCTAssertEqual(Mard221Palette.colors.first, ColorToken(hex: "FAF4C8", code: "A1"))

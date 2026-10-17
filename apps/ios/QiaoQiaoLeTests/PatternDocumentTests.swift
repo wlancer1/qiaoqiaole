@@ -14,6 +14,32 @@ final class PatternDocumentTests: XCTestCase {
         XCTAssertEqual(EditorCanvasMetrics.clampedScale(20), 12)
     }
 
+    func testBeadingViewportFitMatchesH5TransformMath() {
+        let fit = calculateBeadingViewportFit(
+            viewportSize: CGSize(width: 400, height: 300),
+            artboardSize: CGSize(width: 180, height: 90)
+        )
+        XCTAssertNotNil(fit)
+        let expectedScale = CGFloat(368) / CGFloat(180 + 22)
+        XCTAssertEqual(fit?.scale ?? 0, expectedScale, accuracy: 0.0001)
+        XCTAssertEqual(fit?.x ?? 0, 16 + 22 * expectedScale, accuracy: 0.0001)
+        XCTAssertEqual(
+            fit?.y ?? 0,
+            16 + (268 - CGFloat(90 + 20) * expectedScale) / 2 + 20 * expectedScale,
+            accuracy: 0.0001
+        )
+    }
+
+    func testBeadingViewportFitScalesSmallArtboardLikeH5() {
+        let fit = calculateBeadingViewportFit(
+            viewportSize: CGSize(width: 212, height: 212),
+            artboardSize: CGSize(width: 18, height: 18)
+        )
+        XCTAssertEqual(fit?.scale ?? 0, 4.5, accuracy: 0.0001)
+        XCTAssertEqual(fit?.x ?? 0, 115, accuracy: 0.0001)
+        XCTAssertEqual(fit?.y ?? 0, 110.5, accuracy: 0.0001)
+    }
+
     func testViewportRulerKeepsLabelsOnActualVisibleCellCenters() {
         let geometry = EditorViewportRulerGeometry(
             viewportSize: CGSize(width: 200, height: 140),
@@ -28,6 +54,20 @@ final class PatternDocumentTests: XCTestCase {
         XCTAssertEqual(geometry.columns.map(\.tick), [2, 3, 4, 5, 6, 7, 8])
     }
 
+
+    func testViewportRulerKeepsEdgeLabelWhenOnlyPartOfZoomedCellIntersects() {
+        let geometry = EditorViewportRulerGeometry(
+            viewportSize: CGSize(width: 100, height: 100),
+            artboardFrame: CGRect(x: -150, y: -150, width: 400, height: 400),
+            rows: 2,
+            columns: 2,
+            scale: 4
+        )
+        XCTAssertTrue(geometry.sticky)
+        XCTAssertEqual(geometry.columns, [EditorViewportRulerTick(tick: 1, offset: 7)])
+        XCTAssertEqual(geometry.rows, [EditorViewportRulerTick(tick: 1, offset: 7)])
+    }
+
     func testViewportRulerIsHiddenWhenCanvasIsUnzoomedAndFullyVisible() {
         let geometry = EditorViewportRulerGeometry(
             viewportSize: CGSize(width: 400, height: 400),
@@ -40,6 +80,57 @@ final class PatternDocumentTests: XCTestCase {
         XCTAssertTrue(geometry.columns.isEmpty)
         XCTAssertTrue(geometry.rows.isEmpty)
     }
+    func testImportedProjectStartsWithEmptyUndoHistory() {
+        let document = PatternDocument()
+        document.tool = .brush
+        document.selectedColor = Palette.default[1]
+        document.applyTool(at: 0, 0)
+        XCTAssertTrue(document.canUndo)
+
+        let imported = [Palette.default[2], Palette.default[3], Palette.default[4], Palette.default[5]]
+        document.startImportedProject(columns: 2, rows: 2, colors: imported)
+
+        XCTAssertEqual(document.columns, 2)
+        XCTAssertEqual(document.rows, 2)
+        XCTAssertEqual(document.cells.map(\.color), imported)
+        XCTAssertTrue(document.sourceImagePresent)
+        XCTAssertFalse(document.canUndo, "导入图像本身必须成为编辑历史基准，不能撤销回默认画布")
+        XCTAssertFalse(document.canRedo)
+    }
+
+    func testGridBackgroundRemovalMatchesH5EdgeConnectedRuleAndIsUndoable() {
+        let document = PatternDocument()
+        let background = Palette.token(for: "#FFFFFF")
+        let foreground = Palette.token(for: "#FF0000")
+        var colors = (0..<25).map { index -> ColorToken in
+            let x = index % 5
+            let y = index / 5
+            return (x == 0 || x == 4 || y == 0 || y == 4) ? background : foreground
+        }
+        colors[12] = background
+        document.startImportedProject(columns: 5, rows: 5, colors: colors)
+
+        XCTAssertTrue(document.removeGridEdgeBackground())
+        XCTAssertEqual(document.cells.filter { $0.color == Palette.empty }.count, 16)
+        XCTAssertEqual(document.cell(at: 2, 2).color, background, "内部不与边缘连通的同色像素必须保留")
+        XCTAssertTrue(document.canUndo)
+
+        document.undo()
+        XCTAssertEqual(document.cells.map(\.color), colors)
+        XCTAssertFalse(document.canUndo)
+    }
+
+    func testGridBackgroundRemovalRequiresStrictEdgeMajorityLikeH5() {
+        let document = PatternDocument()
+        let white = Palette.token(for: "#FFFFFF")
+        let red = Palette.token(for: "#FF0000")
+        document.startImportedProject(columns: 2, rows: 2, colors: [white, red, white, red])
+
+        XCTAssertFalse(document.removeGridEdgeBackground())
+        XCTAssertFalse(document.canUndo)
+        XCTAssertEqual(document.cells.map(\.color), [white, red, white, red])
+    }
+
     func testBrushRecordsHistoryAndUndoRestoresCell() {
         let document = PatternDocument()
         document.tool = .brush
@@ -214,6 +305,9 @@ final class PatternDocumentTests: XCTestCase {
         XCTAssertEqual(matchingC8.first?.code, "C8")
         XCTAssertTrue(matchingC8.allSatisfy { $0.code.lowercased().contains("c8") || "#\($0.hex)".lowercased().contains("c8") })
         XCTAssertEqual(document.paletteColors(matching: "#FAF4").map(\.code), ["A1"])
+        XCTAssertEqual(document.beadCountsByCode()["C8"], 2)
+        XCTAssertEqual(document.beadCountsByCode()["A1"], 1)
+        XCTAssertNil(document.beadCountsByCode()["空白"])
     }
     func testStartingBlankProjectClearsExistingProjectIdentity() {
         let document = PatternDocument()

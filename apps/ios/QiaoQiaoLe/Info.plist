@@ -13,6 +13,7 @@
   <key>CFBundleVersion</key><string>1</string>
   <key>APIBaseURL</key><string>$(API_BASE_URL)</string>
   <key>NSPhotoLibraryUsageDescription</key><string>用于选择参考图、头像和拼豆分图图片；图片仅在你确认后用于创作或上传。</string>
+  <key>NSBluetoothAlwaysUsageDescription</key><string>用于连接智能拼豆板，并将当前拼豆位置发送到设备。</string>
   <key>NSAppTransportSecurity</key>
   <dict><key>NSAllowsLocalNetworking</key><true/></dict>
   <key>LSRequiresIPhoneOS</key><true/>

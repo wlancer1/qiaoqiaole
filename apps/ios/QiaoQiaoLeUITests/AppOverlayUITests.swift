@@ -59,7 +59,7 @@ final class AppOverlayUITests: XCTestCase {
         creation.tap()
 
         XCTAssertFalse(app.staticTexts["选择或更换参考图片"].exists, "已有图片时不应在预览上方重复占用选择卡片")
-        let enterCrop = app.buttons["进入裁剪"]
+        let enterCrop = app.buttons["下一步"]
         XCTAssertTrue(enterCrop.waitForExistence(timeout: 5))
         XCTAssertTrue(enterCrop.isEnabled, "固定测试图片应生成可继续的原生网格预览")
         enterCrop.tap()
@@ -69,7 +69,7 @@ final class AppOverlayUITests: XCTestCase {
         XCTAssertTrue(confirmCrop.isEnabled)
         XCTAssertTrue(app.buttons["缩小裁剪预览"].exists)
         XCTAssertTrue(app.buttons["放大裁剪预览"].exists)
-        XCTAssertTrue(app.buttons["重置裁剪"].exists)
+        XCTAssertTrue(app.buttons["重置"].exists)
         confirmCrop.tap()
 
         let importToCanvas = app.buttons["导入到画布"]
@@ -86,23 +86,23 @@ final class AppOverlayUITests: XCTestCase {
         app.launchArguments = ["-ui-testing-beading-workspace"]
         app.launch()
 
-        XCTAssertTrue(app.buttons["检测库存"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["查看库存"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["暂停计时"].exists)
-        XCTAssertTrue(app.buttons["保存拼豆进度"].exists)
+        XCTAssertTrue(app.buttons["保存"].exists)
         XCTAssertTrue(app.staticTexts["20%"].exists)
         XCTAssertTrue(app.buttons["搜色"].exists)
         XCTAssertTrue(app.buttons["标记"].exists)
         XCTAssertTrue(app.buttons["高亮"].exists)
         XCTAssertTrue(app.buttons["锁定画布"].exists)
         XCTAssertTrue(app.buttons["适应"].exists)
-        XCTAssertTrue(app.buttons["选择色号 H7，当前，603 颗"].exists)
+        XCTAssertTrue(app.buttons["选择色号 H7，当前"].exists)
         XCTAssertTrue(app.otherElements["拼豆工作画布，24 列 20 行"].exists)
         let completeCurrentColor = app.buttons["完成当前色"]
         XCTAssertTrue(completeCurrentColor.exists)
         XCTAssertEqual(completeCurrentColor.value as? String, "1/5")
         completeCurrentColor.tap()
         XCTAssertEqual(completeCurrentColor.value as? String, "2/5")
-        XCTAssertTrue(app.buttons["选择色号 H7，已完成，603 颗"].exists)
+        XCTAssertTrue(app.buttons["选择色号 H7，已完成"].exists)
 
         app.buttons["搜色"].tap()
         XCTAssertTrue(app.navigationBars["搜索色号"].waitForExistence(timeout: 5))
@@ -114,12 +114,12 @@ final class AppOverlayUITests: XCTestCase {
         let searchResult = app.buttons["beading-search-result-C4"]
         XCTAssertTrue(searchResult.exists)
         searchResult.tap()
-        XCTAssertTrue(app.buttons["选择色号 C4，当前，59 颗"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["选择色号 C4，当前"].waitForExistence(timeout: 2))
 
-        let sort = app.buttons["切换色号排序，当前按剩余数量排序"]
+        let sort = app.buttons["切换排序，当前剩余数量"]
         XCTAssertTrue(sort.exists)
         sort.tap()
-        XCTAssertTrue(app.buttons["切换色号排序，当前按色号排序"].exists)
+        XCTAssertTrue(app.buttons["切换排序，当前色号顺序"].exists)
 
         app.buttons["更多"].tap()
         XCTAssertTrue(app.staticTexts["更多工具"].waitForExistence(timeout: 5))
@@ -129,12 +129,12 @@ final class AppOverlayUITests: XCTestCase {
         XCTAssertTrue(app.buttons["重置工具"].exists)
         app.buttons["关闭更多工具"].tap()
 
-        app.buttons["检测库存"].firstMatch.tap()
+        app.buttons["查看库存"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["检测豆子库存"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["库存明细"].exists)
         XCTAssertTrue(app.buttons["继续拼豆"].exists)
         app.buttons["继续拼豆"].tap()
-        XCTAssertTrue(app.buttons["检测库存"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["查看库存"].waitForExistence(timeout: 2))
         app.buttons["锁定画布"].tap()
         XCTAssertTrue(app.buttons["解除画布锁定"].exists)
     }
@@ -165,7 +165,7 @@ final class AppOverlayUITests: XCTestCase {
         XCTAssertTrue(app.buttons["放弃会话"].exists)
 
         app.buttons["继续拼豆"].tap()
-        XCTAssertTrue(app.buttons["检测库存"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["查看库存"].waitForExistence(timeout: 2))
     }
 
     func testEditorWorkspaceFixtureUsesTheNativeH5EquivalentChrome() {
@@ -191,7 +191,7 @@ final class AppOverlayUITests: XCTestCase {
         XCTAssertTrue(app.buttons["确认裁剪"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["缩小裁剪预览"].exists)
         XCTAssertTrue(app.buttons["放大裁剪预览"].exists)
-        XCTAssertTrue(app.buttons["重置裁剪"].exists)
+        XCTAssertTrue(app.buttons["重置"].exists)
     }
 
     func testProfileWorkspaceFixtureUsesTheNativeH5ProfileHierarchy() {

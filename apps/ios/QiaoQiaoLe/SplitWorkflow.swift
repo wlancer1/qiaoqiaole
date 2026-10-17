@@ -98,7 +98,7 @@ final class SplitWorkflow: ObservableObject {
         backgroundSensitivity = 0
         longSide = Self.defaultLongSide(for: normalizedImage.size)
         updateGridSize()
-        resetAlignmentFromQuickGrid()
+        resetAlignmentForInitialGeometry()
         invalidatePreview()
     }
 
@@ -155,7 +155,7 @@ final class SplitWorkflow: ObservableObject {
 
     func importTo(document: PatternDocument) {
         guard canImport else { return }
-        document.replaceGrid(columns: columns, rows: rows, colors: previewColors)
+        document.startImportedProject(columns: columns, rows: rows, colors: previewColors)
     }
 
     func setCrop(_ rect: CGRect) {
@@ -286,6 +286,30 @@ final class SplitWorkflow: ObservableObject {
     private var croppedImageSize: CGSize {
         guard let image else { return .zero }
         return CGSize(width: image.size.width * cropRect.width, height: image.size.height * cropRect.height)
+    }
+
+    /// Mirrors H5 `defaultSplitGeometryFromCrop` / `initialAlignCellSize`.
+    /// Initial image loading is intentionally different from later quick-grid
+    /// changes: H5 starts with a cell size that covers the crop, then centers
+    /// the remainder before positioning the 3×3 control frame.
+    private func resetAlignmentForInitialGeometry() {
+        let size = croppedImageSize
+        guard size.width > 0, size.height > 0 else { return }
+        let requestedSize = max(
+            size.width / CGFloat(max(1, columns)),
+            size.height / CGFloat(max(1, rows))
+        )
+        alignmentCellSize = max(1, min(
+            requestedSize,
+            size.width / 3,
+            size.height / 3
+        ))
+        alignmentOffset = Self.centeredAlignmentOffset(size: size, cellSize: alignmentCellSize)
+        alignmentFrameOrigin = Self.centeredGridControlOrigin(
+            size: size,
+            cellSize: alignmentCellSize,
+            offset: alignmentOffset
+        )
     }
 
     private func resetAlignmentFromQuickGrid() {

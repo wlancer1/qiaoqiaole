@@ -2,6 +2,10 @@
 
 ### Added / Changed / Fixed
 
+- Aligned the native iOS split, editor, and beading workspaces with the H5 interaction geometry: added crop-workspace controls, initial split alignment parity, zoom-aware canvas fitting/rulers, background removal, clean imported-project history, and refreshed accessible control chrome.
+- Added iOS unit and UI regressions for viewport fitting and sticky rulers, imported-project undo baselines, edge-connected background removal, split alignment initialization, and renamed workspace controls.
+- Affected modules: `apps/ios/QiaoQiaoLe/AppRootView.swift`, `PatternDocument.swift`, `PatternEditorView.swift`, `SplitFlowView.swift`, `SplitWorkflow.swift`, and their test targets.
+
 - Stabilized H5 mobile image loading and interaction: legacy project thumbnails use protected resource URLs, image failures retry with network/restore recovery and bounded loading timeouts, and My Works defers thumbnails after the first six to reduce mobile request contention. Added IME-safe controlled text inputs and route/overlay regressions for mobile forms.
 - Affected modules: `apps/api/src/server.mjs`, `apps/h5/src/shared/ImageWithSkeleton.tsx`, H5 home/My Works/project route/input and overlay modules, and related tests.
 
