@@ -27,6 +27,7 @@ export function H5RouteSwitch({ pages }: { pages: H5RoutePages }) {
     <Route path={H5_ROUTE_PATHS.splitCrop} element={pages['split-crop']} />
     <Route path={H5_ROUTE_PATHS.splitPreview} element={pages['split-preview']} />
     <Route path={H5_ROUTE_PATHS.canvas} element={pages.canvas} />
+    <Route path="/patchwork/:projectId?" element={pages.patchwork} />
     <Route path={H5_ROUTE_PATHS.beading} element={pages.beading} />
     <Route path={H5_ROUTE_PATHS.userAgreement} element={<UserAgreementPage />} />
     <Route path={H5_ROUTE_PATHS.privacyPolicy} element={<PrivacyPolicyPage />} />

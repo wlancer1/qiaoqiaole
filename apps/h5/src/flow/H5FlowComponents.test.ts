@@ -372,7 +372,7 @@ describe('H5 flow presentation components', () => {
     expect(markup).toContain('A1');
   });
 
-  it('renders the shared icon-library components for upload and back actions', () => {
+  it('renders fixed creation categories and preserves the back icon', () => {
     const uploadMarkup = renderToStaticMarkup(createElement(HomeUploadHero, { onUpload: vi.fn() }));
     const topbarMarkup = renderToStaticMarkup(createElement(FlowTopbar, {
       title: '分割设置',
@@ -380,9 +380,20 @@ describe('H5 flow presentation components', () => {
       onBack: vi.fn(),
     }));
 
-    expect(uploadMarkup).toMatch(/class="[^"]*lucide-image/);
-    expect(uploadMarkup).toMatch(/class="[^"]*lucide-arrow-right/);
+    expect(uploadMarkup).toContain('aria-label="上传图片制作拼豆图纸"');
+    expect(uploadMarkup).toContain('拼出布料的灵感');
+    expect(uploadMarkup).toContain('aria-label="开始拼布创作"');
     expect(topbarMarkup).toMatch(/class="[^"]*lucide-arrow-left/);
+  });
+
+  it('keeps the bead entry wired to the original upload action and fabric enabled', () => {
+    const onUpload = vi.fn();
+    const onPatchwork = vi.fn();
+    const entries = HomeUploadHero({ onUpload, onPatchwork }).props.children;
+    entries[0].props.onClick();
+    expect(onUpload).toHaveBeenCalledOnce();
+    entries[1].props.onClick();
+    expect(onPatchwork).toHaveBeenCalledOnce();
   });
 
   it('preserves structured API error details without changing the auth fallback', () => {

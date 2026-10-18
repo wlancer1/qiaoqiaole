@@ -1,20 +1,22 @@
 import { useId, type KeyboardEvent } from 'react';
-import { ArrowLeft, ArrowRight, Image } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 
-export function HomeUploadHero({ onUpload }: { onUpload: () => void }) {
+export function HomeUploadHero({ onUpload, onPatchwork }: { onUpload: () => void; onPatchwork?: () => void }) {
   return (
-    <button className="home-upload-hero" type="button" aria-label="上传图片制作拼豆图纸" onClick={onUpload}>
-      <span className="home-upload-copy">
-        <strong>上传图片<br />制作拼豆图纸</strong>
-        <small>支持 PNG / JPG / WebP</small>
-      </span>
-      <span className="home-upload-watermark" aria-hidden="true">
-        <Image aria-hidden="true" />
-      </span>
-      <span className="home-upload-arrow" aria-hidden="true">
-        <ArrowRight aria-hidden="true" />
-      </span>
-    </button>
+    <div className="home-creation-entries" aria-label="创作类型">
+      <button className="home-creation-entry home-creation-entry--bead" type="button" aria-label="上传图片制作拼豆图纸" onClick={onUpload}>
+        <span className="home-creation-entry-copy">
+          <strong>拼豆</strong>
+          <span>像素变成小作品</span>
+        </span>
+      </button>
+      <button className="home-creation-entry home-creation-entry--fabric" type="button" aria-label="开始拼布创作" onClick={onPatchwork}>
+        <span className="home-creation-entry-copy">
+          <strong>拼布</strong>
+          <span>拼出布料的灵感</span>
+        </span>
+      </button>
+    </div>
   );
 }
 

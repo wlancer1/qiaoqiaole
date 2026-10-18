@@ -24,6 +24,7 @@ export const H5_ROUTE_PATHS = {
   splitPreview: '/split/preview',
   canvas: '/canvas',
   beading: '/beading',
+  patchwork: '/patchwork',
   userAgreement: '/user-agreement',
   privacyPolicy: '/privacy-policy',
 } as const;
@@ -45,6 +46,7 @@ const routeState: Array<{ pattern: RegExp; state: H5RouteState }> = [
   { pattern: /^\/split\/preview\/?$/, state: { screen: 'split-preview', activeTab: 'home' } },
   { pattern: /^\/split\/?$/, state: { screen: 'split', activeTab: 'home' } },
   { pattern: /^\/canvas\/?$/, state: { screen: 'canvas', activeTab: 'home' } },
+  { pattern: /^\/patchwork(?:\/[^/]+)?\/?$/, state: { screen: 'patchwork', activeTab: 'home' } },
   { pattern: /^\/beading\/?$/, state: { screen: 'beading', activeTab: 'home' } },
 ];
 
@@ -69,6 +71,7 @@ export function appPathForScreen(screen: AppScreen, activeTab: HomeTab = 'home')
   if (screen === 'split-preview') return '/split/preview';
   if (screen === 'split') return '/split';
   if (screen === 'canvas') return '/canvas';
+  if (screen === 'patchwork') return '/patchwork';
   if (screen === 'beading') return '/beading';
   if (screen === 'following') return '/following';
   if (screen === 'followers') return '/followers';

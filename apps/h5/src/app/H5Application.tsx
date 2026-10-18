@@ -28,6 +28,7 @@ import { BeadingFeatureContent, type BeadingFeatureCommands } from '../features/
 import { PhoneLoginModal, ProfileEditModal } from '../pages/home/HomeShellPage';
 import { refreshHomeData, shouldRefreshHomeData } from '../pages/home/homeRefresh';
 import { appPathForScreen, routeStateForPath } from './h5Routes';
+import { PatchworkPage } from '../patchwork/PatchworkPage';
 import { H5RoutedContent } from './H5RoutedContent';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { useScopedStatus } from '../store/ui/useScopedStatus';
@@ -492,7 +493,7 @@ function H5Application() {
     isAuthenticating={false} isLoginModalOpen={false} openLogin={openLogin} closeLogin={authDialog.close}
     usedColors={[]} colorCodeOf={colorCodeOf} quickTools={quickTools}
     showCreateCanvasModal={showCreateCanvasModal} setShowCreateCanvasModal={setShowCreateCanvasModal} openCreateCanvasModal={openCreateCanvasModal}
-    openBlankCanvasCreation={openBlankCanvasCreation}
+    openBlankCanvasCreation={openBlankCanvasCreation} openPatchwork={() => navigate('/patchwork')}
     cfgCols={cfgCols} setCfgCols={setCfgCols} cfgRows={cfgRows} setCfgRows={setCfgRows}
     normalizeGridSize={normalizeGridSize} parseGridSizeInput={parseGridSizeInput} createBlankCanvas={createBlankCanvas} requireLogin={requireLogin}
     setStatus={setStatus}
@@ -551,6 +552,7 @@ function H5Application() {
     'my-works': myWorksPage,
     canvas: editorPage,
     beading: null,
+    patchwork: withAppOverlays(<PatchworkPage />),
     warehouse: null,
     'warehouse-detail': null,
     split: splitPage(),

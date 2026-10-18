@@ -1,3 +1,4 @@
+import './home-layout.css';
 import { HomeUploadHero } from '../../flow/H5FlowComponents';
 import { LoadMoreSentinel, PatternDiscoverPage, PatternMessagesPage } from '../../patterns/H5PatternPages';
 import { CommunityPatternCard } from '../../community/CommunityPatternCard';
@@ -162,7 +163,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
     openLogin, showUploadModal, closeUploadModal, showXhsInput, setShowXhsInput, xhsLink, setXhsLink,
     xhsExtractedImages, isExtractingXhs, isImportingLocalImage, chooseLocalDrawing, extractXiaohongshuImage, importXhsImage, showXhsImagePicker, closeXhsImagePicker,
     xhsPreviewSrc, showCreateCanvasModal, setShowCreateCanvasModal,
-    openBlankCanvasCreation,
+    openBlankCanvasCreation, openPatchwork,
     cfgCols, setCfgCols, cfgRows, setCfgRows, normalizeGridSize, parseGridSizeInput, createBlankCanvas, requireLogin,
     setStatus, patternListCards, homeTemplateCards, openCommunityPost, openAuthorProfile, stockedColorCount, totalWarehouseStock,
     communityHasMore = false, isCommunityLoadingMore = false, loadMoreHomeTemplates,
@@ -184,22 +185,13 @@ export function HomeShellPage(props: HomeShellPageProps) {
         <section className="home-page">
           <div className="home-scroll-content">
             <header className="home-brand-hero">
-              <div className="home-stars" aria-hidden="true">
-                <span />
-                <span />
-                <span />
-              </div>
-              <div className="home-brand-planet" aria-hidden="true">
-                <span className="home-planet-core" />
-                <span className="home-planet-ring" />
-              </div>
               <div className="home-brand-topline">
                 <div className="home-brand-copy">
                   <h1>超级拼</h1>
-                  <p>让拼豆创作更简单</p>
+                  <p>让创作更简单</p>
                 </div>
               </div>
-              <HomeUploadHero onUpload={() => openUpload('bead')} />
+              <HomeUploadHero onUpload={() => openUpload('bead')} onPatchwork={openPatchwork} />
             </header>
 
             <section className="home-recent-projects" aria-labelledby="home-recent-title">
@@ -207,7 +199,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
                 <h2 id="home-recent-title">最近项目</h2>
                 {isLoggedIn && recentProjects.length > 0 ? (
                   <button type="button" aria-label="查看全部最近项目" onClick={() => openMyWorks?.('home')}>
-                    全部
+                    查看全部
                     <span aria-hidden="true">›</span>
                   </button>
                 ) : null}
@@ -228,8 +220,8 @@ export function HomeShellPage(props: HomeShellPageProps) {
                       ) : (
                         <RecentProjectThumbnailPlaceholder />
                       )}
-                      <strong>{project.cols}×{project.rows}</strong>
-                      <span>{project.name}</span>
+                      <strong>{project.name}</strong>
+                      <span>{project.cols}×{project.rows}</span>
                     </button>
                   ))}
                 </div>

@@ -1,0 +1,224 @@
+/* 拼布编辑器样式：版式对齐设计稿 S01–S09（白卡片 + 天蓝 #208edc + 大圆角 + 柔和阴影） */
+.patchwork-page{height:100dvh;display:flex;flex-direction:column;background:#edf3f7;color:#22384c;font-family:PingFangSC,-apple-system,sans-serif}
+
+/* 顶栏：沿用拼豆 .canvas-topbar 的 left/center/right 分组 */
+.patchwork-page .canvas-topbar{gap:.2rem}
+.patchwork-page .topbar-left,.patchwork-page .topbar-right{width:auto;flex-shrink:0}
+.patchwork-page .topbar-center{gap:.18rem;min-width:0}
+.patchwork-sizebtn{display:flex;align-items:center;gap:.06rem;background:none;font-size:.42rem;font-weight:600;color:#22384c;white-space:nowrap;padding:.15rem .1rem}
+.patchwork-sizebtn svg{width:.45rem;height:.45rem;color:#7d93a8}
+.patchwork-topbtn{display:flex;flex-direction:column;align-items:center;gap:.02rem;background:none;padding:.1rem .14rem;font-size:.27rem;color:#42566b;border-radius:.25rem}
+.patchwork-topbtn svg{width:.6rem;height:.6rem}
+.patchwork-topbtn:active{background:#eef5fc}
+.patchwork-savebtn{display:flex;align-items:center;gap:.1rem;background:#208edc;color:#fff;border-radius:999px;height:1.02rem;padding:0 .48rem;font-size:.4rem;font-weight:600;box-shadow:0 4px 12px rgba(32,142,220,.35);white-space:nowrap}
+.patchwork-savebtn svg{width:.5rem;height:.5rem}
+.patchwork-savebtn:active{background:#1a7bc4}
+@media(max-width:380px){.patchwork-topbtn span{display:none}.patchwork-topbtn{padding:.1rem .08rem}}
+
+/* 工作区与左栏（浮动白卡） */
+.patchwork-work{flex:1;min-height:0;position:relative;display:flex}
+.patchwork-rail{align-self:flex-start;width:1.72rem;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:.18rem;padding:.28rem .2rem;margin:.35rem 0 .35rem .35rem;background:#fff;border-radius:.55rem;box-shadow:0 10px 24px rgba(31,58,84,.10);z-index:2}
+.patchwork-rail button{width:1.32rem;min-height:1.32rem;border-radius:.38rem;background:transparent;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:.08rem;font-size:.3rem;color:#42566b}
+.patchwork-rail svg{width:.62rem;height:.62rem}
+.patchwork-rail button.active{background:#208edc;color:#fff;box-shadow:0 6px 14px rgba(32,142,220,.35)}
+.patchwork-stage{flex:1;min-width:0;position:relative;overflow:hidden;background:#edf3f7}
+.patchwork-stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+
+/* 缩放胶囊 */
+.patchwork-zoom{position:absolute;right:.3rem;bottom:.35rem;display:flex;gap:.15rem;align-items:center;font-size:.36rem;background:#fff;border-radius:999px;padding:.12rem .2rem;box-shadow:0 8px 20px rgba(31,58,84,.14);z-index:3}
+.patchwork-zoom button{background:none;padding:.14rem;font-weight:600;color:#42566b}
+
+/* 底部布料栏：方形布块 + 下方编号 */
+.patchwork-materials{display:flex;align-items:flex-start;gap:.42rem;padding:.4rem .5rem calc(.42rem + env(safe-area-inset-bottom));overflow-x:auto;background:#fff;flex-shrink:0;box-shadow:0 -6px 18px rgba(31,58,84,.05)}
+.patchwork-materials>button{display:flex;flex-direction:column;align-items:center;gap:.09rem;background:none;flex-shrink:0;padding:0}
+.pw-swatch{width:1.8rem;height:1.8rem;border-radius:.42rem;display:grid;place-items:center;font-size:.36rem;color:#fff;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08),0 2px 6px rgba(31,58,84,.10);overflow:hidden}
+.pw-swatch img{width:100%;height:100%;object-fit:cover;display:block}
+.patchwork-materials>button.selected .pw-swatch{outline:2.5px solid #208edc;outline-offset:2px}
+.pw-label{font-size:.34rem;color:#5b7186;font-weight:600}
+.pw-swatch.pw-dashed{border:1.5px dashed #b9c9d8;background:#f7fafc;color:#7d93a8;box-shadow:none}
+.pw-dashed svg{width:.55rem;height:.55rem}
+.patchwork-count{margin-left:auto;align-self:center;white-space:nowrap;color:#8fa3b5;font-size:.33rem;padding-left:.2rem}
+
+/* 选中浮动操作条 / 提示 */
+.patchwork-floating{position:absolute;left:50%;bottom:.35rem;transform:translateX(-50%);display:flex;align-items:center;gap:.18rem;background:#fff;border-radius:999px;box-shadow:0 10px 26px rgba(31,58,84,.18);padding:.18rem .3rem;z-index:4;font-size:.36rem;white-space:nowrap;max-width:96%}
+.patchwork-floating button{padding:.2rem;background:#eef5fc;border-radius:999px;display:grid;place-items:center;color:#33475c}
+.patchwork-floating button.primary{background:#208edc;color:#fff;padding:.2rem .4rem;border-radius:999px;font-weight:600}
+.patchwork-floating svg{width:.52rem;height:.52rem}
+.patchwork-hintpill{position:absolute;left:50%;bottom:.4rem;transform:translateX(-50%);background:rgba(34,56,76,.88);color:#fff;font-size:.34rem;border-radius:999px;padding:.22rem .45rem;z-index:4;white-space:nowrap;box-shadow:0 8px 20px rgba(31,58,84,.25)}
+
+/* 填布模式直接操作：仅显示轻提示，不自动打开抽屉 */
+.patchwork-fillbar{position:absolute;left:50%;top:.4rem;transform:translateX(-50%);max-width:95%;display:flex;align-items:center;gap:.25rem;padding:.15rem .25rem .15rem .38rem;border-radius:999px;background:rgba(34,56,76,.9);color:#fff;font-size:.32rem;z-index:4;box-shadow:0 8px 18px rgba(31,58,84,.18)}
+.patchwork-fillbar span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.patchwork-fillbar button{flex-shrink:0;border-radius:999px;background:#fff;color:#207ec1;padding:.12rem .25rem;font-size:.3rem;font-weight:600}
+
+/* S02 闭合轮廓小窗 */
+.patchwork-dlg{position:absolute;left:50%;top:16%;transform:translateX(-50%);width:min(8.6rem,88%);background:#fff;border-radius:.55rem;box-shadow:0 18px 44px rgba(31,58,84,.28);padding:.45rem .5rem .5rem;z-index:6;display:grid;gap:.34rem}
+.patchwork-dlg header{display:flex;justify-content:space-between;align-items:center;font-size:.46rem}
+.patchwork-dlg header button{background:none;padding:.1rem;display:grid;place-items:center;color:#42566b}
+.patchwork-dlg header svg{width:.55rem;height:.55rem}
+.pw-radio{display:flex;align-items:center;gap:.25rem;font-size:.42rem;padding:.1rem 0;cursor:pointer}
+.pw-radio input{appearance:none;width:.52rem;height:.52rem;border-radius:50%;border:2px solid #c3d2e0;display:grid;place-items:center;flex-shrink:0}
+.pw-radio input:checked{border-color:#208edc}
+.pw-radio input:checked::after{content:'';width:.26rem;height:.26rem;border-radius:50%;background:#208edc}
+.pw-switchrow{display:flex;align-items:center;justify-content:space-between;gap:.4rem;font-size:.42rem}
+.pw-switchrow span{display:grid;gap:.04rem}
+.pw-switchrow small{font-size:.32rem;color:#8fa3b5}
+
+/* iOS 风格开关 */
+.patchwork-switch{appearance:none;width:1.45rem;height:.86rem;border-radius:999px;background:#cfdbe6;position:relative;flex-shrink:0;cursor:pointer;transition:background .15s}
+.patchwork-switch::after{content:'';position:absolute;top:.07rem;left:.07rem;width:.72rem;height:.72rem;border-radius:50%;background:#fff;box-shadow:0 2px 6px rgba(31,58,84,.25);transition:left .15s}
+.patchwork-switch:checked{background:#208edc}
+.patchwork-switch:checked::after{left:.66rem}
+
+/* 底部抽屉面板 */
+.patchwork-overlay{position:fixed;inset:0;background:rgba(17,33,48,.45);z-index:100;display:flex;align-items:flex-end;justify-content:center}
+.patchwork-panel{width:min(100%,16rem);max-height:80dvh;overflow:auto;border-radius:.7rem .7rem 0 0;background:#fff;padding:.48rem .55rem calc(.55rem + env(safe-area-inset-bottom));box-shadow:0 -12px 34px rgba(31,58,84,.18)}
+.patchwork-panel>header{display:flex;justify-content:space-between;align-items:center;margin-bottom:.45rem;font-size:.5rem;font-weight:600;color:#22384c}
+.patchwork-panel>header button{background:none;border-radius:50%;padding:.16rem;display:grid;place-items:center;color:#42566b}
+.patchwork-panel>header svg{width:.58rem;height:.58rem}
+
+.patchwork-form{display:grid;gap:.4rem;font-size:.42rem}
+.patchwork-form h4{font-size:.42rem;color:#22384c}
+.patchwork-form label{display:flex;align-items:center;justify-content:space-between;gap:.3rem;font-size:.38rem;color:#33475c}
+.patchwork-form input[type=number],.patchwork-form input[type=text]{width:4.6rem;max-width:58%;flex:none}
+.patchwork-form label>select{width:4.6rem;max-width:58%;flex:none}
+.patchwork-form input,.patchwork-form select{padding:.14rem .3rem;border:1px solid #dbe5ee;border-radius:.3rem;font-size:.39rem;background:#f8fbfd;color:#22384c;height:1.06rem}
+.patchwork-form input[type=range]{flex:1;max-width:55%;height:auto;padding:0;accent-color:#208edc}
+.patchwork-form input[type=color]{width:1.5rem;height:1rem;padding:.06rem}
+label.patchwork-check{justify-content:flex-start;gap:.25rem}
+.patchwork-row{display:flex;gap:.4rem}
+.patchwork-row label{flex:1;flex-direction:column;align-items:stretch;gap:.1rem}
+.patchwork-form .patchwork-row label>input,.patchwork-form .patchwork-row label>select{width:100%;max-width:none;flex:none}
+
+/* 按钮体系 */
+.patchwork-actions{display:flex;gap:.25rem;flex-wrap:wrap}
+.patchwork-actions button,.patchwork-form>button,.patchwork-bigbtn{background:#fff;border:1px solid #dbe5ee;color:#33475c;border-radius:.35rem;padding:.3rem .4rem;font-size:.42rem;display:inline-flex;align-items:center;justify-content:center;gap:.15rem;min-height:1.25rem}
+.patchwork-actions button.primary,.patchwork-form button.primary{background:#208edc;border-color:#208edc;color:#fff;font-weight:600}
+.patchwork-actions svg{width:.5rem;height:.5rem}
+button.danger,.patchwork-actions button.danger{background:#fdf1f1;border-color:#f3d3d3;color:#c0392b}
+.pw-exportbtn{width:100%;min-height:1.35rem;font-size:.46rem;border-radius:.4rem}
+.patchwork-bigbtn{flex-direction:column;align-items:flex-start!important;gap:.08rem;text-align:left;width:100%}
+.patchwork-bigbtn span{font-size:.33rem;color:#8fa3b5}
+
+/* 分段与页签 */
+.patchwork-seg{display:flex;background:#edf2f7;border-radius:.35rem;padding:.07rem;gap:.07rem}
+.patchwork-seg button{flex:1;padding:.18rem .3rem;border-radius:.28rem;background:transparent;font-size:.38rem;color:#5b7186}
+.patchwork-seg button.on{background:#208edc;color:#fff;font-weight:600;box-shadow:0 3px 8px rgba(32,142,220,.3)}
+.pw-tabs{display:flex;gap:.55rem;border-bottom:1px solid #e6edf3;padding:0 .05rem}
+.pw-tabs button{background:none;padding:.18rem .02rem;font-size:.42rem;color:#5b7186;border-bottom:2.5px solid transparent;margin-bottom:-1px}
+.pw-tabs button.on{color:#208edc;font-weight:600;border-bottom-color:#208edc}
+.patchwork-chip{padding:.18rem .32rem;border-radius:.3rem;background:#fff;border:1px solid #dbe5ee;font-size:.4rem;color:#33475c}
+.patchwork-chip.on{background:#208edc;border-color:#208edc;color:#fff;font-weight:600}
+.pw-chiprow{display:flex;align-items:center;gap:.22rem;flex-wrap:wrap;font-size:.42rem;color:#33475c}
+.pw-chiprow>span{margin-right:.1rem}
+.patchwork-hint{font-size:.33rem;color:#8fa3b5}
+
+/* 添加：形状卡片 */
+.patchwork-shapes{display:grid;grid-template-columns:repeat(3,1fr);gap:.3rem}
+.patchwork-shapes button{background:#fff;border:1px solid #e3ebf2;border-radius:.4rem;padding:.35rem .15rem .3rem;font-size:.4rem;color:#22384c;display:flex;flex-direction:column;align-items:center;gap:.1rem;box-shadow:0 3px 10px rgba(31,58,84,.05)}
+.patchwork-shapes button:active{border-color:#208edc;background:#f2f9ff}
+.pw-glyph{width:.72rem;height:.72rem;color:#35506b}
+.patchwork-shapes small{font-size:.31rem;color:#8fa3b5}
+
+/* 图层 */
+.patchwork-layers>div{display:flex;align-items:center;gap:.18rem;margin-bottom:.18rem;padding:.16rem .2rem;border-radius:.3rem}
+.patchwork-layers>div.sel{background:#e8f3fd}
+.patchwork-layers svg{width:.5rem;height:.5rem}
+.patchwork-layers button{background:none;padding:.12rem;display:grid;place-items:center;color:#42566b}
+.patchwork-layer-name{flex:1;text-align:left;background:none!important;padding:.12rem!important;font-size:.42rem;color:#22384c;display:block!important}
+.patchwork-layer-name b{color:#208edc;font-weight:600;margin-right:.08rem}
+.pw-thumb{width:.85rem;height:.85rem;flex-shrink:0}
+.patchwork-baseline{display:flex;align-items:center;gap:.18rem;padding:.16rem .2rem;border-top:1px solid #eef2f6;margin-top:.1rem}
+.patchwork-baseline button{background:none;padding:.12rem;display:grid;place-items:center;color:#42566b}
+.patchwork-baseline svg{width:.5rem;height:.5rem}
+.pw-thumb-base{width:.8rem;height:.8rem;border-radius:.22rem;flex-shrink:0;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
+.patchwork-chip-color{width:.62rem;height:.62rem;border-radius:.18rem;flex-shrink:0;border:1px solid #0001}
+
+/* 布料管理 */
+.patchwork-matrow{display:flex;align-items:center;gap:.22rem;flex-wrap:wrap;padding:.16rem 0;border-bottom:1px solid #f1f4f7}
+.patchwork-matrow button{background:#eef5fc;border:none;border-radius:.28rem;padding:.2rem .3rem;font-size:.38rem;color:#33475c}
+.patchwork-matedit{flex-basis:100%;display:grid;gap:.3rem;padding:.3rem;background:#f8fbfd;border-radius:.35rem}
+.patchwork-matedit label{display:flex;align-items:center;justify-content:space-between;gap:.3rem;font-size:.38rem}
+
+/* 导出 */
+.patchwork-issues{background:#fdf1f1;border-radius:.35rem;padding:.32rem;font-size:.37rem;color:#8c2f26}
+.patchwork-ok{background:#eefaf1;border-radius:.35rem;padding:.32rem;font-size:.37rem;color:#256b36}
+.pw-cutlist{display:grid;gap:.16rem}
+.pw-cutrow{display:flex;align-items:center;gap:.25rem;background:#fff;border:1px solid #e6edf3;border-radius:.35rem;padding:.2rem .3rem}
+.pw-cutname{flex:1;font-size:.42rem;color:#22384c}
+.pw-cutname b{color:#208edc;font-weight:600;margin-right:.08rem}
+.pw-count{font-size:.4rem;color:#5b7186;font-weight:600}
+.pw-preview{width:100%;border-radius:.4rem;border:1px dashed #c8d8e6;background:#f8fbfd}
+.patchwork-cands{max-height:6.5rem;overflow-y:auto}
+/* 图片导入：线稿预览与转换设置 */
+.patchwork-import{display:grid;gap:.35rem}
+.patchwork-import-actions{display:flex;align-items:stretch;gap:.25rem}
+.patchwork-import-actions button{flex:1;display:flex;align-items:center;justify-content:center;gap:.14rem;background:#fff;color:#33475c;border:1px solid #dbe5ee;border-radius:.32rem;padding:.25rem .2rem;font-size:.36rem}
+.patchwork-import-actions button.primary{background:#208edc;color:#fff;border-color:#208edc;font-weight:600}
+.patchwork-import-actions svg,.patchwork-import-footer svg,.patchwork-import>.patchwork-chip svg{width:.44rem;height:.44rem}
+.patchwork-import-source{display:flex;align-items:center;gap:.3rem;padding:.23rem;background:#f4f8fc;border-radius:.38rem;min-width:0}
+.patchwork-import-source img{width:1.8rem;height:1.6rem;object-fit:contain;background:#fff;border-radius:.18rem;flex-shrink:0}
+.patchwork-import-source div{display:flex;flex-direction:column;gap:.12rem;min-width:0;flex:1}
+.patchwork-import-source strong{font-size:.36rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.patchwork-import-source small{font-size:.31rem;color:#8496a7}
+.patchwork-import-config{display:flex;gap:.3rem}
+.patchwork-import-config label{flex:1;display:flex;flex-direction:column;gap:.1rem;font-size:.34rem;color:#40566a}
+.patchwork-import-config input,.patchwork-import-config select{width:100%;min-height:.85rem;border:1px solid #dbe5ee;border-radius:.25rem;background:#fff;padding:.1rem .2rem;font-size:.36rem;color:#33475c}
+.patchwork-threshold{display:flex;flex-direction:column;gap:.1rem;font-size:.34rem;color:#445d72}
+.patchwork-threshold span{display:flex;justify-content:space-between}
+.patchwork-threshold input{width:100%;accent-color:#208edc}
+.patchwork-import-summary{display:flex;align-items:center;justify-content:space-between;gap:.25rem;font-size:.36rem}
+.patchwork-import-summary span{font-size:.30rem;color:#7e93a6}
+.patchwork-warning{color:#9b5b15;background:#fff5e7;border-radius:.22rem;padding:.22rem;font-size:.33rem}
+.patchwork-cands{max-height:4.4rem;overflow-y:auto;display:grid;gap:.1rem}
+.patchwork-cand{display:flex;align-items:center;gap:.12rem;padding:.1rem;border:1px solid #e4ebf2;border-radius:.26rem}
+.patchwork-cand.chosen{background:#e8f4fe;border-color:#208edc}
+.patchwork-cand.excluded{opacity:.48}
+.patchwork-cand button{border:0;border-radius:.18rem;background:#eef4fa;color:#42566b;font-size:.30rem;padding:.18rem .19rem}
+.patchwork-cand button:first-child{display:flex;gap:.14rem;align-items:center;flex:1;background:transparent;text-align:left}
+.patchwork-cand-color{width:.37rem;height:.37rem;border:1px solid #b9c9d8;border-radius:.08rem;flex-shrink:0}
+.patchwork-import-footer{position:sticky;bottom:-.55rem;z-index:3;display:flex;align-items:center;gap:.2rem;background:#fff;padding:.16rem 0 .18rem}
+.patchwork-import-footer button{background:#fff;border:1px solid #dbe5ee;color:#33475c;border-radius:.28rem;padding:.24rem;font-size:.34rem;display:flex;justify-content:center;align-items:center;gap:.13rem;min-height:1.04rem}
+.patchwork-import-footer button.primary{flex:1;background:#208edc;color:white;border-color:#208edc;font-weight:600}
+.patchwork-import-footer button:disabled{opacity:.45;cursor:not-allowed}
+.patchwork-import>.patchwork-chip{display:flex;align-items:center;justify-content:center;gap:.13rem}
+
+/* 其他 */
+.patchwork-toast{position:fixed;top:2.4rem;left:50%;transform:translateX(-50%);background:rgba(34,56,76,.92);color:#fff;border-radius:999px;padding:.28rem .5rem;z-index:200;font-size:.36rem;max-width:92%;box-shadow:0 10px 24px rgba(31,58,84,.3)}
+@media(max-width:350px){.patchwork-rail{width:1.5rem;margin-left:.2rem}.patchwork-rail button{width:1.2rem}.patchwork-floating{font-size:.33rem}}
+
+/* 选中浮动条：贴在选区上方，白卡圆角、图标在上文字在下 */
+.patchwork-selbar{border-radius:.5rem;padding:.14rem .16rem;gap:.04rem;box-shadow:0 14px 34px rgba(31,58,84,.22)}
+.patchwork-selbar button{display:flex;flex-direction:column;align-items:center;gap:.03rem;background:none;border-radius:.3rem;padding:.15rem .21rem;font-size:.27rem;color:#33475c}
+.patchwork-selbar button svg{width:.54rem;height:.54rem}
+.patchwork-selbar button:active{background:#eef5fc}
+
+/* 非模态面板（填布/分区）：遮罩不拦截，面板浮在布料条上方 */
+.patchwork-overlay.nonmodal{background:transparent;pointer-events:none;padding-bottom:3.95rem}
+.patchwork-overlay.nonmodal .patchwork-panel{pointer-events:auto;border-radius:.7rem;box-shadow:0 18px 44px rgba(31,58,84,.25);max-height:60dvh;width:min(94%,15.5rem)}
+
+.patchwork-form label>input[type=range]+span{min-width:1.05rem;text-align:right;font-variant-numeric:tabular-nums}
+/* 拼布顶栏：三列网格——中间组按内容宽居中、两侧等分可收缩，窄屏不重叠 */
+.patchwork-page .canvas-topbar{display:grid;grid-template-columns:auto minmax(0,1fr) auto}
+.patchwork-page .topbar-left,.patchwork-page .topbar-right{width:auto;min-width:0}
+.patchwork-page .topbar-center{flex:1;min-width:0}
+@media(max-width:480px){
+  /* 窄屏收紧：齿轮与尺寸键同开底布面板，隐藏齿轮；其余按钮瘦身防重叠（标签在图标下方、不占宽，保留） */
+  .patchwork-page .topbar-left [aria-label="底布与项目设置"]{display:none}
+  .patchwork-page .topbar-center{gap:.22rem}
+  .patchwork-page .canvas-topbar{gap:.15rem}
+  .patchwork-page .topbar-center .top-icon-btn{width:1rem;height:1rem}
+  .patchwork-page .patchwork-savebtn{padding:0 .38rem;font-size:.37rem;height:.94rem}
+  .patchwork-page .patchwork-topbtn{padding:.08rem .06rem}
+  .patchwork-page .patchwork-sizebtn{padding:.12rem .06rem;font-size:.38rem}
+}
+/* 选中浮动条按钮等宽 */
+.patchwork-selbar button{min-width:1.04rem}
+
+/* 属性面板：两列网格，标签在上、字段等宽全幅 */
+.pw-grid{display:grid;grid-template-columns:1fr 1fr;gap:.26rem .32rem}
+.pw-grid label{display:flex;flex-direction:column;align-items:stretch;gap:.09rem;font-size:.33rem;color:#61758a;text-align:left}
+.patchwork-form .pw-grid label{margin-bottom:0}
+.pw-grid .pw-span2{grid-column:span 2}
+.patchwork-form .pw-grid label>input,.patchwork-form .pw-grid label>select{width:100%;max-width:none;flex:none}
+.pw-widebtn{width:100%;margin-top:.3rem;padding:.2rem;border:1px solid #d5e2ee;border-radius:.3rem;background:#f2f7fb;color:#207ec1;font-size:.37rem;font-weight:600}
