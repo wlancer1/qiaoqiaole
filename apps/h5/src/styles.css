@@ -5535,6 +5535,7 @@ input:focus-visible {
 }
 
 .my-works-page .author-work-card {
+  position: relative;
   width: 100%;
   min-width: 0;
   min-height: 5.08rem;
@@ -5544,6 +5545,10 @@ input:focus-visible {
   box-shadow: 0 0.12rem 0.34rem rgba(27, 61, 101, 0.06);
   text-align: center;
   cursor: pointer;
+}
+
+.author-work-card > .author-work-art.image-with-skeleton {
+  width: auto;
 }
 
 .my-works-page .author-work-art {
@@ -5604,10 +5609,9 @@ input:focus-visible {
 
 .my-works-page .my-work-thumb-image {
   display: block;
-  width: calc(100% - 0.5rem);
-  height: auto;
-  min-height: 0;
-  object-fit: contain;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
   background: #edf5ff;
 }
 
@@ -10380,3 +10384,72 @@ input:focus-visible {
     animation: none;
   }
 }
+
+/* 我的作品：拼豆/拼布类型筛选与卡片上的作品类型标签 */
+.my-works-kind-filter{display:flex;gap:.3175rem;padding:.3rem .508rem 0}
+.my-works-kind-filter button{flex:0 0 auto;display:inline-flex;min-height:1.2063rem;align-items:center;justify-content:center;border:.0317rem solid #e3e8f0;border-radius:.4444rem;background:#fff;color:#526178;padding:0 .4444rem;font:inherit;font-size:.4444rem;font-weight:700;line-height:1;cursor:pointer}
+.my-works-kind-filter button.active{background:#208edc;border-color:#208edc;color:#fff}
+.my-work-kind-badge {
+  position: absolute;
+  z-index: 1;
+  top: .4444rem;
+  left: .4444rem;
+  display: inline-flex;
+  align-items: center;
+  gap: .1587rem;
+  max-width: calc(100% - .8888rem);
+  min-height: .635rem;
+  padding: .0635rem .2222rem;
+  box-sizing: border-box;
+  border: .0317rem solid currentColor;
+  border-radius: .1905rem;
+  background: rgba(255, 255, 255, .93);
+  box-shadow: 0 .0635rem .1905rem rgba(20, 38, 71, .07);
+  font-size: .3175rem;
+  font-style: normal;
+  font-weight: 750;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.my-work-kind-badge::before {
+  content: '';
+  flex: 0 0 auto;
+  width: .1587rem;
+  height: .1587rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+.my-work-kind-badge--bead { color: #2274b4; }
+.my-work-kind-badge--patchwork { color: #a66b50; }
+
+/* 仓库类型切换（拼豆/布料）与布料仓库 */
+.wh-section-switch{display:flex;gap:.3175rem;margin:.5rem .508rem 0}
+.wh-section-switch button{flex:1;display:inline-flex;min-height:1.2063rem;align-items:center;justify-content:center;border:.0317rem solid #e3e8f0;border-radius:.4444rem;background:#fff;color:#526178;font:inherit;font-size:.4444rem;font-weight:700;cursor:pointer}
+.wh-section-switch button.active{background:#208edc;border-color:#208edc;color:#fff}
+.fabric-page .wh-list-intro{margin-right:.508rem;margin-left:.508rem}
+.fabric-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.38rem;padding:.34rem .508rem 1rem}
+.fabric-card{position:relative;border:.0317rem solid #e1e8f2;border-radius:.48rem;background:#fff;box-shadow:0 .28rem .7rem rgba(35,67,116,.08);overflow:hidden}
+.fabric-card-main{display:flex;flex-direction:column;gap:.14rem;width:100%;padding:.4rem;background:none;border:none;text-align:left;cursor:pointer}
+.fabric-card-main img,.fabric-card-main .fabric-swatch{width:100%;height:2.6rem;object-fit:cover;border-radius:.3rem;display:block}
+.fabric-card-main strong{font-size:.45rem;color:#22384c}
+.fabric-card-main small{font-size:.36rem;color:#7a8b9c}
+.fabric-note{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fabric-card-edit{position:absolute;top:.3rem;right:.3rem;width:.82rem;height:.82rem;display:grid;place-items:center;border-radius:.24rem;border:.0317rem solid #e3e8f0;background:#fff;color:#526178;cursor:pointer}
+.fabric-card-edit svg{width:.45rem;height:.45rem}
+.fabric-empty{display:flex;flex-direction:column;gap:.2rem;margin:.6rem .508rem;padding:.8rem .6rem;border:.0317rem dashed #c9d6e4;border-radius:.48rem;color:#7a8b9c;font-size:.4rem;text-align:center}
+.fabric-empty strong{color:#22384c;font-size:.48rem}
+.fabric-form{display:flex;flex-direction:column;gap:.42rem;margin:.34rem .508rem;padding:.55rem;border:.0317rem solid #e1e8f2;border-radius:.48rem;background:#fff}
+.fabric-form label{display:flex;flex-direction:column;gap:.16rem;font-size:.4rem;color:#526178}
+.fabric-form input{border:.0317rem solid #dbe5ee;border-radius:.26rem;padding:.32rem .4rem;font:inherit;font-size:.45rem;color:#22384c;background:#fff}
+.fabric-form input[type=color]{height:1.3rem;padding:.1rem}
+.fabric-form-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:.3rem}
+.fabric-form-preview{display:flex;align-items:center;gap:.35rem}
+.fabric-form-preview img,.fabric-form-preview .fabric-swatch{width:2.2rem;height:2.2rem;object-fit:cover;border-radius:.3rem}
+.fabric-form-preview button{display:inline-flex;align-items:center;gap:.12rem;border:.0317rem solid #dbe5ee;background:#fff;border-radius:.26rem;padding:.28rem .4rem;font:inherit;font-size:.38rem;color:#526178;cursor:pointer}
+.fabric-form-preview button svg{width:.42rem;height:.42rem}
+.fabric-form-actions{display:flex;gap:.3rem;flex-wrap:wrap}
+.fabric-form-actions button{display:inline-flex;align-items:center;gap:.12rem;border:.0317rem solid #dbe5ee;background:#fff;border-radius:.26rem;padding:.32rem .5rem;font:inherit;font-size:.42rem;color:#22384c;cursor:pointer}
+.fabric-form-actions button.primary{background:#208edc;border-color:#208edc;color:#fff}
+.fabric-form-actions button.danger{color:#c0453e;border-color:#f0d9d9;background:#fff5f5}
+.fabric-form-actions button svg{width:.42rem;height:.42rem}

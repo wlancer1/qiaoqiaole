@@ -11,7 +11,7 @@ export function worldToScreen(p: Point, m: Metrics): Point {return {x:p.x*m.scal
 function path(ctx:CanvasRenderingContext2D,points:Point[],m:Metrics,close=true) {
   ctx.beginPath();points.forEach((p,i)=>{const {x,y}=worldToScreen(p,m);if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);});if(close && points.length>2)ctx.closePath();
 }
-export type DrawOptions={selectedIds:string[];draft:Point[];draftClosed:boolean;nodeMode:boolean;preview?:{points:Point[];color:string;selected?:boolean}[];previewStyle?:'filled'|'outline';images:Map<string,HTMLImageElement>; showNumbers?:boolean;clean?:boolean};
+export type DrawOptions={selectedIds:string[];draft:Point[];draftClosed:boolean;nodeMode:boolean;preview?:{points:Point[];color:string;selected?:boolean}[];previewStyle?:'filled'|'outline';images:Map<string,HTMLImageElement>; showNumbers?:boolean|'selected';clean?:boolean};
 export function drawScene(canvas:HTMLCanvasElement,project:PatchworkProject,view:View,opts:DrawOptions) {
   const bounds=canvas.getBoundingClientRect(),w=bounds.width,h=bounds.height;
   if(!w || !h)return;
@@ -67,7 +67,7 @@ export function drawScene(canvas:HTMLCanvasElement,project:PatchworkProject,view
     }
     path(ctx,piece.points,m);ctx.strokeStyle='rgba(96,74,58,.28)';ctx.lineWidth=1;ctx.stroke();
     path(ctx,piece.points,m);ctx.strokeStyle='rgba(255,255,255,.85)';ctx.lineWidth=1.3;ctx.setLineDash([4,3]);ctx.stroke();ctx.setLineDash([]);
-    if(opts.showNumbers!==false) {
+    if(opts.showNumbers===true||(opts.showNumbers==='selected'&&opts.selectedIds.includes(piece.id))) {
       const b=pointBounds(piece.points),center=worldToScreen({x:b.x+b.width/2,y:b.y+b.height/2},m);
       ctx.fillStyle='#22384c';ctx.font='600 11px PingFangSC, sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(`P${project.pieces.indexOf(piece)+1}`,center.x,center.y);
     }

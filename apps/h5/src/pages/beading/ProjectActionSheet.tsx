@@ -11,6 +11,7 @@ export function ProjectActionSheet({ project, hasSession, onClose, onStart, onEd
   onDelete: () => void;
   onMove: () => void;
 }) {
+  const isPatchwork = project.kind === 'patchwork';
   return <div className="beading-sheet-backdrop project-action-modal" role="presentation" onClick={onClose} onTouchStart={(event) => event.stopPropagation()}>
     <section className="beading-sheet project-action-sheet" role="dialog" aria-modal="true" aria-label="作品操作" onClick={(event) => event.stopPropagation()} onTouchStart={(event) => event.stopPropagation()}>
       <span className="beading-sheet-handle" aria-hidden="true" />
@@ -21,12 +22,14 @@ export function ProjectActionSheet({ project, hasSession, onClose, onStart, onEd
       <div className="project-action-grid">
         <button type="button" className="project-action-tile is-primary" onClick={onStart}>
           <PlayCircle className="ui-icon" aria-hidden="true" />
-          {hasSession ? '继续拼豆' : '开始拼豆'}
+          {isPatchwork ? '开始拼布' : hasSession ? '继续拼豆' : '开始拼豆'}
         </button>
-        <button type="button" className="project-action-tile" onClick={onEdit}>
-          <Pencil className="ui-icon" aria-hidden="true" />
-          编辑作品
-        </button>
+        {!isPatchwork ? (
+          <button type="button" className="project-action-tile" onClick={onEdit}>
+            <Pencil className="ui-icon" aria-hidden="true" />
+            编辑作品
+          </button>
+        ) : null}
         <button type="button" className="project-action-tile project-action-folder" onClick={onMove}>
           <FolderInput className="ui-icon" aria-hidden="true" />
           移动到文件夹

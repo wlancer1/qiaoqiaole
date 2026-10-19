@@ -1,8 +1,27 @@
 import { describe, expect, it } from 'vitest';
-import { makePiece, makeProject, makeShape, transformPoints, validatePiece } from './model';
+import { clearCanvasContent, cloneDocument, makePiece, makeProject, makeShape, transformPoints, validatePiece } from './model';
 import { buildPatternPdf, cutList, planIssues } from './export';
 
 describe('patchwork model（需求验收）', () => {
+  it('清空画布仅删除布片、辅助线和参考图，保留底布、材料及可撤销数据', () => {
+    const project = makeProject();
+    project.widthMm = 320;
+    project.heightMm = 250;
+    project.pieces.push(makePiece(makeShape('rect', 40, 40, 100, 100)));
+    project.guides.push({ id: 'guide', points: [{ x: 1, y: 1 }, { x: 8, y: 8 }], visible: true });
+    project.reference = { assetId: 'photo', opacity: .5, x: 0, y: 0, width: 300, height: 200 };
+    const before = cloneDocument(project);
+    clearCanvasContent(project);
+    expect(project.pieces).toEqual([]);
+    expect(project.guides).toEqual([]);
+    expect(project.reference).toBeUndefined();
+    expect(project.base).toEqual(before.base);
+    expect(project.materials).toEqual(before.materials);
+    expect([project.widthMm, project.heightMm]).toEqual([320, 250]);
+    expect(before.pieces).toHaveLength(1);
+    expect(before.guides).toHaveLength(1);
+    expect(before.reference?.assetId).toBe('photo');
+  });
   it('AC01：开放曲线与自交轮廓被阻止并给出原因', () => {
     expect(validatePiece([{ x: 0, y: 0 }, { x: 10, y: 0 }])).toMatch(/未闭合/);
     expect(validatePiece([{ x: 0, y: 0 }, { x: 7, y: 0 }, { x: 6, y: 6 }, { x: 2, y: -3 }])).toMatch(/自交/);

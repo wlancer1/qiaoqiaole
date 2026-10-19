@@ -11,8 +11,8 @@ export function loadTencentCosConfig(env = process.env) {
   const keyPrefix = String(env.TENCENT_COS_KEY_PREFIX || 'uploads/images').trim().replace(/^\/+|\/+$/g, '');
   const privateDomain = String(env.TENCENT_COS_PRIVATE_DOMAIN || '').trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
   const protocol = String(env.TENCENT_COS_PROTOCOL || 'https').trim().replace(':', '') || 'https';
-  const configuredExpires = Number(env.TENCENT_COS_SIGN_EXPIRES || 900);
-  const signExpires = Number.isFinite(configuredExpires) ? Math.max(1, configuredExpires) : 900;
+  const configuredExpires = Number(env.TENCENT_COS_SIGN_EXPIRES || 86_400);
+  const signExpires = Number.isFinite(configuredExpires) ? Math.max(1, configuredExpires) : 86_400;
   if (!enabled || !secretId || !secretKey || !bucket || !region) {
     throw new Error('腾讯云 COS 未配置，请检查 TENCENT_COS_ENABLED、TENCENT_COS_SECRET_ID、TENCENT_COS_SECRET_KEY、TENCENT_COS_BUCKET、TENCENT_COS_REGION');
   }

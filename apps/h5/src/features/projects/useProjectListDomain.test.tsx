@@ -48,6 +48,35 @@ describe('useProjectListDomain', () => {
     expect(store.getState().projects.projects.map((item) => item.id)).toEqual(['chosen']);
   });
 
+  it('fetches folder metadata in parallel and reuses it across rapid page changes', async () => {
+    let resolveProjects!: (value: unknown) => void;
+    const requestApi = vi.fn().mockImplementation((path: string) => {
+      if (path === '/projects?page=1&pageSize=12') return new Promise((resolve) => { resolveProjects = resolve; });
+      if (path === '/projects?page=2&pageSize=12') return Promise.resolve({ projects: [], page: 2, total: 12, hasMore: false });
+      if (path === '/project-folders') return Promise.resolve({ folders: [{ id: 'f1', name: '文件夹一' }] });
+      throw new Error(`unexpected request: ${path}`);
+    }) as unknown as ProjectRequestApi;
+    const control = { current: null as ProjectListDomainResult | null };
+    const store = configureStore({ reducer: { projects: projectReducer } });
+    function Probe() {
+      control.current = useProjectListDomain({ requestApi, setStatus: vi.fn() });
+      return null;
+    }
+    let renderer!: ReactTestRenderer;
+    await act(async () => { renderer = create(<Provider store={store}><Probe /></Provider>); });
+    renderers.push(renderer);
+
+    let firstLoad!: Promise<void>;
+    act(() => { firstLoad = control.current!.loadPage('token', { page: 1, folderId: 'all' }); });
+    expect(requestApi).toHaveBeenCalledWith('/project-folders', {}, 'token');
+    await act(async () => { resolveProjects({ projects: [project('first', '2026-08-03')], page: 1, total: 12, hasMore: true }); await firstLoad; });
+    await act(async () => { await control.current!.loadPage('token', { page: 2, folderId: 'all' }); });
+    expect(requestApi.mock.calls.filter(([path]) => path === '/project-folders')).toHaveLength(1);
+    expect(control.current!.folders.map((item) => item.name)).toEqual(['文件夹一']);
+    await act(async () => { await control.current!.loadPage('another-token', { page: 2, folderId: 'all' }); });
+    expect(requestApi.mock.calls.filter(([path]) => path === '/project-folders')).toHaveLength(2);
+  });
+
   it('appends the next page to the current project list when the folder stays the same', async () => {
     const requestApi = vi.fn().mockImplementation(async (path: string) => {
       if (path === '/projects?page=1&pageSize=12') return { projects: [project('first', '2026-08-03')], page: 1, pageSize: 12, hasMore: true };
@@ -74,9 +103,11 @@ describe('useProjectListDomain', () => {
   it('rejects a stale response after a newer route page is requested', async () => {
     let resolveOld!: (value: unknown) => void;
     let resolveNew!: (value: unknown) => void;
-    const requestApi = vi.fn()
-      .mockReturnValueOnce(new Promise((resolve) => { resolveOld = resolve; }))
-      .mockReturnValueOnce(new Promise((resolve) => { resolveNew = resolve; })) as unknown as ProjectRequestApi;
+    const requestApi = vi.fn().mockImplementation((path: string) => {
+      if (path === '/projects?page=1&pageSize=12') return new Promise((resolve) => { resolveOld = resolve; });
+      if (path === '/projects?page=2&pageSize=12') return new Promise((resolve) => { resolveNew = resolve; });
+      return Promise.resolve({ folders: [] });
+    }) as unknown as ProjectRequestApi;
     const control = { current: null as ProjectListDomainResult | null };
     const store = configureStore({ reducer: { projects: projectReducer } });
     function Probe() {

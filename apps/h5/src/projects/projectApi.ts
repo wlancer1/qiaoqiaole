@@ -14,9 +14,10 @@ export function getProjectFolders(request: ProjectApiRequest, token: string): Pr
   return request('/project-folders', {}, token);
 }
 
-export function getRecentProjects(request: ProjectApiRequest, token: string, pagination?: { page: number; pageSize: number; folderId?: string | 'all' }): Promise<{ projects: RecentProject[] } & ProjectPage> {
+export function getRecentProjects(request: ProjectApiRequest, token: string, pagination?: { page: number; pageSize: number; folderId?: string | 'all'; kind?: 'bead' | 'patchwork' }): Promise<{ projects: RecentProject[] } & ProjectPage> {
   const params = new URLSearchParams();
   if (pagination?.folderId && pagination.folderId !== 'all') params.set('folder', pagination.folderId);
+  if (pagination?.kind) params.set('kind', pagination.kind);
   if (pagination) {
     params.set('page', String(pagination.page));
     params.set('pageSize', String(pagination.pageSize));

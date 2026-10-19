@@ -6,6 +6,7 @@ export type ProjectListRouteResult = {
   route: ProjectListRoute;
   selectFolder: (folderId: string | null | 'all') => void;
   selectTab: (tab: ProjectListRoute['tab']) => void;
+  selectKind: (kind: ProjectListRoute['kind']) => void;
   loadMore: () => void;
   loadPrevious: () => void;
 };
@@ -32,7 +33,7 @@ export function useProjectListRoute({
   useEffect(() => {
     if (!enabled || route.tab !== 'works' || !token) return;
     void loadPageRef.current(token, route, { preserveOnError: true });
-  }, [enabled, route.folderId, route.page, route.tab, token]);
+  }, [enabled, route.folderId, route.page, route.tab, route.kind, token]);
 
   useEffect(() => {
     if (!enabled || route.tab !== 'works' || !token || typeof window === 'undefined') return undefined;
@@ -42,21 +43,25 @@ export function useProjectListRoute({
     };
     window.addEventListener('pageshow', refreshRestoredPage);
     return () => window.removeEventListener('pageshow', refreshRestoredPage);
-  }, [enabled, route.folderId, route.page, route.tab, token]);
+  }, [enabled, route.folderId, route.page, route.tab, route.kind, token]);
 
   const selectFolder = (folderId: string | null | 'all') => {
-    navigate(projectListPath({ folderId: folderId || 'all', page: 1, tab: 'works' }));
+    navigate(projectListPath({ folderId: folderId || 'all', page: 1, tab: 'works', kind: route.kind }));
   };
   const selectTab = (tab: ProjectListRoute['tab']) => {
-    navigate(projectListPath({ folderId: tab === 'likes' ? 'all' : route.folderId, page: 1, tab }));
+    navigate(projectListPath({ folderId: tab === 'likes' ? 'all' : route.folderId, page: 1, tab, kind: tab === 'likes' ? 'all' : route.kind }));
   };
   const loadMore = () => {
     if (!hasMore || loading) return;
-    navigate(projectListPath({ folderId: route.folderId, page: route.page + 1, tab: 'works' }));
+    navigate(projectListPath({ folderId: route.folderId, page: route.page + 1, tab: 'works', kind: route.kind }));
   };
   const loadPrevious = () => {
-    if (route.page > 1) navigate(projectListPath({ folderId: route.folderId, page: route.page - 1, tab: 'works' }));
+    if (route.page > 1) navigate(projectListPath({ folderId: route.folderId, page: route.page - 1, tab: 'works', kind: route.kind }));
   };
 
-  return { route, selectFolder, selectTab, loadMore, loadPrevious };
+  const selectKind = (kind: ProjectListRoute['kind']) => {
+    navigate(projectListPath({ folderId: route.folderId, page: 1, tab: 'works', kind }));
+  };
+
+  return { route, selectFolder, selectTab, selectKind, loadMore, loadPrevious };
 }

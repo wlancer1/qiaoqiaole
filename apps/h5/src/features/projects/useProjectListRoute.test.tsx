@@ -27,11 +27,11 @@ describe('useProjectListRoute', () => {
     });
     renderers.push(renderer);
 
-    expect(loadPage).toHaveBeenCalledWith('token', { folderId: 'folder-1', page: 2, tab: 'works' }, { preserveOnError: true });
+    expect(loadPage).toHaveBeenCalledWith('token', { folderId: 'folder-1', page: 2, tab: 'works', kind: 'all' }, { preserveOnError: true });
     act(() => { control.current!.selectFolder('folder-2'); });
-    expect(control.current!.route).toEqual({ folderId: 'folder-2', page: 1, tab: 'works' });
+    expect(control.current!.route).toEqual({ folderId: 'folder-2', page: 1, tab: 'works', kind: 'all' });
     act(() => { control.current!.selectTab('likes'); });
-    expect(control.current!.route).toEqual({ folderId: 'all', page: 1, tab: 'likes' });
+    expect(control.current!.route).toEqual({ folderId: 'all', page: 1, tab: 'likes', kind: 'all' });
   });
 
   it('moves to the next URL page for the load-more flow', async () => {
@@ -46,7 +46,7 @@ describe('useProjectListRoute', () => {
     renderers.push(renderer);
 
     act(() => { control.current!.loadMore(); });
-    expect(control.current!.route).toEqual({ folderId: 'all', page: 3, tab: 'works' });
+    expect(control.current!.route).toEqual({ folderId: 'all', page: 3, tab: 'works', kind: 'all' });
   });
 
   it('refreshes the current page after mobile Safari restores it from the page cache', async () => {
@@ -67,6 +67,6 @@ describe('useProjectListRoute', () => {
 
     await act(async () => { listeners.get('pageshow')?.({ persisted: true }); });
 
-    expect(loadPage).toHaveBeenCalledWith('token', { folderId: 'all', page: 2, tab: 'works' }, { preserveOnError: true });
+    expect(loadPage).toHaveBeenCalledWith('token', { folderId: 'all', page: 2, tab: 'works', kind: 'all' }, { preserveOnError: true });
   });
 });

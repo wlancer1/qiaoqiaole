@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft, Settings, Undo2, Redo2, Save, Upload, Download, MousePointer2, Pencil, Shapes,
   PaintBucket, Layers, Trash2, Copy, Lock, Unlock, Eye, EyeOff, RotateCw, FlipHorizontal2,
@@ -7,15 +7,16 @@ import {
   Square, Circle, Triangle, Diamond, Hexagon, Star, Flower2, Leaf, LayoutGrid, SlidersHorizontal,
 } from 'lucide-react';
 import {
-  area, cloneDocument, hitTest, isConcave, makePiece, makeProject, makeShape, pointBounds,
+  area, clearCanvasContent, cloneDocument, hitTest, isConcave, makePiece, makeProject, makeShape, pointBounds,
   pointInPolygon, simplifyPoints, selfIntersects, transformPoints, validatePiece,
   type Guide, type Material, type PatchworkDocument, type PatchworkProject, type Piece,
   type Point, type Shape, type Technique,
 } from './model';
 import { drawScene, metrics, screenToWorld, worldToScreen, type Metrics, type View } from './canvas';
 import { buildPatternPdf, cutList, downloadBlob, planIssues } from './export';
-import { getAsset, latestDraftId, loadImage, putAsset, readDraft, saveDraft } from './assets';
+import { deleteAsset, getAsset, loadImage, putAsset, putAssetWithId, readDraft, saveDraft } from './assets';
 import { useAppOverlay } from '../app/overlays/AppOverlayContext';
+import type { ProjectApiRequest } from '../projects/projectApi';
 import { newPatchworkId } from './ids';
 import type { SegmentMode, SegmentResult } from './segmentation';
 import './patchwork.css';
@@ -23,7 +24,13 @@ import './patchwork.css';
 /* 拼布编辑器：几何一律毫米；历史以“一次完整手势 = 一条记录”为粒度（AC02）。 */
 
 type Tool = 'select' | 'brush' | 'add' | 'fill' | 'layers';
-type Panel = 'base' | 'add' | 'fill' | 'layers' | 'materials' | 'export' | 'import' | 'save' | 'open' | 'props' | 'leave' | null;
+type Panel = 'base' | 'add' | 'fill' | 'layers' | 'materials' | 'export' | 'import' | 'save' | 'open' | 'props' | 'leave' | 'fabriccrop' | null;
+type CropRect = { x: number; y: number; w: number; h: number };
+const clampCropRect = (r: CropRect): CropRect => {
+  const MIN = 0.06;
+  const w = Math.min(1, Math.max(MIN, r.w)), h = Math.min(1, Math.max(MIN, r.h));
+  return { x: Math.min(1 - w, Math.max(0, r.x)), y: Math.min(1 - h, Math.max(0, r.y)), w, h };
+};
 type Candidate = { points: Point[]; color: string; excluded: boolean; asGuide: boolean; chosen: boolean; grouped: boolean; hasHoles: boolean };
 type Analysis = { rgba: Uint8ClampedArray; width: number; height: number; pxPerMm: number; offsetX: number; offsetY: number };
 
@@ -33,9 +40,15 @@ const TEMPLATES_KEY = 'qiaoqiaole:patchwork:templates';
 const uid = () => newPatchworkId();
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
-type IndexEntry = { id: string; name: string; updatedAt: number; widthMm: number; heightMm: number; technique: Technique };
+type IndexEntry = { id: string; name: string; updatedAt: number; widthMm: number; heightMm: number; technique: Technique; cloudId?: string };
+type CloudWork = { id: string; name: string; updatedAt: string; rows: number; cols: number };
+type FabricItemLite = { id: string; name: string; color: string | null; image: string | null; widthMm: number | null; heightMm: number | null; quantity: number };
+const blobToDataUrl = (blob: Blob): Promise<string> => new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result)); r.onerror = () => reject(r.error instanceof Error ? r.error : new Error('read failed')); r.readAsDataURL(blob); });
 function readIndex(): IndexEntry[] { try { return JSON.parse(localStorage.getItem(INDEX_KEY) || '[]') as IndexEntry[]; } catch { return []; } }
 function writeIndex(list: IndexEntry[]) { try { localStorage.setItem(INDEX_KEY, JSON.stringify(list.slice(0, 60))); } catch { /* 存储满时忽略索引 */ } }
+const ACTIVE_KEY = 'qiaoqiaole:patchwork:active';
+function readActive(): string | null { try { return sessionStorage.getItem(ACTIVE_KEY); } catch { return null; } }
+function writeActive(id: string) { try { sessionStorage.setItem(ACTIVE_KEY, id); } catch { /* 忽略 */ } }
 type Template = { name: string; points: Point[] };
 function readTemplates(): Template[] { try { return JSON.parse(localStorage.getItem(TEMPLATES_KEY) || '[]') as Template[]; } catch { return []; } }
 
@@ -58,15 +71,61 @@ function thumbPoints(p: Piece): string {
 }
 function MatSwatch({ m }: { m: Material }) {
   const [url, setUrl] = useState('');
+  const [tick, setTick] = useState(0);
+  useEffect(() => { const h = () => setTick((t) => t + 1); window.addEventListener('pw-asset-ready', h); return () => window.removeEventListener('pw-asset-ready', h); }, []);
   useEffect(() => {
     let live = true;
+    let created = '';
     if (m.assetId) {
-      void getAsset(m.assetId).then((b) => { if (b && live) setUrl(URL.createObjectURL(b)); });
+      void getAsset(m.assetId).then((b) => { if (b && live) { created = URL.createObjectURL(b); setUrl(created); } });
     }
-    return () => { live = false; };
-  }, [m.assetId]);
+    return () => { live = false; if (created) URL.revokeObjectURL(created); };
+  }, [m.assetId, tick]);
   if (url) return <span className="pw-swatch"><img src={url} alt="" /></span>;
   return <span className="pw-swatch" style={{ background: m.color }}>{m.assetId ? '布' : ''}</span>;
+}
+function PieceThumb({ p, mat }: { p: Piece; mat?: Material }) {
+  const [tex, setTex] = useState<{ url: string; aspect: number } | null>(null);
+  let created = '';
+  const [tick, setTick] = useState(0);
+  useEffect(() => { const h = () => setTick((t) => t + 1); window.addEventListener('pw-asset-ready', h); return () => window.removeEventListener('pw-asset-ready', h); }, []);
+  const rid = useId().replace(/[^a-zA-Z0-9]/g, '');
+  useEffect(() => {
+    let live = true;
+    if (!mat?.assetId) { setTex(null); return; }
+    void getAsset(mat.assetId).then((b) => {
+      if (!b || !live) return;
+      const url = URL.createObjectURL(b);
+      created = url;
+      const img = new Image();
+      img.onload = () => { if (live) setTex({ url, aspect: img.naturalHeight / Math.max(1, img.naturalWidth) }); };
+      img.onerror = () => { if (live) setTex({ url, aspect: 1 }); };
+      img.src = url;
+    });
+    return () => { live = false; if (created) URL.revokeObjectURL(created); };
+  }, [mat?.assetId, tick]);
+  const pts = thumbPoints(p);
+  if (!mat?.assetId || !tex) {
+    return <svg className="pw-thumb" viewBox="0 0 24 24" aria-hidden="true"><polygon points={pts} fill={mat?.color || '#ccc'} stroke="rgba(0,0,0,.15)" /></svg>;
+  }
+  // 与画布一致的纹理几何：以布片外框中心为锚，样本宽×纹理缩放为平铺尺寸，再按纹理偏移/旋转
+  const b = pointBounds(p.points);
+  const s = Math.min(20 / Math.max(1, b.width), 20 / Math.max(1, b.height));
+  const cx = 2 + (b.width * s) / 2, cy = 2 + (b.height * s) / 2;
+  const tileW = Math.max(0.5, (mat.sampleWidthMm || b.width) * p.texture.scale * s);
+  const tileH = tileW * tex.aspect;
+  return (
+    <svg className="pw-thumb" viewBox="0 0 24 24" aria-hidden="true">
+      <defs>
+        <pattern id={`tp${rid}`} width={tileW} height={tileH} patternUnits="userSpaceOnUse"
+          x={cx + p.texture.offsetX * s} y={cy + p.texture.offsetY * s}
+          patternTransform={p.texture.rotation ? `rotate(${p.texture.rotation} ${cx} ${cy})` : undefined}>
+          <image href={tex.url} width={tileW} height={tileH} preserveAspectRatio="none" />
+        </pattern>
+      </defs>
+      <polygon points={pts} fill={`url(#tp${rid})`} stroke="rgba(0,0,0,.15)" />
+    </svg>
+  );
 }
 function nextMatSeq(mats: Material[]): number {
   let mx = 0;
@@ -78,10 +137,19 @@ const docOf = (p: PatchworkProject): PatchworkDocument => ({
   base: p.base, materials: p.materials, pieces: p.pieces, guides: p.guides, reference: p.reference,
 });
 
-export function PatchworkPage() {
+export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogin?: (next: (nextToken: string) => void) => Promise<boolean>; requestApi?: ProjectApiRequest; token?: string | null } = {}) {
   const navigate = useNavigate();
   const { openConfirm } = useAppOverlay();
+  // 与拼豆一致：保存作品、打开作品前先过登录门；未登录弹登录，成功后带着 token 继续原操作。
+  const tokenRef = useRef<string>(token || '');
+  useEffect(() => { tokenRef.current = token || ''; }, [token]);
+  const projectRef = useRef<PatchworkProject | null>(null);
+  const withToken = (fn: (t: string) => void) => {
+    if (requireLogin) void requireLogin((t) => { tokenRef.current = t; fn(t); });
+    else fn(tokenRef.current);
+  };
   const params = useParams();
+  const location = useLocation();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stageRef = useRef<HTMLElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -96,6 +164,7 @@ export function PatchworkPage() {
   const textureOrig = useRef<PatchworkDocument | null>(null);
 
   const [project, setProject] = useState<PatchworkProject>(() => makeProject());
+  projectRef.current = project;
   const [loaded, setLoaded] = useState(false);
   const [past, setPast] = useState<PatchworkDocument[]>([]);
   const [future, setFuture] = useState<PatchworkDocument[]>([]);
@@ -109,22 +178,36 @@ export function PatchworkPage() {
   const [nodeMode, setNodeMode] = useState(false);
   const [nodeIndex, setNodeIndex] = useState<number | null>(null);
   const [brushMode, setBrushMode] = useState<'piece' | 'guide'>('piece');
-  const [brushSmooth, setBrushSmooth] = useState(true);
   const [stroke, setStroke] = useState<Point[]>([]);
-  const [pending, setPending] = useState<{ points: Point[]; closePreview: boolean } | null>(null);
   const [fillScope, setFillScope] = useState<'single' | 'same' | 'all'>('single');
   const [fillPick, setFillPick] = useState(false);
   const [candidates, setCandidates] = useState<Candidate[] | null>(null);
   const [candStats, setCandStats] = useState<{ ignored: number; tooMany: boolean } | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [detail, setDetail] = useState<'simple' | 'standard' | 'fine'>('standard');
-  const [minMm, setMinMm] = useState(5);
-  const [segmentMode, setSegmentMode] = useState<SegmentMode>('line');
-  const [lineThreshold, setLineThreshold] = useState(170);
+  const [detectedMode, setDetectedMode] = useState<SegmentMode>('color');
   const [importThumb, setImportThumb] = useState('');
+  const [importStage, setImportStage] = useState<'crop' | 'preview'>('crop');
+  const [importSource, setImportSource] = useState<{ url: string; w: number; h: number } | null>(null);
+  const [cropRect, setCropRect] = useState({ x: 0, y: 0, w: 1, h: 1 });
+  const importImgRef = useRef<HTMLImageElement | null>(null);
+  const [fabSource, setFabSource] = useState<{ url: string; w: number; h: number } | null>(null);
+  const [fabRect, setFabRect] = useState<CropRect>({ x: 0, y: 0, w: 1, h: 1 });
+  const [fabName, setFabName] = useState('');
+  const [fabW, setFabW] = useState(150);
+  const fabImgRef = useRef<HTMLImageElement | null>(null);
+  const fabStageRef = useRef<HTMLDivElement>(null);
+  const fabDragRef = useRef<{ mode: string; startX: number; startY: number; orig: CropRect } | null>(null);
+  const cropStageRef = useRef<HTMLDivElement>(null);
+  const cropDragRef = useRef<{ mode: string; startX: number; startY: number; orig: { x: number; y: number; w: number; h: number } } | null>(null);
   const [importName, setImportName] = useState('');
   const [saveName, setSaveName] = useState('');
   const [indexList, setIndexList] = useState<IndexEntry[]>([]);
+  const [cloudList, setCloudList] = useState<CloudWork[]>([]);
+  const [fabricPick, setFabricPick] = useState<FabricItemLite[] | null>(null);
+  const [cloudId, setCloudIdState] = useState<string | null>(null);
+  const cloudIdRef = useRef<string | null>(null);
+  const setCloudId = (id: string | null) => { cloudIdRef.current = id; setCloudIdState(id); };
   const [templates, setTemplates] = useState<Template[]>([]);
   const [redrawTick, setRedrawTick] = useState(0);
   const [baseForm, setBaseForm] = useState<{ name: string; technique: Technique; w: number; h: number; materialId: string; include: boolean; locked: boolean; scaleDesign: boolean } | null>(null);
@@ -135,8 +218,6 @@ export function PatchworkPage() {
   const [addTab, setAddTab] = useState<'base' | 'flora' | 'combo' | 'mine'>('base');
   const [expTab, setExpTab] = useState<'list' | 'preview'>('list');
   const [expUrl, setExpUrl] = useState('');
-  const [dlgMode, setDlgMode] = useState<'piece' | 'guide'>('piece');
-  const [dlgSnap, setDlgSnap] = useState(true);
   const [editingMat, setEditingMat] = useState<string | null>(null);
   const [replaceWith, setReplaceWith] = useState<string>('');
 
@@ -187,10 +268,11 @@ export function PatchworkPage() {
     setSelectedIds([]); setNodeMode(false);
   };
 
-  /* ---------- 初始加载：路由 id > 最近草稿 > 空白 ---------- */
+  /* ---------- 初始加载：路由 id > 本次会话正在编辑的作品（刷新恢复）> 空白新画布；首页进入带 fresh 标记，必为新建 ---------- */
   useEffect(() => {
     let initial: PatchworkProject | null = null;
-    const wanted = params.projectId || latestDraftId();
+    const fresh = Boolean((location.state as { fresh?: boolean } | null)?.fresh);
+    const wanted = params.projectId || (fresh ? null : readActive());
     if (wanted) {
       const raw = readDraft(wanted) as PatchworkProject | null;
       if (raw && raw.kind === 'patchwork' && Array.isArray(raw.pieces)) initial = { ...makeProject(), ...raw };
@@ -198,10 +280,23 @@ export function PatchworkPage() {
     if (initial) {
       setProject(initial);
       savedJson.current = JSON.stringify(docOf(initial));
-      if (params.projectId) toast('已打开拼布作品');
-      else toast('已恢复本地草稿，可在「作品」中新建或打开其他作品');
-    } else {
-      savedJson.current = JSON.stringify(docOf(makeProject()));
+      writeActive(initial.id);
+      if (params.projectId) {
+        const mirror = readIndex().find((x) => x.cloudId === params.projectId);
+        if (mirror && mirror.id === initial.id) setCloudId(params.projectId);
+        toast('已打开拼布作品');
+      }
+      // 关键：无论从路由还是会话恢复打开，都按本地作品 id 把云端关联找回来，
+      // 否则 cloudId 为空、每次保存都会新建一份云端作品（重复作品根源）。
+      const own = readIndex().find((x) => x.id === initial.id);
+      if (own?.cloudId) setCloudId(own.cloudId);
+    } else if (params.projectId && requestApi) {
+      // 从「我的作品」打开云端拼布：本机没有副本时登录后拉取云端内容。
+      withToken((t) => { if (t) void openCloudProject({ id: params.projectId!, name: '', updatedAt: '', rows: 0, cols: 0 }, t); });
+    }
+    if (!initial && !params.projectId) {
+      savedJson.current = JSON.stringify(docOf(project));
+      writeActive(project.id);
     }
     setIndexList(readIndex());
     setTemplates(readTemplates());
@@ -212,6 +307,11 @@ export function PatchworkPage() {
   /* 草稿自动保存（恢复机制，不等于云端保存成功） */
   useEffect(() => {
     if (!loaded) return;
+    if (!project.pieces.length && !project.guides.length && !project.reference) {
+      // 全新空白画布不落草稿；已保存过的作品被清空后必须写回空状态，否则刷新读回旧草稿、布片复活。
+      const known = Boolean(readDraft(project.id)) || readIndex().some((x) => x.id === project.id) || Boolean(cloudIdRef.current);
+      if (!known) return;
+    }
     const t = setTimeout(() => { saveDraft(project, project.id); }, 700);
     return () => clearTimeout(t);
   }, [project, loaded]);
@@ -223,13 +323,30 @@ export function PatchworkPage() {
     const baseMat = project.materials.find((m) => m.id === project.base.materialId);
     if (baseMat?.assetId) ids.add(baseMat.assetId);
     if (project.reference) ids.add(project.reference.assetId);
+    const pathFor = (id: string): string | undefined => {
+      const m = project.materials.find((x) => x.assetId === id);
+      if (m?.assetPath) return m.assetPath;
+      if (project.reference?.assetId === id) return project.reference.assetPath;
+      return undefined;
+    };
     ids.forEach((id) => {
       if (imagesRef.current.has(id) || loadingImgs.current.has(id)) return;
       loadingImgs.current.add(id);
-      loadImage(id).then((img) => {
-        loadingImgs.current.delete(id);
-        if (img) { imagesRef.current.set(id, img); setImgVersion((v) => v + 1); }
-      }).catch(() => loadingImgs.current.delete(id));
+      void (async () => {
+        try {
+          let img = await loadImage(id);
+          if (!img) {
+            // 本机没有这张布图：图纸若带了云端地址就下载回本机素材库（换设备打开也不丢图）。
+            const path = pathFor(id);
+            const tk = tokenRef.current;
+            if (path && tk) {
+              const res = await fetch('/api/project-assets?path=' + encodeURIComponent(path), { headers: { Authorization: 'Bearer ' + tk } });
+              if (res.ok) { await putAssetWithId(id, await res.blob()); img = await loadImage(id); if (img) window.dispatchEvent(new Event('pw-asset-ready')); }
+            }
+          }
+          if (img) { imagesRef.current.set(id, img); setImgVersion((v) => v + 1); }
+        } catch { /* 下载失败保持底色显示 */ } finally { loadingImgs.current.delete(id); }
+      })();
     });
   }, [project, imgVersion]);
 
@@ -241,11 +358,11 @@ export function PatchworkPage() {
       ? candidates.filter((c) => !c.excluded).map((c) => ({ points: c.points, color: c.color, selected: c.chosen }))
       : undefined;
     drawScene(canvas, project, view, {
-      selectedIds, draft: pending ? pending.points : stroke, draftClosed: pending ? pending.closePreview : nearClose(),
-      nodeMode, preview, previewStyle: panel === 'import' ? 'outline' : 'filled', images: imagesRef.current, showNumbers: true,
+      selectedIds, draft: stroke, draftClosed: nearClose(),
+      nodeMode, preview, previewStyle: panel === 'import' ? 'outline' : 'filled', images: imagesRef.current, showNumbers: 'selected',
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project, view, selectedIds, stroke, pending, nodeMode, candidates, imgVersion, redrawTick, panel]);
+  }, [project, view, selectedIds, stroke, nodeMode, candidates, imgVersion, redrawTick, panel]);
 
   useEffect(() => {
     const stage = stageRef.current;
@@ -320,7 +437,6 @@ export function PatchworkPage() {
     }
 
     if (tool === 'brush') {
-      if (pending) return;
       drawing.current = true;
       if (!strokeRef.current.length) strokeRef.current = [w];
       else strokeRef.current = [...strokeRef.current, w];
@@ -488,9 +604,10 @@ export function PatchworkPage() {
     }
     if (drawing.current) {
       drawing.current = false;
-      if (strokeRef.current.length >= 2) setPending({ points: [...strokeRef.current], closePreview: nearClose() || dlgSnap });
+      const drawn = [...strokeRef.current];
       strokeRef.current = [];
       setStroke([]);
+      if (drawn.length >= 2) finishStroke(drawn);
       return;
     }
     if (nodeDrag.current) { commitFrom(nodeDrag.current.orig); nodeDrag.current = null; return; }
@@ -500,33 +617,28 @@ export function PatchworkPage() {
     }
   };
 
-  /* ---------- 画笔确认 ---------- */
-  const finishPending = (asGuide: boolean) => {
-    if (!pending) return;
-    const raw = pending.points;
-    if (asGuide) {
-      if (raw.length < 2) { toast('辅助线至少需要两个点'); return; }
+  /* ---------- 画笔：松手自动闭合生成 ---------- */
+  const finishStroke = (raw: Point[]) => {
+    if (brushMode === 'guide') {
       commit((doc) => { doc.guides.push({ id: uid(), points: raw, visible: true } as Guide); });
-      setPending(null);
       toast('已添加辅助线（不计入裁片）');
       return;
     }
-    const pts = brushSmooth ? simplifyPoints(raw, 0.3) : raw;
-    const m = currentMetrics();
-    const endGap = Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y) * m.scale;
-    if (!pending.closePreview && endGap > 10) {
-      setPending({ points: raw, closePreview: true });
-      toast('轮廓未闭合：已显示首尾连接段，确认无误后再点「生成布片」');
-      return;
+    if (raw.length < 3) return;
+    // 闭合清理：画圈收尾常会越过起点一点点，截掉后半程绕回起点附近的点，避免闭合段与首段相交被误判自交
+    let trimmed = raw;
+    for (let i = Math.floor(raw.length / 2); i < raw.length; i += 1) {
+      if (i >= 3 && Math.hypot(raw[i].x - raw[0].x, raw[i].y - raw[0].y) <= 4) { trimmed = raw.slice(0, i); break; }
     }
+    const deduped = trimmed.filter((pt, i) => i === 0 || Math.hypot(pt.x - trimmed[i - 1].x, pt.y - trimmed[i - 1].y) > 0.5);
+    const pts = simplifyPoints(deduped.length >= 3 ? deduped : trimmed, 0.3);
     const err = validatePiece(pts);
     if (err) { toast(err); return; }
     const piece = makePiece(pts, activeMaterialId, `布片 ${project.pieces.length + 1}`);
     if (project.technique === 'turned') piece.seamMm = 5;
     commit((doc) => { doc.pieces.push(piece); });
     setSelectedIds([piece.id]);
-    setPending(null);
-    setTool('select');
+    // 保持画笔工具，可连续画下一片
   };
 
   /* ---------- 变换（选中布片） ---------- */
@@ -556,6 +668,35 @@ export function PatchworkPage() {
       });
     });
     if (copies.length) setSelectedIds(copies.map((c) => c.id));
+  };
+  const confirmClearCanvas = () => {
+    const count = project.pieces.length;
+    const guides = project.guides.length;
+    const reference = Boolean(project.reference);
+    if (!count && !guides && !reference && !stroke.length && !candidates?.length) return;
+    openConfirm({
+      title: '清空画布',
+      message: `将清空当前画布的 ${count} 块布片、${guides} 条辅助线${reference ? '及参考图片' : ''}，同时取消未完成的绘制。底布尺寸和布料库会保留；当前草稿会自动更新，清空后可立即点击「撤销」恢复。`,
+      confirmText: '确认清空',
+      danger: true,
+      onConfirm: () => {
+        if (count || guides || reference) commit(clearCanvasContent);
+        cancelAnalysis();
+        drawing.current = false;
+        drag.current = null;
+        nodeDrag.current = null;
+        xform.current = null;
+        pointers.current.clear();
+        pinch.current = null;
+        strokeRef.current = [];
+        setStroke([]);
+        setSelectedIds([]);
+        setNodeMode(false);
+        setNodeIndex(null);
+        setTool('select');
+        toast('画布已清空，可点击顶部「撤销」恢复');
+      },
+    });
   };
   const deleteSelected = () => {
     if (!selectedIds.length) return;
@@ -627,7 +768,7 @@ export function PatchworkPage() {
   /* ---------- 添加布片 ---------- */
   const addShape = (shape: Shape, w: number, h: number, label: string) => {
     const c = viewCenterWorld();
-    const piece = makePiece(makeShape(shape, w, h, c.x, c.y), activeMaterialId, label);
+    const piece = makePiece(makeShape(shape, w, shape === 'circle' ? w : h, c.x, c.y), activeMaterialId, label);
     if (project.technique === 'turned') piece.seamMm = 5;
     commit((doc) => { doc.pieces.push(piece); });
     setSelectedIds([piece.id]); setTool('select'); setPanel(null);
@@ -647,9 +788,11 @@ export function PatchworkPage() {
         { x: c.x + (gx + 1) * half, y: c.y + (gy + 1) * half }, { x: c.x + gx * half, y: c.y + (gy + 1) * half },
       ], mi, `四方块 ${i + 1}`));
     } else if (kind === 'pinwheel') {
+      const base: Point[] = [{ x: c.x, y: c.y }, { x: c.x + half, y: c.y - half }, { x: c.x + half, y: c.y }];
       for (let i = 0; i < 4; i++) {
-        const rot = (base: Point[]) => transformPoints(base, 'rotate', i * 90);
-        mk(rot([{ x: c.x, y: c.y }, { x: c.x + half, y: c.y - half }, { x: c.x + half, y: c.y }]), i % 2 ? nextMat : activeMaterialId, `风车 ${i + 1}`);
+        const r = (i * 90) * Math.PI / 180;
+        const rot = base.map((pt) => { const dx = pt.x - c.x, dy = pt.y - c.y; return { x: c.x + dx * Math.cos(r) - dy * Math.sin(r), y: c.y + dx * Math.sin(r) + dy * Math.cos(r) }; });
+        mk(rot, i % 2 ? nextMat : activeMaterialId, `风车 ${i + 1}`);
       }
     } else {
       mk([{ x: c.x - half, y: c.y - half }, { x: c.x + half, y: c.y - half }, { x: c.x - half, y: c.y + half }], activeMaterialId, '半方三角 A');
@@ -684,41 +827,193 @@ export function PatchworkPage() {
     c.style.cssText = `position:fixed;left:-10000px;top:0;width:${widthPx}px;height:${hPx}px;`;
     document.body.appendChild(c);
     requestAnimationFrame(() => {
-      drawScene(c, project, { zoom: 1, panX: 0, panY: 0 }, { selectedIds: [], draft: [], draftClosed: false, nodeMode: false, images: imagesRef.current, clean: true, showNumbers: true });
+      drawScene(c, project, { zoom: 1, panX: 0, panY: 0 }, { selectedIds: [], draft: [], draftClosed: false, nodeMode: false, images: imagesRef.current, clean: true, showNumbers: false });
       c.toBlob((b) => { document.body.removeChild(c); resolve(b); }, 'image/png');
     });
   });
-  const doSave = async () => {
+  const openFabricPicker = (t: string) => {
+    if (!requestApi || !t) { toast('登录后可从布料仓库添加'); return; }
+    void (async () => {
+      try {
+        const { fabrics } = await requestApi<{ fabrics: FabricItemLite[] }>('/fabrics', {}, t);
+        setFabricPick(Array.isArray(fabrics) ? fabrics : []);
+      } catch { toast('布料仓库读取失败'); }
+    })();
+  };
+  const addFabricMaterial = async (f: FabricItemLite) => {
+    let assetId: string | undefined;
+    if (f.image) {
+      try { const blob = await (await fetch(f.image)).blob(); assetId = await putAsset(blob); } catch { /* 图片失败时退化为纯色布料 */ }
+    }
+    const holder: { mat: Material | null } = { mat: null };
+    commit((doc) => {
+      // 编号按提交时的最新材料表计算，避免慢网络下连点两次生成同号材料
+      const seq = nextMatSeq(doc.materials);
+      holder.mat = {
+        id: `M${seq}`,
+        name: f.name,
+        color: f.color || '#d9c8a9',
+        ...(assetId ? { assetId, calibrated: Boolean(f.widthMm), sampleWidthMm: f.widthMm || undefined } : {}),
+      };
+      doc.materials.push(holder.mat);
+    });
+    if (!holder.mat) return;
+    setActiveMaterialId(holder.mat.id);
+    setFabricPick(null);
+    toast(`已添加布料「${f.name}」`);
+  };
+  const refreshCloudList = async (t: string) => {
+    if (!requestApi || !t) return;
+    try {
+      const payload = await requestApi<{ projects: CloudWork[] }>('/projects?kind=patchwork&page=1&pageSize=100', {}, t);
+      if (Array.isArray(payload.projects)) setCloudList(payload.projects);
+    } catch { /* 云端不可用时只显示本机作品 */ }
+  };
+  const savingRef = useRef(false);
+  const doSave = async (authToken = '') => {
+    if (savingRef.current) { toast('正在保存，请稍候'); return; }
+    savingRef.current = true;
+    try { await doSaveInner(authToken); } finally { savingRef.current = false; }
+  };
+  const doSaveInner = async (authToken = '') => {
     const name = (saveName || project.name || '未命名拼布').trim();
+    let coverBlob: Blob | null = null;
     let coverAssetId = project.coverAssetId;
     try {
-      const blob = await renderClean(640);
-      if (blob) coverAssetId = await putAsset(blob);
+      coverBlob = await renderClean(640);
+      if (coverBlob) {
+        const prevCover = project.coverAssetId;
+        coverAssetId = await putAsset(coverBlob);
+        if (prevCover && prevCover !== coverAssetId) void deleteAsset(prevCover);
+      }
     } catch { /* 封面失败不阻塞保存 */ }
     const saved: PatchworkProject = { ...project, name, coverAssetId, revision: project.revision + 1 };
-    setProject(saved);
+    // 保存是异步长流程（封面渲染 + 逐张布图上传需数秒）：期间用户可能继续编辑。
+    // 只有界面仍是点击保存时的文档才把快照写回；否则快照只进草稿/云端，界面以最新编辑为准。
+    let liveApplied: PatchworkProject | null = null;
+    if (projectRef.current === project) { setProject(saved); liveApplied = saved; }
     saveDraft(saved, saved.id);
-    savedJson.current = JSON.stringify(docOf(saved));
-    const entry: IndexEntry = { id: saved.id, name, updatedAt: Date.now(), widthMm: saved.widthMm, heightMm: saved.heightMm, technique: saved.technique };
+    let cloudOk = false;
+    if (requestApi && authToken) {
+      try {
+        // 布料图片云同步：把图纸引用到的本机布图上传云端、路径写回图纸，
+        // 换任何设备打开时都能按路径把布图下载回来，不再只剩底色。
+        const pathMap = new Map<string, string>();
+        for (const m of saved.materials) {
+          if (!m.assetId || m.assetPath) continue;
+          try {
+            const blob = await getAsset(m.assetId);
+            if (!blob) continue;
+            const dataUrl = await blobToDataUrl(blob);
+            const up = await requestApi<{ sourceImagePath?: string }>('/uploads/projects', { method: 'POST', body: JSON.stringify({ images: [{ kind: 'source', filename: `fabric-${m.id}.png`, dataUrl }] }) }, authToken);
+            if (up.sourceImagePath) pathMap.set(m.assetId, up.sourceImagePath);
+          } catch { /* 单张布图上传失败不阻塞保存 */ }
+        }
+        let refPath: string | undefined;
+        if (saved.reference?.assetId && !saved.reference.assetPath) {
+          try {
+            const blob = await getAsset(saved.reference.assetId);
+            if (blob) {
+              const dataUrl = await blobToDataUrl(blob);
+              const up = await requestApi<{ sourceImagePath?: string }>('/uploads/projects', { method: 'POST', body: JSON.stringify({ images: [{ kind: 'source', filename: 'reference.png', dataUrl }] }) }, authToken);
+              if (up.sourceImagePath) refPath = up.sourceImagePath;
+            }
+          } catch { /* 参考图上传失败不阻塞保存 */ }
+        }
+        if (pathMap.size || refPath) {
+          Object.assign(saved, {
+            materials: saved.materials.map((m) => (m.assetId && pathMap.get(m.assetId) ? { ...m, assetPath: pathMap.get(m.assetId) } : m)),
+            reference: refPath && saved.reference ? { ...saved.reference, assetPath: refPath } : saved.reference,
+          });
+          saveDraft(saved, saved.id);
+          // 云端路径只合并进当前文档，不覆盖保存期间用户的新编辑
+          const cur = projectRef.current || saved;
+          const merged: PatchworkProject = {
+            ...cur,
+            materials: cur.materials.map((m) => { const sm = saved.materials.find((x) => x.id === m.id); return sm?.assetPath && !m.assetPath ? { ...m, assetPath: sm.assetPath } : m; }),
+            reference: cur.reference && saved.reference?.assetPath && !cur.reference.assetPath ? { ...cur.reference, assetPath: saved.reference.assetPath } : cur.reference,
+          };
+          setProject(merged);
+          liveApplied = merged;
+          saveDraft(merged, merged.id);
+        }
+        let thumbnailImagePath: string | undefined;
+        if (coverBlob) {
+          const dataUrl = await blobToDataUrl(coverBlob);
+          const up = await requestApi<{ thumbnailImagePath?: string }>('/uploads/projects', { method: 'POST', body: JSON.stringify({ images: [{ kind: 'thumbnail', filename: 'patchwork-cover.png', dataUrl }] }) }, authToken);
+          thumbnailImagePath = up.thumbnailImagePath;
+        }
+        const payload = { kind: 'patchwork', name, rows: Math.max(1, Math.round(saved.heightMm)), cols: Math.max(1, Math.round(saved.widthMm)), content: JSON.stringify(docOf(saved)), ...(thumbnailImagePath ? { thumbnailImagePath } : {}) };
+        const existingCloudId = cloudIdRef.current;
+        try {
+          if (existingCloudId) {
+            await requestApi(`/projects/${encodeURIComponent(existingCloudId)}`, { method: 'PUT', body: JSON.stringify(payload) }, authToken);
+          } else {
+            const created = await requestApi<{ project: { id: string } }>('/projects', { method: 'POST', body: JSON.stringify(payload) }, authToken);
+            setCloudId(created.project.id);
+          }
+        } catch (err) {
+          // 只有云端记录确实不存在（404）才允许新建；其他失败一律按保存失败处理，
+          // 绝不能兜底新建——那正是同图纸反复保存生成一堆重复作品的来源。
+          if (existingCloudId && (err as { status?: number })?.status === 404) {
+            const created = await requestApi<{ project: { id: string } }>('/projects', { method: 'POST', body: JSON.stringify(payload) }, authToken);
+            setCloudId(created.project.id);
+          } else throw err;
+        }
+        cloudOk = true;
+      } catch { cloudOk = false; }
+    }
+    if (liveApplied && projectRef.current === liveApplied) savedJson.current = JSON.stringify(docOf(liveApplied));
+    const entry: IndexEntry = { id: saved.id, name, updatedAt: Date.now(), widthMm: saved.widthMm, heightMm: saved.heightMm, technique: saved.technique, cloudId: cloudIdRef.current || undefined };
     const list = [entry, ...readIndex().filter((x) => x.id !== saved.id)];
     writeIndex(list); setIndexList(list);
     setPanel(null);
-    toast('已保存到本地作品（云端保存待 API 支持拼布类型）');
+    toast(cloudOk ? '已保存到我的作品' : '已保存到本机作品');
+    if (cloudOk) void refreshCloudList(authToken);
+  };
+  const applyProject = (raw: PatchworkProject): PatchworkProject => {
+    const applied = { ...makeProject(), ...raw };
+    setProject(applied);
+    setPast([]); setFuture([]); setSelectedIds([]); setNodeMode(false); setCandidates(null);
+    savedJson.current = JSON.stringify(docOf(applied));
+    writeActive(applied.id);
+    return applied;
   };
   const openProject = (id: string) => {
     const raw = readDraft(id) as PatchworkProject | null;
     if (!raw || raw.kind !== 'patchwork') { toast('作品数据不存在或已损坏'); return; }
-    setProject({ ...makeProject(), ...raw });
-    setPast([]); setFuture([]); setSelectedIds([]); setNodeMode(false); setCandidates(null);
-    savedJson.current = JSON.stringify(docOf({ ...makeProject(), ...raw }));
+    applyProject(raw);
+    const entry = readIndex().find((x) => x.id === id);
+    setCloudId(entry?.cloudId ?? null);
     setPanel(null);
     toast('已打开作品');
+  };
+  const openCloudProject = async (entry: CloudWork, t: string) => {
+    const local = readIndex().find((x) => x.cloudId === entry.id);
+    if (local) { openProject(local.id); return; }
+    if (!requestApi || !t) { toast('需要登录后打开云端作品'); return; }
+    try {
+      const { project: detail } = await requestApi<{ project: { kind?: string; content?: string } }>(`/projects/${encodeURIComponent(entry.id)}`, {}, t);
+      if (!detail || detail.kind !== 'patchwork' || !detail.content) { toast('作品数据不存在或已损坏'); return; }
+      const raw = JSON.parse(detail.content) as PatchworkProject;
+      if (!raw || !Array.isArray(raw.pieces)) { toast('作品数据不存在或已损坏'); return; }
+      const applied = applyProject(raw);
+      saveDraft(applied, applied.id);
+      const idx: IndexEntry = { id: applied.id, name: applied.name, updatedAt: Date.now(), widthMm: applied.widthMm, heightMm: applied.heightMm, technique: applied.technique, cloudId: entry.id };
+      const list = [idx, ...readIndex().filter((x) => x.id !== applied.id)];
+      writeIndex(list); setIndexList(list);
+      setCloudId(entry.id);
+      setPanel(null);
+      toast('已打开作品');
+    } catch { toast('打开失败，请稍后重试'); }
   };
   const newProject = () => {
     const fresh = makeProject();
     setProject(fresh);
     setPast([]); setFuture([]); setSelectedIds([]); setNodeMode(false); setCandidates(null);
     savedJson.current = JSON.stringify(docOf(fresh));
+    writeActive(fresh.id);
+    setCloudId(null);
     setPanel(null);
   };
   const deleteProject = (id: string) => {
@@ -726,14 +1021,91 @@ export function PatchworkPage() {
     const list = readIndex().filter((x) => x.id !== id);
     writeIndex(list); setIndexList(list);
   };
+  const deleteCloudProject = async (entry: CloudWork, t: string) => {
+    if (requestApi && t) {
+      try { await requestApi(`/projects/${encodeURIComponent(entry.id)}`, { method: 'DELETE' }, t); }
+      catch { toast('云端删除失败，请稍后重试'); return; }
+    }
+    const mirror = readIndex().find((x) => x.cloudId === entry.id);
+    if (mirror) deleteProject(mirror.id);
+    setCloudList((list) => list.filter((x) => x.id !== entry.id));
+    if (cloudIdRef.current === entry.id) setCloudId(null);
+    toast('已删除作品');
+  };
   const leave = () => { if (dirty) setPanel('leave'); else navigate('/'); };
+
+  /* ---------- 布料上传（选区 + 定标） ---------- */
+  const fabAspect = fabSource ? (fabRect.w * fabSource.w) / Math.max(1, fabRect.h * fabSource.h) : 1;
+  const cancelFabCrop = () => {
+    setFabSource((cur) => { if (cur) URL.revokeObjectURL(cur.url); return null; });
+    fabImgRef.current = null;
+    setPanel(null);
+  };
+  const fabPoint = (e: React.PointerEvent) => {
+    const rect = fabStageRef.current!.getBoundingClientRect();
+    return { fx: Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)), fy: Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height)) };
+  };
+  const onFabDown = (e: React.PointerEvent) => {
+    const target = e.target as HTMLElement;
+    const handle = target.dataset.cropHandle;
+    const { fx, fy } = fabPoint(e);
+    let mode = 'new';
+    if (handle) mode = handle;
+    else if (target.closest('.pw-crop-rect')) mode = 'move';
+    if (mode === 'move' && fabRect.w >= 0.999 && fabRect.h >= 0.999) mode = 'new';
+    fabDragRef.current = { mode, startX: fx, startY: fy, orig: mode === 'new' ? { x: fx, y: fy, w: 0, h: 0 } : { ...fabRect } };
+    fabStageRef.current?.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  };
+  const onFabMove = (e: React.PointerEvent) => {
+    const drag = fabDragRef.current;
+    if (!drag) return;
+    const { fx, fy } = fabPoint(e);
+    const dx = fx - drag.startX, dy = fy - drag.startY;
+    const o = drag.orig;
+    if (drag.mode === 'move') setFabRect(clampCropRect({ ...o, x: o.x + dx, y: o.y + dy }));
+    else if (drag.mode === 'new') setFabRect(clampCropRect({ x: Math.min(o.x, fx), y: Math.min(o.y, fy), w: Math.abs(fx - o.x), h: Math.abs(fy - o.y) }));
+    else if (drag.mode === 'se') setFabRect(clampCropRect({ ...o, w: o.w + dx, h: o.h + dy }));
+    else if (drag.mode === 'nw') setFabRect(clampCropRect({ x: o.x + dx, y: o.y + dy, w: o.w - dx, h: o.h - dy }));
+    else if (drag.mode === 'ne') setFabRect(clampCropRect({ ...o, y: o.y + dy, w: o.w + dx, h: o.h - dy }));
+    else if (drag.mode === 'sw') setFabRect(clampCropRect({ ...o, x: o.x + dx, w: o.w - dx, h: o.h + dy }));
+  };
+  const onFabUp = () => { fabDragRef.current = null; };
+  const confirmFabCrop = async () => {
+    const img = fabImgRef.current;
+    if (!img || !fabSource) return;
+    if (!(fabW > 0)) { toast('请先填写选区的实际宽度'); return; }
+    const sx = fabRect.x * img.naturalWidth, sy = fabRect.y * img.naturalHeight;
+    const sw = Math.max(8, fabRect.w * img.naturalWidth), sh = Math.max(8, fabRect.h * img.naturalHeight);
+    const scale = Math.min(1, 1024 / Math.max(sw, sh));
+    const cv = document.createElement('canvas');
+    cv.width = Math.max(8, Math.round(sw * scale)); cv.height = Math.max(8, Math.round(sh * scale));
+    const ctx = cv.getContext('2d'); if (!ctx) { toast('图片处理失败'); return; }
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
+    const blob = await new Promise<Blob | null>((r) => cv.toBlob(r, 'image/jpeg', 0.88));
+    if (!blob) { toast('图片处理失败'); return; }
+    const assetId = await putAsset(blob);
+    const wMm = Math.max(5, Math.round(fabW));
+    const holder: { mat: Material | null } = { mat: null };
+    commit((doc) => {
+      const seq = nextMatSeq(doc.materials);
+      holder.mat = { id: `M${seq}`, name: fabName.trim() || `上传布料 ${seq}`, color: '#d9c8a9', assetId, sampleWidthMm: wMm, calibrated: true };
+      doc.materials.push(holder.mat);
+    });
+    if (!holder.mat) return;
+    const mat = holder.mat;
+    setActiveMaterialId(mat.id);
+    cancelFabCrop();
+    toast(`已添加布料「${mat.name}」，选区实际宽度 ${wMm}mm 已校准`);
+  };
 
   /* ---------- 图片导入 ---------- */
   const getWorker = () => {
     if (!workerRef.current) workerRef.current = new Worker(new URL('./segmentation.worker.ts', import.meta.url), { type: 'module' });
     return workerRef.current;
   };
-  const runAnalysis = (mode: SegmentMode, detailVal: 'simple' | 'standard' | 'fine', minMmVal: number, threshold: number) => {
+  const runAnalysis = (detailVal: 'simple' | 'standard' | 'fine') => {
     const a = analysisRef.current;
     if (!a) return;
     const reqId = ++requestRef.current;
@@ -754,19 +1126,28 @@ export function PatchworkPage() {
         if (validatePiece(points)) { invalid++; continue; }
         regions.push({ points, color: p.color, excluded: false, asGuide: false, chosen: false, grouped: false, hasHoles: p.hasHoles });
       }
+      setDetectedMode(data.mode);
       setCandidates(regions);
       setCandStats({ ignored: data.ignored + invalid, tooMany: data.tooMany });
-      if (!regions.length) toast('未发现足够大的封闭区域；可切换「色块分区」、调高线条阈值或减小最小尺寸');
-      else if (data.tooMany) toast('轮廓较多，仅显示前 100 个；建议降低精细度');
+      if (!regions.length) toast('未发现足够大的封闭区域；可以调高精度再试');
+      else if (data.tooMany) toast('轮廓较多，仅显示前 100 个；建议降低精度');
     };
     worker.onerror = () => {
       if (requestRef.current === reqId) { setAnalyzing(false); toast('图片处理失败，请换图重试'); }
     };
+    // 只暴露「精度」给用户：模式自动判断，线条阈值由 Otsu 自动，最小布片按精度内置。
+    const minMm = detailVal === 'simple' ? 12 : detailVal === 'fine' ? 6 : 9;
     worker.postMessage({
       requestId: reqId, rgba: a.rgba, width: a.width, height: a.height,
-      mode, detail: detailVal, lineThreshold: threshold,
-      minAreaPixels: Math.max(9, minMmVal * minMmVal * a.pxPerMm * a.pxPerMm),
+      mode: 'auto', detail: detailVal, lineThreshold: 0, pxPerMm: a.pxPerMm,
+      minAreaPixels: Math.max(9, minMm * minMm * a.pxPerMm * a.pxPerMm),
     });
+  };
+  const clearImportSource = () => {
+    setImportSource((cur) => { if (cur) URL.revokeObjectURL(cur.url); return null; });
+    importImgRef.current = null;
+    setImportStage('crop');
+    setCropRect({ x: 0, y: 0, w: 1, h: 1 });
   };
   const cancelAnalysis = () => {
     requestRef.current++;
@@ -774,6 +1155,7 @@ export function PatchworkPage() {
     analysisRef.current = null;
     setAnalyzing(false); setCandidates(null); setCandStats(null);
     setImportName(''); setImportThumb(''); setPanel(null);
+    clearImportSource();
   };
   const onImportFile = async (file: File) => {
     if (!/image\/(png|jpeg|webp)/.test(file.type)) { toast('仅支持 PNG / JPG / WebP 图片'); return; }
@@ -793,27 +1175,90 @@ export function PatchworkPage() {
         toast('已设为半透明参考图，用画笔描图即可');
         return;
       }
-      const s = Math.min(project.widthMm / img.naturalWidth, project.heightMm / img.naturalHeight);
-      const dispW = img.naturalWidth * s, dispH = img.naturalHeight * s;
-      // 图片降采样到最多 640px，避免手机端对高分辨率照片做同步像素运算卡顿。
-      const imageScale = Math.min(1, 640 / Math.max(img.naturalWidth, img.naturalHeight));
-      const cw = Math.max(8, Math.round(img.naturalWidth * imageScale));
-      const ch = Math.max(8, Math.round(img.naturalHeight * imageScale));
-      const cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
-      const ctx = cv.getContext('2d', { willReadFrequently: true }); if (!ctx) { toast('图片解码失败'); return; }
-      ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, cw, ch);
-      ctx.drawImage(img, 0, 0, cw, ch);
-      const data = ctx.getImageData(0, 0, cw, ch);
-      analysisRef.current = {
-        rgba: data.data, width: cw, height: ch, pxPerMm: Math.min(cw / dispW, ch / dispH),
-        offsetX: (project.widthMm - dispW) / 2, offsetY: (project.heightMm - dispH) / 2,
-      };
+      // 先让用户框选导入区域，确认后才对选区做分区分析与预览。
+      clearImportSource();
+      importImgRef.current = img;
+      setImportSource({ url, w: img.naturalWidth, h: img.naturalHeight });
+      setCropRect({ x: 0, y: 0, w: 1, h: 1 });
+      setImportStage('crop');
       setImportName(file.name);
-      setImportThumb(cv.toDataURL('image/jpeg', 0.8));
+      setImportThumb('');
+      setCandidates(null); setCandStats(null); setAnalyzing(false);
       setPanel('import');
-      runAnalysis(segmentMode, detail, minMm, lineThreshold);
-    } catch { toast('图片解码失败，请换一张图片'); }
-    finally { URL.revokeObjectURL(url); }
+      return;
+    } catch { toast('图片解码失败，请换一张图片'); URL.revokeObjectURL(url); }
+  };
+  const confirmCrop = () => {
+    const img = importImgRef.current;
+    if (!img) return;
+    const sx = cropRect.x * img.naturalWidth, sy = cropRect.y * img.naturalHeight;
+    const sw = Math.max(8, cropRect.w * img.naturalWidth), sh = Math.max(8, cropRect.h * img.naturalHeight);
+    const fit = Math.min(project.widthMm / sw, project.heightMm / sh);
+    const dispW = sw * fit, dispH = sh * fit;
+    // 图片降采样到最多 640px，避免手机端对高分辨率照片做同步像素运算卡顿。
+    const imageScale = Math.min(1, 640 / Math.max(sw, sh));
+    const cw = Math.max(8, Math.round(sw * imageScale));
+    const ch = Math.max(8, Math.round(sh * imageScale));
+    const cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
+    const ctx = cv.getContext('2d', { willReadFrequently: true }); if (!ctx) { toast('图片解码失败'); return; }
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, cw, ch);
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, cw, ch);
+    const data = ctx.getImageData(0, 0, cw, ch);
+    analysisRef.current = {
+      rgba: data.data, width: cw, height: ch, pxPerMm: Math.min(cw / dispW, ch / dispH),
+      offsetX: (project.widthMm - dispW) / 2, offsetY: (project.heightMm - dispH) / 2,
+    };
+    setImportThumb(cv.toDataURL('image/jpeg', 0.8));
+    setImportStage('preview');
+    runAnalysis(detail);
+  };
+  const backToCrop = () => {
+    requestRef.current++;
+    if (workerRef.current) { workerRef.current.terminate(); workerRef.current = null; }
+    setAnalyzing(false); setCandidates(null); setCandStats(null);
+    setImportStage('crop');
+  };
+  const cropPoint = (e: React.PointerEvent) => {
+    const rect = cropStageRef.current!.getBoundingClientRect();
+    return { fx: Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)), fy: Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height)), rect };
+  };
+  const onCropDown = (e: React.PointerEvent) => {
+    const target = e.target as HTMLElement;
+    const handle = target.dataset.cropHandle;
+    const { fx, fy } = cropPoint(e);
+    let mode = 'new';
+    if (handle) mode = handle;
+    else if (target.closest('.pw-crop-rect')) mode = 'move';
+    // 选区铺满整图时移动没有意义，此时在图内拖动直接重新框选。
+    if (mode === 'move' && cropRect.w >= 0.999 && cropRect.h >= 0.999) mode = 'new';
+    cropDragRef.current = { mode, startX: fx, startY: fy, orig: mode === 'new' ? { x: fx, y: fy, w: 0, h: 0 } : { ...cropRect } };
+    cropStageRef.current?.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  };
+  const onCropMove = (e: React.PointerEvent) => {
+    const drag = cropDragRef.current;
+    if (!drag) return;
+    const { fx, fy } = cropPoint(e);
+    const dx = fx - drag.startX, dy = fy - drag.startY;
+    const o = drag.orig;
+    if (drag.mode === 'move') setCropRect(clampCropRect({ ...o, x: o.x + dx, y: o.y + dy }));
+    else if (drag.mode === 'new') setCropRect(clampCropRect({ x: Math.min(o.x, fx), y: Math.min(o.y, fy), w: Math.abs(fx - o.x), h: Math.abs(fy - o.y) }));
+    else if (drag.mode === 'se') setCropRect(clampCropRect({ ...o, w: o.w + dx, h: o.h + dy }));
+    else if (drag.mode === 'nw') setCropRect(clampCropRect({ x: o.x + dx, y: o.y + dy, w: o.w - dx, h: o.h - dy }));
+    else if (drag.mode === 'ne') setCropRect(clampCropRect({ ...o, y: o.y + dy, w: o.w + dx, h: o.h - dy }));
+    else if (drag.mode === 'sw') setCropRect(clampCropRect({ ...o, x: o.x + dx, w: o.w - dx, h: o.h + dy }));
+  };
+  const onCropUp = () => { cropDragRef.current = null; };
+  const setCropRatio = (ratio: number | null) => {
+    if (!importSource) return;
+    if (ratio === null) { setCropRect({ x: 0, y: 0, w: 1, h: 1 }); return; }
+    const cxp = (cropRect.x + cropRect.w / 2) * importSource.w, cyp = (cropRect.y + cropRect.h / 2) * importSource.h;
+    let pw = cropRect.w * importSource.w, ph = pw / ratio;
+    if (ph > importSource.h) { ph = importSource.h; pw = ph * ratio; }
+    if (pw > importSource.w) { pw = importSource.w; ph = pw / ratio; }
+    const px = Math.min(importSource.w - pw, Math.max(0, cxp - pw / 2));
+    const py = Math.min(importSource.h - ph, Math.max(0, cyp - ph / 2));
+    setCropRect({ x: px / importSource.w, y: py / importSource.h, w: pw / importSource.w, h: ph / importSource.h });
   };
   const confirmImport = () => {
     if (!candidates) return;
@@ -835,7 +1280,7 @@ export function PatchworkPage() {
       included.forEach((c) => {
         if (c.asGuide) { doc.guides.push({ id: uid(), points: [...c.points, c.points[0]], visible: true }); return; }
         // 线稿使用浅色占位布，不把原图的黑色墨线当作填充色。
-        const piece = makePiece(c.points, matFor(segmentMode === 'line' ? '#fdfcf8' : c.color), `线稿布片 ${++n}`);
+        const piece = makePiece(c.points, matFor(detectedMode === 'line' ? '#fdfcf8' : c.color), `线稿布片 ${++n}`);
         if (c.grouped) piece.groupId = 'import-group';
         if (project.technique === 'turned') piece.seamMm = 5;
         doc.pieces.push(piece);
@@ -844,6 +1289,7 @@ export function PatchworkPage() {
     const count = included.filter((c) => !c.asGuide).length;
     analysisRef.current = null;
     setCandidates(null); setCandStats(null); setImportThumb(''); setImportName('');
+    clearImportSource();
     setPanel(null); setTool('select'); setSelectedIds([]);
     toast(`已从图片生成 ${count} 块可编辑布片。点形状再点底部布料即可填充（一次撤销可回退）`);
   };
@@ -967,8 +1413,8 @@ export function PatchworkPage() {
         <div className="topbar-right">
           <button className="patchwork-topbtn" aria-label="导入图片" onClick={openImportChooser}><Upload /><span>导入</span></button>
           <button className="patchwork-topbtn" aria-label="导出" onClick={() => setPanel('export')}><Download /><span>导出</span></button>
-          <button className="patchwork-topbtn" aria-label="我的拼布作品" onClick={() => { setIndexList(readIndex()); setPanel('open'); }}><FolderOpen /><span>作品</span></button>
-          <button className="patchwork-savebtn" aria-label="保存" onClick={() => { setSaveName(project.name); setPanel('save'); }}><Check />保存</button>
+          <button className="patchwork-topbtn" aria-label="我的拼布作品" onClick={() => withToken((t) => { setIndexList(readIndex()); setPanel('open'); void refreshCloudList(t); })}><FolderOpen /><span>作品</span></button>
+          <button className="patchwork-savebtn" aria-label="保存" onClick={() => withToken(() => { setSaveName(project.name); setPanel('save'); })}><Check />保存</button>
         </div>
       </header>
 
@@ -989,6 +1435,9 @@ export function PatchworkPage() {
               else if (t.name === 'fill') setPanel(null);
             }}><t.Icon /><span>{t.label}</span></button>
           ))}
+          <button className="patchwork-clear-btn" aria-label="清空画布" title="清空画布（可撤销）"
+            disabled={!project.pieces.length && !project.guides.length && !project.reference && !stroke.length && !candidates?.length}
+            onClick={confirmClearCanvas}><Trash2 /><span>清空</span></button>
         </aside>
 
         <section className="patchwork-stage" ref={stageRef}>
@@ -1007,38 +1456,23 @@ export function PatchworkPage() {
             <button aria-label="适应画布" onClick={() => setView({ zoom: 1, panX: 0, panY: 0 })}>适应</button>
           </div>
 
-          {tool === 'brush' && !pending && (
-            <div className="patchwork-hintpill">在画布上画一圈，松手后确认生成</div>
+          {tool === 'brush' && (
+            <div className="patchwork-hintpill pw-brushpill">
+              <span>{brushMode === 'guide' ? '画一条线，松手生成辅助线' : '在画布上画一圈，松手自动生成布片'}</span>
+              <span className="pw-brushmode">
+                <button type="button" className={brushMode === 'piece' ? 'active' : ''} onClick={() => setBrushMode('piece')}>布片</button>
+                <button type="button" className={brushMode === 'guide' ? 'active' : ''} onClick={() => setBrushMode('guide')}>辅助线</button>
+              </span>
+            </div>
           )}
-          {tool === 'fill' && !pending && (
+          {tool === 'fill' && (
             <div className="patchwork-fillbar">
               <span>选布片后点底部布料，或点画布直接填充</span>
               <button onClick={() => setPanel('fill')}>高级设置</button>
             </div>
           )}
 
-          {pending && (
-            <div className="patchwork-dlg" role="dialog" aria-label="闭合轮廓">
-              <header><strong>闭合轮廓</strong>
-                <button aria-label="取消绘制" onClick={() => setPending(null)}><X /></button>
-              </header>
-              <label className="pw-radio"><input type="radio" name="dlgmode" checked={dlgMode === 'piece'} onChange={() => setDlgMode('piece')} />生成布片</label>
-              <label className="pw-radio"><input type="radio" name="dlgmode" checked={dlgMode === 'guide'} onChange={() => setDlgMode('guide')} />辅助线</label>
-              <div className="pw-switchrow"><span>吸附闭合<small>确认时连接首尾成闭合轮廓</small></span>
-                <input type="checkbox" className="patchwork-switch" checked={dlgSnap} onChange={(e) => { setDlgSnap(e.target.checked); setPending((p) => (p ? { ...p, closePreview: e.target.checked } : p)); }} />
-              </div>
-              <div className="pw-switchrow"><span>平滑轮廓<small>生成时简化节点、保留拐角</small></span>
-                <input type="checkbox" className="patchwork-switch" checked={brushSmooth} onChange={(e) => setBrushSmooth(e.target.checked)} />
-              </div>
-              <div className="patchwork-actions">
-                <button onClick={() => { strokeRef.current = pending.points; setPending(null); toast('继续在画布上补画'); }}>继续绘制</button>
-                <button onClick={() => setPending(null)}>取消</button>
-                <button className="primary" onClick={() => finishPending(dlgMode === 'guide')}>确认</button>
-              </div>
-            </div>
-          )}
-
-          {!pending && nodeMode && single && (
+          {nodeMode && single && (
             <div className="patchwork-floating">
               <strong>节点编辑 · {single.name}</strong>
               <button onClick={deleteNode}>删除节点</button>
@@ -1047,7 +1481,7 @@ export function PatchworkPage() {
             </div>
           )}
 
-          {!pending && !nodeMode && selectedPieces.length > 0 && tool === 'select' && (() => {
+          {!nodeMode && selectedPieces.length > 0 && tool === 'select' && (() => {
             let posStyle: CSSProperties | undefined;
             if (single && canvasRef.current) {
               const m = currentMetrics();
@@ -1097,21 +1531,28 @@ export function PatchworkPage() {
         const f = e.target.files?.[0]; e.target.value = '';
         if (!f) return;
         void (async () => {
-          const assetId = await putAsset(f);
-          const seq = nextMatSeq(project.materials);
-          const mat: Material = { id: `M${seq}`, name: `上传布料 ${seq}`, color: '#d9c8a9', assetId, calibrated: false };
-          commit((doc) => { doc.materials.push(mat); });
-          setActiveMaterialId(mat.id); setEditingMat(mat.id); setPanel('materials');
-          toast('布料照片已上传，请设置样本实际宽度完成校准');
+          // 先解码进「布料上传」弹窗：框选区域 + 设定区域实际大小后再生成布料（对应需求 F05 的裁剪+定标）。
+          const url = URL.createObjectURL(f);
+          try {
+            const img = new Image();
+            img.src = url;
+            await img.decode();
+            setFabSource((cur) => { if (cur) URL.revokeObjectURL(cur.url); return { url, w: img.naturalWidth, h: img.naturalHeight }; });
+            fabImgRef.current = img;
+            setFabRect({ x: 0, y: 0, w: 1, h: 1 });
+            setFabName(`上传布料 ${nextMatSeq(project.materials)}`);
+            setFabW(150);
+            setPanel('fabriccrop');
+          } catch { URL.revokeObjectURL(url); toast('图片解码失败，请换一张图片'); }
         })();
       }} />
 
       {panel && (
-        <div className={`patchwork-overlay ${(panel === 'fill' || panel === 'import') ? 'nonmodal' : ''}`} onClick={() => setPanel(null)}>
-          <section role="dialog" aria-modal={panel !== 'import' && panel !== 'fill'} className="patchwork-panel" onClick={(e) => e.stopPropagation()}>
+        <div className={`patchwork-overlay ${(panel === 'fill' || panel === 'import') ? 'nonmodal' : ''}${(panel === 'import' && (importSource || candidates)) || (panel === 'fabriccrop' && fabSource) ? ' import-overlay' : ''}`} onClick={() => { if (panel === 'fabriccrop') cancelFabCrop(); else setPanel(null); }}>
+          <section role="dialog" aria-modal={panel !== 'fill'} className={`patchwork-panel${(panel === 'import' && (importSource || candidates)) || (panel === 'fabriccrop' && fabSource) ? ' importfull' : ''}`} onClick={(e) => e.stopPropagation()}>
             <header>
-              <strong>{{ base: '底布与项目设置', add: '添加布片', fill: '填布', layers: '图层', materials: '项目布料', export: '图纸导出', import: '导入图片', save: '保存拼布', open: '我的拼布作品', props: '布片属性', leave: '离开编辑器' }[panel]}</strong>
-              <button aria-label="关闭面板" onClick={() => panel === 'import' ? cancelAnalysis() : setPanel(null)}><X /></button>
+              <strong>{{ base: '底布与项目设置', add: '添加布片', fill: '填布', layers: '图层', materials: '项目布料', export: '图纸导出', import: '导入图片', save: '保存拼布', open: '我的拼布作品', props: '布片属性', leave: '离开编辑器', fabriccrop: '布料上传' }[panel]}</strong>
+              <button aria-label="关闭面板" onClick={() => panel === 'import' ? cancelAnalysis() : panel === 'fabriccrop' ? cancelFabCrop() : setPanel(null)}><X /></button>
             </header>
 
             {panel === 'base' && baseForm && (
@@ -1132,60 +1573,124 @@ export function PatchworkPage() {
               </div>
             )}
 
+            {panel === 'fabriccrop' && fabSource && (
+              <div className="patchwork-form patchwork-import">
+                <div className="pw-crop">
+                  <div className="pw-crop-areawrap pw-fab-areawrap">
+                    <span className="pw-crop-tip">拖动框选纹理区域 · 拖四角缩放</span>
+                    <div className="pw-crop-stage" ref={fabStageRef} style={{ aspectRatio: `${fabSource.w} / ${fabSource.h}`, width: `min(100%, calc((100dvh - 11.4rem) * ${(fabSource.w / fabSource.h).toFixed(4)}))` }} onPointerDown={onFabDown} onPointerMove={onFabMove} onPointerUp={onFabUp} onPointerCancel={onFabUp}>
+                      <img src={fabSource.url} alt="待上传布料照片，框选纹理区域" draggable={false} />
+                      <div className="pw-crop-rect" style={{ left: `${fabRect.x * 100}%`, top: `${fabRect.y * 100}%`, width: `${fabRect.w * 100}%`, height: `${fabRect.h * 100}%` }}>
+                        <span className="pw-crop-grid" />
+                        <span className="pw-crop-handle nw" data-crop-handle="nw" />
+                        <span className="pw-crop-handle ne" data-crop-handle="ne" />
+                        <span className="pw-crop-handle sw" data-crop-handle="sw" />
+                        <span className="pw-crop-handle se" data-crop-handle="se" />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="pw-fab-bar">
+                    <label>实际宽<input type="number" min={5} max={5000} value={Math.round(fabW) || ''} onChange={(e) => setFabW(Math.max(0, Number(e.target.value) || 0))} /><span>mm · 高约 {Math.round(fabW / fabAspect)} mm</span></label>
+                    <button className="pw-fab-full" onClick={() => setFabRect({ x: 0, y: 0, w: 1, h: 1 })}>全图</button>
+                  </div>
+                  <div className="patchwork-import-footer">
+                    <button onClick={cancelFabCrop}>取消</button>
+                    <button className="primary" onClick={() => void confirmFabCrop()}><Check />添加布料</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {panel === 'import' && (
               <div className="patchwork-form patchwork-import">
-                <p className="patchwork-hint">上传插画、黑白线稿或照片，自动提取封闭轮廓。确认后生成可选中、可编辑、可填布的 Canvas 布片。</p>
-                <div className="patchwork-import-actions">
-                  <button className="primary" onClick={() => { importModeRef.current = 'partition'; fileRef.current?.click(); }}>
-                    <Upload />{importName ? '换一张图片' : '选择图片生成线稿'}
-                  </button>
-                  <button onClick={() => { importModeRef.current = 'reference'; fileRef.current?.click(); }}>仅作为参考图</button>
-                </div>
-                {analysisRef.current && (
+                {!importSource && !candidates && (
                   <>
-                    <div className="patchwork-import-source">
-                      {importThumb && <img src={importThumb} alt="导入图片原图缩略预览" />}
-                      <div><strong>{importName}</strong><small>已按比例放入底布中央，可在画布上预览线稿</small></div>
+                    <p className="patchwork-hint">上传插画、黑白线稿或照片，先框选区域再预览分区，确认后生成可编辑布片。</p>
+                    <div className="patchwork-import-actions">
+                      <button className="primary" onClick={() => { importModeRef.current = 'partition'; fileRef.current?.click(); }}>
+                        <Upload />选择图片生成线稿
+                      </button>
+                      <button onClick={() => { importModeRef.current = 'reference'; fileRef.current?.click(); }}>仅作为参考图</button>
                     </div>
-                    <div className="patchwork-seg" aria-label="轮廓识别方式">
-                      <button className={segmentMode === 'line' ? 'on' : ''} onClick={() => { setSegmentMode('line'); runAnalysis('line', detail, minMm, lineThreshold); }}>轮廓线稿</button>
-                      <button className={segmentMode === 'color' ? 'on' : ''} onClick={() => { setSegmentMode('color'); runAnalysis('color', detail, minMm, lineThreshold); }}>色块分区</button>
-                    </div>
-                    <div className="patchwork-import-config">
-                      <label>轮廓细节
-                        <select value={detail} onChange={(e) => {
-                          const value = e.target.value as typeof detail;
-                          setDetail(value); runAnalysis(segmentMode, value, minMm, lineThreshold);
-                        }}>
-                          <option value="simple">简洁</option><option value="standard">标准</option><option value="fine">精细</option>
-                        </select>
-                      </label>
-                      <label>最小布片 (mm)
-                        <input type="number" min={1} max={80} value={minMm} onChange={(e) => setMinMm(clamp(Number(e.target.value) || 1, 1, 80))} />
-                      </label>
-                    </div>
-                    {segmentMode === 'line' && (
-                      <label className="patchwork-threshold">
-                        <span>线条敏感度 <strong>{lineThreshold}</strong></span>
-                        <input type="range" min={90} max={220} step={5} value={lineThreshold}
-                          onChange={(e) => setLineThreshold(Number(e.target.value))}
-                          onPointerUp={(e) => runAnalysis(segmentMode, detail, minMm, Number((e.target as HTMLInputElement).value))}
-                          onKeyUp={(e) => runAnalysis(segmentMode, detail, minMm, Number((e.target as HTMLInputElement).value))} />
-                      </label>
-                    )}
-                    <button className="patchwork-chip" onClick={() => runAnalysis(segmentMode, detail, minMm, lineThreshold)} disabled={analyzing}>
-                      <RefreshCw />{analyzing ? '正在识别轮廓…' : '按当前参数重新识别'}
+                  </>
+                )}
+                {(importSource || candidates) && (
+                  <div className="patchwork-import-actions pw-import-topbar">
+                    <button onClick={() => { importModeRef.current = 'partition'; fileRef.current?.click(); }}>
+                      <Upload />换一张图片
                     </button>
+                    <button onClick={() => { importModeRef.current = 'reference'; fileRef.current?.click(); }}>仅作为参考图</button>
+                  </div>
+                )}
+                {importStage === 'crop' && importSource && (
+                  <div className="pw-crop">
+                    <p className="patchwork-hint">框选要导入的区域：拖动画框，拖选区移动，拖四角缩放。</p>
+                    <div className="pw-crop-areawrap">
+                      <div className="pw-crop-stage" ref={cropStageRef} style={{ aspectRatio: `${importSource.w} / ${importSource.h}`, width: `min(100%, calc((100dvh - 9.6rem) * ${(importSource.w / importSource.h).toFixed(4)}))` }} onPointerDown={onCropDown} onPointerMove={onCropMove} onPointerUp={onCropUp} onPointerCancel={onCropUp}>
+                        <img src={importSource.url} alt="待导入图片，框选导入区域" draggable={false} />
+                        <div className="pw-crop-rect" style={{ left: `${cropRect.x * 100}%`, top: `${cropRect.y * 100}%`, width: `${cropRect.w * 100}%`, height: `${cropRect.h * 100}%` }}>
+                          <span className="pw-crop-grid" />
+                          <span className="pw-crop-handle nw" data-crop-handle="nw" />
+                          <span className="pw-crop-handle ne" data-crop-handle="ne" />
+                          <span className="pw-crop-handle sw" data-crop-handle="sw" />
+                          <span className="pw-crop-handle se" data-crop-handle="se" />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="pw-crop-bar">
+                      <div className="pw-crop-ratios">
+                        <button onClick={() => setCropRatio(null)}>全图</button>
+                        <button onClick={() => setCropRatio(1)}>1:1</button>
+                        <button onClick={() => setCropRatio(4 / 3)}>4:3</button>
+                        <button onClick={() => setCropRatio(3 / 4)}>3:4</button>
+                      </div>
+                      <span>选区 {Math.round(cropRect.w * importSource.w)}×{Math.round(cropRect.h * importSource.h)} px</span>
+                    </div>
+                    <div className="patchwork-import-footer">
+                      <button onClick={cancelAnalysis}>取消</button>
+                      <button className="primary" onClick={confirmCrop}><Eye />下一步：预览分区</button>
+                    </div>
+                  </div>
+                )}
+                {importStage === 'preview' && analysisRef.current && (
+                  <div className="pw-preview">
+                    <div className="patchwork-import-source">
+                      {importThumb && <img src={importThumb} alt="导入图片选区缩略预览" />}
+                      <div><strong>{importName}</strong><small>选区将按比例放入底布中央</small></div>
+                      <button className="pw-crop-back" onClick={backToCrop}>重新选区</button>
+                    </div>
+                    <div className="patchwork-seg" aria-label="识别精度">
+                      <button className={detail === 'simple' ? 'on' : ''} onClick={() => { setDetail('simple'); runAnalysis('simple'); }}>简洁</button>
+                      <button className={detail === 'standard' ? 'on' : ''} onClick={() => { setDetail('standard'); runAnalysis('standard'); }}>标准</button>
+                      <button className={detail === 'fine' ? 'on' : ''} onClick={() => { setDetail('fine'); runAnalysis('fine'); }}>精细</button>
+                    </div>
                     {analyzing && <p className="patchwork-hint" role="status">正在识别封闭区域，请稍候…</p>}
                     {!analyzing && candidates && (
                       <>
+                        <div className="pw-import-preview" style={{ aspectRatio: `${analysisRef.current.width} / ${analysisRef.current.height}`, width: `min(100%, calc((100dvh - 15.8rem) * ${(analysisRef.current.width / analysisRef.current.height).toFixed(4)}))` }}>
+                          {importThumb && <img src={importThumb} alt="" draggable={false} />}
+                          <svg viewBox={`0 0 ${analysisRef.current.width} ${analysisRef.current.height}`} preserveAspectRatio="none" aria-label="分区预览">
+                            {candidates.map((c, i) => (
+                              <polygon
+                                key={i}
+                                points={c.points.map((pt) => `${((pt.x - analysisRef.current!.offsetX) * analysisRef.current!.pxPerMm).toFixed(1)},${((pt.y - analysisRef.current!.offsetY) * analysisRef.current!.pxPerMm).toFixed(1)}`).join(' ')}
+                                fill={c.excluded ? '#8a8a8a' : c.color}
+                                fillOpacity={c.excluded ? 0.15 : c.asGuide ? 0.12 : 0.5}
+                                stroke={c.chosen ? '#ff7847' : c.excluded ? '#8a8a8a' : '#ffffff'}
+                                strokeWidth={c.chosen ? 3 : 1.4}
+                                strokeDasharray={c.excluded ? '5 4' : undefined}
+                                onClick={() => setCandidates((list) => list?.map((v, j) => j === i ? { ...v, chosen: !v.chosen } : v) || null)}
+                              />
+                            ))}
+                          </svg>
+                        </div>
                         <div className="patchwork-import-summary">
                           <strong>识别到 {candidates.filter((c) => !c.excluded).length} 个封闭区域</strong>
-                          <span>{candStats?.ignored ? ('过滤 ' + candStats.ignored + ' 个背景/小区域') : '可点击画布或列表选择区域'}</span>
+                          <span>{detectedMode === 'line' ? '已按线稿识别' : '已按色块识别'}{candStats?.ignored ? (' · 过滤 ' + candStats.ignored + ' 个背景/碎小区域') : ''}</span>
                         </div>
-                        {candidates.length === 0 && <p className="patchwork-hint">该图片暂未识别到封闭图形。黑白线稿可提高敏感度、减小最小布片；照片建议试试「色块分区」。</p>}
+                        {candidates.length === 0 && <p className="patchwork-hint">该图片暂未识别到封闭图形。可以调高精度再试，或换一张轮廓更清晰的图片。</p>}
                         {candidates.some((c) => c.hasHoles && !c.excluded) && <p className="patchwork-warning">检测到带孔洞的区域：当前只生成外边界，内孔需导入后手动修整。</p>}
-                        {candStats?.tooMany && <p className="patchwork-warning">区域过多，只展示面积最大的前 100 个。可降低细节精度。</p>}
+                        {candStats?.tooMany && <p className="patchwork-warning">区域过多，只展示面积最大的前 100 个。可降低精度。</p>}
                         <div className="patchwork-cands">
                           {candidates.map((c, i) => (
                             <div className={'patchwork-cand ' + (c.chosen ? 'chosen ' : '') + (c.excluded ? 'excluded' : '')} key={i}>
@@ -1198,7 +1703,6 @@ export function PatchworkPage() {
                             </div>
                           ))}
                         </div>
-                        <p className="patchwork-hint">画布显示的是轮廓预览。导入后点击某个布片，再选底部布料即可直接填充。</p>
                         <div className="patchwork-import-footer">
                           <button onClick={cancelAnalysis}>取消</button>
                           <button onClick={mergeCandidates} disabled={candidates.filter((c) => c.chosen && !c.excluded).length < 2}>合并选中</button>
@@ -1208,7 +1712,7 @@ export function PatchworkPage() {
                         </div>
                       </>
                     )}
-                  </>
+                  </div>
                 )}
               </div>
             )}
@@ -1298,7 +1802,7 @@ export function PatchworkPage() {
                     <div key={p.id} className={selectedIds.includes(p.id) ? 'sel' : ''}>
                       <input type="checkbox" aria-label={`多选 ${p.name}`} checked={selectedIds.includes(p.id)}
                         onChange={() => setSelectedIds((ids) => (ids.includes(p.id) ? ids.filter((x) => x !== p.id) : [...ids, p.id]))} />
-                      <svg className="pw-thumb" viewBox="0 0 24 24" aria-hidden="true"><polygon points={thumbPoints(p)} fill={project.materials.find((m) => m.id === p.materialId)?.color || '#ccc'} stroke="rgba(0,0,0,.15)" /></svg>
+                      <PieceThumb p={p} mat={project.materials.find((m) => m.id === p.materialId)} />
                       <button className="patchwork-layer-name" onClick={() => { setSelectedIds([p.id]); setTool('select'); }}><b>P{i + 1}</b> {p.name}{p.groupId ? ' · 组' : ''}</button>
                       <button aria-label="上移图层" onClick={() => commit((doc) => { const i = doc.pieces.findIndex((x) => x.id === p.id); if (i < doc.pieces.length - 1) { const [it] = doc.pieces.splice(i, 1); doc.pieces.splice(i + 1, 0, it); } })}><ChevronUp /></button>
                       <button aria-label="下移图层" onClick={() => commit((doc) => { const i = doc.pieces.findIndex((x) => x.id === p.id); if (i > 0) { const [it] = doc.pieces.splice(i, 1); doc.pieces.splice(i - 1, 0, it); } })}><ChevronDown /></button>
@@ -1391,7 +1895,22 @@ export function PatchworkPage() {
                     setActiveMaterialId(mat.id); setEditingMat(mat.id);
                   }}><Plus />新增纯色布料</button>
                   <button onClick={() => fabricFileRef.current?.click()}><Upload />上传布料照片</button>
+                  <button onClick={() => withToken(openFabricPicker)}>从布料仓库添加</button>
                 </div>
+                {fabricPick && (
+                  <div className="patchwork-works">
+                    {fabricPick.length === 0 && <p className="patchwork-hint">布料仓库还是空的。去底部「我的 → 仓库 → 布料仓库」先把囤的布登记进来。</p>}
+                    {fabricPick.map((f) => (
+                      <div className="patchwork-workrow" key={f.id}>
+                        <button className="patchwork-workrow-main" onClick={() => void addFabricMaterial(f)}>
+                          <strong>{f.name}</strong>
+                          <small>{f.widthMm && f.heightMm ? `${f.widthMm}×${f.heightMm} mm · ` : ''}库存 {f.quantity}</small>
+                        </button>
+                        {f.image ? <img className="patchwork-fabric-thumb" src={f.image} alt="" /> : <span className="patchwork-chip-color" style={{ background: f.color || '#d9c8a9' }} />}
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <p className="patchwork-hint">布料编号（A/B/C…）用于材料清单，布片编号用于几何，两者分开。长按底部布料块也可直接编辑。</p>
               </div>
             )}
@@ -1435,7 +1954,7 @@ export function PatchworkPage() {
                           const b = pointBounds(p.points);
                           return (
                             <div className="pw-cutrow" key={p.id}>
-                              <svg className="pw-thumb" viewBox="0 0 24 24" aria-hidden="true"><polygon points={thumbPoints(p)} fill={project.materials.find((m) => m.id === p.materialId)?.color || '#ccc'} stroke="rgba(0,0,0,.15)" /></svg>
+                              <PieceThumb p={p} mat={project.materials.find((m) => m.id === p.materialId)} />
                               <span className="pw-cutname"><b>P{idx + 1}</b> {p.name}</span>
                               <span className="patchwork-hint">{p.materialId} · {Math.round(b.width)}×{Math.round(b.height)}mm</span>
                               <span className="pw-count">× {count}</span>
@@ -1486,11 +2005,49 @@ export function PatchworkPage() {
                 <button type="button" className="pw-widebtn" onClick={saveAsTemplate}>存为我的布片</button>
               </div>
             )}
+            {panel === 'save' && (
+              <div className="patchwork-form">
+                <label>作品名称<input value={saveName} onChange={(e) => setSaveName(e.target.value)} placeholder="未命名拼布" /></label>
+                <p className="patchwork-hint">保存到「我的作品」，在「我的作品」页和顶栏「作品」里都能打开继续编辑。</p>
+                <div className="patchwork-actions">
+                  <button onClick={() => setPanel(null)}>取消</button>
+                  <button className="primary" onClick={() => void doSave(tokenRef.current)}>保存作品</button>
+                </div>
+              </div>
+            )}
+
+            {panel === 'open' && (
+              <div className="patchwork-form">
+                <button className="patchwork-chip" onClick={newProject}>+ 新建画布</button>
+                {cloudList.length === 0 && indexList.length === 0 && <p className="patchwork-hint">还没有保存的作品。在画布上创作后，点右上角「保存」就会出现在这里。</p>}
+                <div className="patchwork-works">
+                  {cloudList.map((e) => (
+                    <div className="patchwork-workrow" key={'cloud-' + e.id}>
+                      <button className="patchwork-workrow-main" onClick={() => withToken((t) => void openCloudProject(e, t))}>
+                        <strong>{e.name}</strong>
+                        <small>{fmtCm(e.cols)} × {fmtCm(e.rows)} cm · 云端 · {new Date(e.updatedAt).toLocaleDateString('zh-CN')}</small>
+                      </button>
+                      <button className="patchwork-workrow-del" aria-label={'删除作品 ' + e.name} onClick={() => openConfirm({ title: '删除作品', message: `确定删除作品「${e.name}」吗？云端与本机副本都会删除，无法恢复。`, confirmText: '删除', danger: true, onConfirm: () => void deleteCloudProject(e, tokenRef.current) })}><Trash2 /></button>
+                    </div>
+                  ))}
+                  {indexList.filter((e) => !e.cloudId || !cloudList.some((c) => c.id === e.cloudId)).map((e) => (
+                    <div className="patchwork-workrow" key={e.id}>
+                      <button className="patchwork-workrow-main" onClick={() => openProject(e.id)}>
+                        <strong>{e.name}</strong>
+                        <small>{fmtCm(e.widthMm)} × {fmtCm(e.heightMm)} cm · {{ raw: '毛边', turned: '折边', pieced: '拼接' }[e.technique]} · 本机 · {new Date(e.updatedAt).toLocaleDateString('zh-CN')}</small>
+                      </button>
+                      <button className="patchwork-workrow-del" aria-label={'删除作品 ' + e.name} onClick={() => openConfirm({ title: '删除作品', message: e.cloudId ? `确定删除「${e.name}」的本机副本吗？云端作品仍会保留。` : `确定删除作品「${e.name}」吗？删除后无法恢复。`, confirmText: '删除', danger: true, onConfirm: () => deleteProject(e.id) })}><Trash2 /></button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {panel === 'leave' && (
               <div className="patchwork-form">
-                <p>当前作品有未保存的改动（本地草稿已自动保留）。</p>
+                <p>当前作品有未保存的改动。</p>
                 <div className="patchwork-actions">
-                  <button className="primary" onClick={() => { void doSave().then(() => navigate('/')); }}>保存并离开</button>
+                  <button className="primary" onClick={() => withToken((t) => { void doSave(t).then(() => navigate('/')); })}>保存并离开</button>
                   <button className="danger" onClick={() => navigate('/')}>舍弃离开</button>
                   <button onClick={() => setPanel(null)}>继续编辑</button>
                 </div>

@@ -202,7 +202,7 @@ function H5Application() {
   requestApiRef.current = requestApi;
 
   const loadRecentProjects = async (token: string, { preserveOnError = false, page = 1 } = {}) => {
-    await projectListDomain.loadPage(token, { folderId: 'all', page, tab: 'works' }, { preserveOnError });
+    await projectListDomain.loadPage(token, { folderId: 'all', page, tab: 'works', kind: 'all' }, { preserveOnError });
   };
   const projectListRoute = useProjectListRoute({
     token: authToken,
@@ -272,6 +272,10 @@ function H5Application() {
     if (!token) {
       requireLogin((nextToken) => { void openSavedProject(project, nextToken); });
       return false;
+    }
+    if (project.kind === 'patchwork') {
+      navigate(`/patchwork/${encodeURIComponent(project.id)}`);
+      return true;
     }
     navigate(`/projects/${encodeURIComponent(project.id)}/edit`);
     return true;
@@ -451,7 +455,7 @@ function H5Application() {
   const projectActionOverlay = useProjectActionOverlay({
     actions: projectActions,
     hasSession: (project) => beadingCommandsRef.current?.hasSession(project.id) ?? false,
-    onStart: (project) => { void beadingCommandsRef.current?.start(project.id); },
+    onStart: (project) => { if (project.kind === 'patchwork') { void openSavedProject(project); return; } void beadingCommandsRef.current?.start(project.id); },
     onEdit: (project) => { void openSavedProject(project); },
     onMove: (project, afterOpen) => openProjectFolderMove(project, afterOpen),
     onShareCommitted: async () => { await (communityCommandsRef.current?.refreshDiscovery() ?? Promise.resolve()); },
@@ -493,7 +497,7 @@ function H5Application() {
     isAuthenticating={false} isLoginModalOpen={false} openLogin={openLogin} closeLogin={authDialog.close}
     usedColors={[]} colorCodeOf={colorCodeOf} quickTools={quickTools}
     showCreateCanvasModal={showCreateCanvasModal} setShowCreateCanvasModal={setShowCreateCanvasModal} openCreateCanvasModal={openCreateCanvasModal}
-    openBlankCanvasCreation={openBlankCanvasCreation} openPatchwork={() => navigate('/patchwork')}
+    openBlankCanvasCreation={openBlankCanvasCreation} openPatchwork={() => navigate('/patchwork', { state: { fresh: true } })}
     cfgCols={cfgCols} setCfgCols={setCfgCols} cfgRows={cfgRows} setCfgRows={setCfgRows}
     normalizeGridSize={normalizeGridSize} parseGridSizeInput={parseGridSizeInput} createBlankCanvas={createBlankCanvas} requireLogin={requireLogin}
     setStatus={setStatus}
@@ -525,6 +529,8 @@ function H5Application() {
     likedLoading={projectListDomain.likedLoading}
     activeContentTab={projectListRoute.route.tab}
     onContentTabChange={projectListRoute.selectTab}
+    activeKind={projectListRoute.route.kind}
+    onKindChange={projectListRoute.selectKind}
     receivedLikesCount={receivedLikesCount}
     onBack={() => navigate(myWorksBackTargetRef.current === 'profile' ? '/profile' : '/')}
     onOpen={projectActionOverlay.open}
@@ -552,7 +558,7 @@ function H5Application() {
     'my-works': myWorksPage,
     canvas: editorPage,
     beading: null,
-    patchwork: withAppOverlays(<PatchworkPage />),
+    patchwork: withAppOverlays(<PatchworkPage requireLogin={requireLogin} requestApi={requestApi} token={authToken} />),
     warehouse: null,
     'warehouse-detail': null,
     split: splitPage(),

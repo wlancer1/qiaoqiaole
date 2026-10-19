@@ -100,6 +100,25 @@ describe('MyWorksPage thumbnails', () => {
     expect(markup).toContain('src="/api/projects/project-7/thumbnail"');
   });
 
+  it('shows compact type tags for patchwork, bead and legacy bead projects', () => {
+    const markup = renderToStaticMarkup(createElement(MyWorksPage, {
+      projects: [
+        { id: 'patchwork', name: '拼布作品', kind: 'patchwork', rows: 400, cols: 400, tone: 'recent', createdAt: '', updatedAt: '' },
+        { id: 'bead', name: '拼豆作品', kind: 'bead', rows: 32, cols: 32, tone: 'recent', createdAt: '', updatedAt: '' },
+        { id: 'legacy', name: '旧拼豆作品', rows: 24, cols: 24, tone: 'recent', createdAt: '', updatedAt: '' },
+      ],
+      onBack: vi.fn(), onOpen: vi.fn(),
+    }));
+    const styles = fs.readFileSync(path.resolve('apps/h5/src/styles.css'), 'utf8');
+    const badgeRule = styles.match(/\.my-work-kind-badge\s*\{([^}]*)\}/)?.[1] ?? '';
+
+    expect(markup.match(/class="my-work-kind-badge my-work-kind-badge--patchwork">拼布<\/span>/g)).toHaveLength(1);
+    expect(markup.match(/class="my-work-kind-badge my-work-kind-badge--bead">拼豆<\/span>/g)).toHaveLength(2);
+    expect(markup).not.toContain('>未分类</span>');
+    expect(badgeRule).toContain('position: absolute');
+    expect(badgeRule).toContain('pointer-events: none');
+  });
+
   it('uses a neutral placeholder instead of generated artwork when a project has no image', () => {
     const markup = renderToStaticMarkup(createElement(MyWorksPage, {
       projects: [{ id: 'project-without-image', name: '无图作品', rows: 16, cols: 16, tone: 'recent-flower', createdAt: '', updatedAt: '' }],

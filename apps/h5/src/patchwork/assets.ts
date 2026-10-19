@@ -11,11 +11,19 @@ function openDb(): Promise<IDBDatabase> {
     req.onsuccess = () => resolve(req.result);
   });
 }
-export async function putAsset(blob: Blob) {
-  const id = newPatchworkId(); const db = await openDb();
-  try { await new Promise<void>((resolve, reject) => { const tx = db.transaction(STORE, 'readwrite'); tx.objectStore(STORE).put(blob, id); tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); }); }
+export async function putAssetWithId(id: string, blob: Blob) {
+  const db = await openDb();
+  try { await new Promise<void>((resolve, reject) => { const tx = db.transaction(STORE, 'readwrite'); tx.objectStore(STORE).put(blob, id); tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error || new Error('素材写入被中止')); }); }
   finally { db.close(); }
+}
+export async function putAsset(blob: Blob) {
+  const id = newPatchworkId(); await putAssetWithId(id, blob);
   return id;
+}
+export async function deleteAsset(id: string) {
+  const db = await openDb();
+  try { await new Promise<void>((resolve, reject) => { const tx = db.transaction(STORE, 'readwrite'); tx.objectStore(STORE).delete(id); tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error || new Error('素材删除被中止')); }); }
+  finally { db.close(); }
 }
 export async function getAsset(id: string): Promise<Blob | undefined> {
   const db = await openDb();

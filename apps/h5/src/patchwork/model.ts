@@ -5,10 +5,10 @@ export type Point = { x: number; y: number };
 export type Technique = 'raw' | 'turned' | 'pieced';
 export type Shape = 'rect' | 'circle' | 'triangle' | 'diamond' | 'hexagon' | 'petal' | 'leaf' | 'star';
 export type TextureTransform = { scale: number; rotation: number; offsetX: number; offsetY: number };
-export type Material = { id: string; name: string; color: string; assetId?: string; sampleWidthMm?: number; calibrated?: boolean };
+export type Material = { id: string; name: string; color: string; assetId?: string; assetPath?: string; sampleWidthMm?: number; calibrated?: boolean };
 export type Piece = { id: string; name: string; points: Point[]; materialId: string; locked: boolean; visible: boolean; groupId?: string; seamMm: number; texture: TextureTransform };
 export type Guide = { id: string; points: Point[]; visible: boolean };
-export type Reference = { assetId: string; opacity: number; x: number; y: number; width: number; height: number };
+export type Reference = { assetId: string; assetPath?: string; opacity: number; x: number; y: number; width: number; height: number };
 export type PatchworkProject = { schemaVersion: 1; id: string; kind: 'patchwork'; name: string; revision: number; technique: Technique; widthMm: number; heightMm: number; base: { materialId: string; locked: boolean; includeInCutList: boolean }; materials: Material[]; pieces: Piece[]; guides: Guide[]; reference?: Reference; coverAssetId?: string };
 export type PatchworkDocument = Pick<PatchworkProject, 'name' | 'technique' | 'widthMm' | 'heightMm' | 'base' | 'materials' | 'pieces' | 'guides' | 'reference'>;
 export const textureIdentity = (): TextureTransform => ({ scale: 1, rotation: 0, offsetX: 0, offsetY: 0 });
@@ -23,6 +23,12 @@ export function makeProject(): PatchworkProject {
     base: { materialId: 'A', locked: true, includeInCutList: true }, materials: builtinMaterials.map((m) => ({ ...m })), pieces: [], guides: [] };
 }
 export const cloneDocument = (d: PatchworkDocument): PatchworkDocument => JSON.parse(JSON.stringify(d)) as PatchworkDocument;
+/** 清空画布内容，但保留底布、尺寸、材料和作品设置；调用方负责记录撤销历史。 */
+export function clearCanvasContent(doc: PatchworkDocument): void {
+  doc.pieces = [];
+  doc.guides = [];
+  doc.reference = undefined;
+}
 export function pointBounds(points: Point[]) {
   if (!points.length) return { x: 0, y: 0, width: 0, height: 0 };
   const xs = points.map((p) => p.x); const ys = points.map((p) => p.y);
@@ -83,11 +89,19 @@ export function makeShape(shape: Shape, width: number, height: number, cx: numbe
   if (shape === 'triangle') return scale([[.5,0],[1,1],[0,1]]);
   if (shape === 'diamond') return scale([[.5,0],[1,.5],[.5,1],[0,.5]]);
   if (shape === 'hexagon') return scale([[.25,0],[.75,0],[1,.5],[.75,1],[.25,1],[0,.5]]);
-  if (shape === 'petal' || shape === 'leaf') return Array.from({ length: 40 }, (_, i) => {
-    const t = i * 2 * Math.PI / 40;
-    const radius = shape === 'petal' ? .55 * Math.abs(Math.sin(t)) : .55 * Math.abs(Math.cos(t));
-    return { x: cx + Math.cos(t) * width * radius, y: cy + Math.sin(t) * height * .5 };
-  });
+  if (shape === 'petal' || shape === 'leaf') {
+    // 纵向轮廓：花瓣上尖下圆（水滴），叶片两头尖、中间鼓（透镜）；旧公式画出来是沙漏/横向杏仁，已弃用
+    const profile = (t: number) => (shape === 'leaf' ? Math.pow(Math.sin(Math.PI * t), 0.9) : Math.pow(Math.sin(Math.PI * Math.pow(t, 1.3)), 0.75));
+    const steps = 18;
+    const ts: number[] = [];
+    for (let k = 0; k <= steps; k += 1) ts.push(k / steps);
+    // 花瓣峰值在 t=(1/2)^(1/1.3)≈0.587，等距采样恰好错过，不补峰值点外框宽度会差约 0.3%
+    if (shape === 'petal') { ts.push(Math.pow(0.5, 1 / 1.3)); ts.sort((a, b) => a - b); }
+    const pts: Point[] = [];
+    for (const t of ts) pts.push({ x: cx + (width / 2) * profile(t), y: cy - height / 2 + height * t });
+    for (let i = ts.length - 2; i >= 1; i -= 1) { const t = ts[i]; pts.push({ x: cx - (width / 2) * profile(t), y: cy - height / 2 + height * t }); }
+    return pts;
+  }
   if (shape === 'star') return Array.from({ length: 10 }, (_, i) => {
     const t = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? .23 : .5;
     return { x: cx + Math.cos(t) * width * r, y: cy + Math.sin(t) * height * r };

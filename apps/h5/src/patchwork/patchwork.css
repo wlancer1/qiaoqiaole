@@ -21,6 +21,9 @@
 .patchwork-rail button{width:1.32rem;min-height:1.32rem;border-radius:.38rem;background:transparent;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:.08rem;font-size:.3rem;color:#42566b}
 .patchwork-rail svg{width:.62rem;height:.62rem}
 .patchwork-rail button.active{background:#208edc;color:#fff;box-shadow:0 6px 14px rgba(32,142,220,.35)}
+.patchwork-rail .patchwork-clear-btn{margin-top:.06rem;color:#ac5555;border-top:1px solid #edf1f5;border-radius:.16rem}
+.patchwork-rail .patchwork-clear-btn:disabled{opacity:.35;cursor:default}
+.patchwork-rail .patchwork-clear-btn:not(:disabled):active{background:#fff0ee}
 .patchwork-stage{flex:1;min-width:0;position:relative;overflow:hidden;background:#edf3f7}
 .patchwork-stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
 
@@ -222,3 +225,94 @@ button.danger,.patchwork-actions button.danger{background:#fdf1f1;border-color:#
 .pw-grid .pw-span2{grid-column:span 2}
 .patchwork-form .pw-grid label>input,.patchwork-form .pw-grid label>select{width:100%;max-width:none;flex:none}
 .pw-widebtn{width:100%;margin-top:.3rem;padding:.2rem;border:1px solid #d5e2ee;border-radius:.3rem;background:#f2f7fb;color:#207ec1;font-size:.37rem;font-weight:600}
+
+/* 我的作品列表 */
+.patchwork-works{display:flex;flex-direction:column;gap:.16rem;max-height:9.5rem;overflow-y:auto}
+.patchwork-workrow{display:flex;align-items:center;gap:.14rem;border:1px solid #e4ebf2;border-radius:.26rem;padding:.12rem .14rem;background:#fff}
+.patchwork-workrow-main{flex:1;display:flex;flex-direction:column;gap:.03rem;text-align:left;background:none;border:none;padding:0;cursor:pointer}
+.patchwork-workrow-main strong{font-size:.42rem;color:#22384c}
+.patchwork-workrow-main small{font-size:.33rem;color:#7a8b9c}
+.patchwork-workrow-del{flex-shrink:0;display:flex;align-items:center;justify-content:center;width:.72rem;height:.72rem;border-radius:.2rem;border:1px solid #f0d9d9;background:#fff5f5;color:#c0453e;cursor:pointer}
+.patchwork-workrow-del svg{width:.4rem;height:.4rem}
+.patchwork-fabric-thumb{width:.9rem;height:.9rem;object-fit:cover;border-radius:.18rem;flex-shrink:0}
+.patchwork-hintpill.pw-brushpill{display:inline-flex;align-items:center;gap:.35rem}
+.pw-brushmode{display:inline-flex;background:rgba(255,255,255,.16);border-radius:999px;padding:.06rem}
+.pw-brushmode button{border:none;background:transparent;color:#dbe7f3;font:inherit;font-size:.32rem;padding:.1rem .3rem;border-radius:999px;cursor:pointer}
+.pw-brushmode button.active{background:#fff;color:#22384c;font-weight:700}
+
+/* 导入选区（框选导入区域 → 预览分区） */
+.pw-crop-stage { position: relative; overflow: hidden; border-radius: .28rem; touch-action: none; user-select: none; -webkit-user-select: none; background: #efe9dd; }
+.pw-crop-stage img { display: block; width: 100%; height: auto; pointer-events: none; }
+.pw-crop-rect { position: absolute; border: .055rem solid #208edc; box-shadow: 0 0 0 999px rgba(24, 42, 60, .48); cursor: move; box-sizing: border-box; }
+.pw-crop-handle { position: absolute; width: .5rem; height: .5rem; border-radius: 50%; background: #fff; border: .06rem solid #208edc; box-shadow: 0 .03rem .12rem rgba(20, 40, 60, .35); z-index: 2; }
+.pw-crop-handle.nw { left: 0; top: 0; transform: translate(-50%, -50%); cursor: nwse-resize; }
+.pw-crop-handle.ne { right: 0; top: 0; transform: translate(50%, -50%); cursor: nesw-resize; }
+.pw-crop-handle.sw { left: 0; bottom: 0; transform: translate(-50%, 50%); cursor: nesw-resize; }
+.pw-crop-handle.se { right: 0; bottom: 0; transform: translate(50%, 50%); cursor: nwse-resize; }
+.pw-crop-bar { display: flex; align-items: center; justify-content: space-between; gap: .3rem; margin-top: .3rem; }
+.pw-crop-bar > span { font-size: .32rem; color: #7b7264; white-space: nowrap; }
+.pw-crop-ratios { display: flex; gap: .18rem; }
+.pw-crop-ratios button { border: .03rem solid #ddd3bf; background: #fffdf8; color: #5c5546; border-radius: .5rem; padding: .1rem .3rem; font-size: .33rem; cursor: pointer; }
+.pw-crop-back { margin-left: auto; flex-shrink: 0; border: .03rem solid #ddd3bf; background: #fffdf8; color: #208edc; border-radius: .5rem; padding: .12rem .32rem; font-size: .33rem; cursor: pointer; }
+
+/* 导入全屏弹窗（选区 + 预览两步都在一屏内完成，不再用底部抽屉挤压图片） */
+.patchwork-overlay.import-overlay { background: rgba(17, 33, 48, .45); pointer-events: auto; padding-bottom: 0; align-items: stretch; }
+.patchwork-overlay .patchwork-panel.importfull { width: 100%; max-width: none; max-height: 100dvh; height: 100dvh; border-radius: 0; display: flex; flex-direction: column; overflow: hidden; }
+.patchwork-overlay .patchwork-panel.importfull .patchwork-import { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.pw-import-topbar { margin-bottom: .3rem; flex-shrink: 0; }
+.pw-import-topbar button { padding: .16rem .3rem; font-size: .36rem; }
+.pw-crop { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.pw-crop-areawrap { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: .1rem 0; }
+.pw-crop-stage img { width: 100%; height: 100%; }
+.pw-preview { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.pw-import-preview { position: relative; flex-shrink: 0; margin: .05rem auto .1rem; }
+.pw-import-preview img { display: block; width: 100%; height: 100%; border-radius: .28rem; }
+.pw-import-preview svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.pw-import-preview svg polygon { cursor: pointer; }
+.patchwork-overlay .patchwork-panel.importfull .patchwork-cands { flex: 1; min-height: 0; overflow-y: auto; }
+.patchwork-overlay .patchwork-panel.importfull .patchwork-import-footer { position: static; margin-top: .28rem; flex-shrink: 0; }
+.patchwork-overlay .patchwork-panel.importfull .patchwork-import-source { flex-shrink: 0; }
+.patchwork-panel.importfull .patchwork-import-summary { flex-wrap: wrap; row-gap: .06rem; }
+.patchwork-panel.importfull .patchwork-import-summary span { white-space: normal; }
+
+/* iPad/触屏防误选：拖动选择点/手柄或画布作画时，Safari 会把页面文字全选并弹出长按菜单，
+   编辑器内整体禁选、禁长按 callout；输入框恢复可选可编辑。 */
+.patchwork-page { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+.patchwork-page input, .patchwork-page textarea { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
+.patchwork-page img { -webkit-user-drag: none; }
+
+/* 布料上传弹窗（选区 + 定标）字段区 */
+.patchwork-panel.importfull .pw-fab-fields { flex-shrink: 0; display: flex; flex-direction: column; gap: .22rem; margin-top: .26rem; }
+.pw-fab-fields > label, .pw-fab-size label { display: flex; flex-direction: column; gap: .1rem; font-size: .34rem; color: #7b7264; }
+.pw-fab-fields input { border: .03rem solid #ddd3bf; border-radius: .22rem; padding: .16rem .24rem; font-size: .42rem; color: #22384c; background: #fffdf8; }
+.pw-fab-size { display: grid; grid-template-columns: 1fr 1fr; gap: .3rem; }
+
+/* 布料上传 v2：浮层提示 + 控制卡（步进器/常用尺寸），选框三分线与大手柄 */
+.pw-fab-areawrap { position: relative; }
+.pw-crop-tip { position: absolute; top: .18rem; left: 50%; transform: translateX(-50%); z-index: 3; background: rgba(24, 42, 60, .72); color: #fff; font-size: .32rem; padding: .1rem .34rem; border-radius: .5rem; pointer-events: none; white-space: nowrap; }
+.pw-crop-grid { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(to right, rgba(255,255,255,.55) 1px, transparent 1px) 0 0 / 33.34% 100%, linear-gradient(to bottom, rgba(255,255,255,.55) 1px, transparent 1px) 0 0 / 100% 33.34%; }
+.pw-crop-handle { width: .62rem; height: .62rem; }
+.pw-crop-handle::after { content: ''; position: absolute; inset: -.28rem; border-radius: 50%; }
+.pw-fab-card { flex-shrink: 0; margin-top: .3rem; border: .03rem solid #e7ddc9; background: #fffdf8; border-radius: .34rem; padding: .3rem .34rem; display: flex; flex-direction: column; gap: .26rem; }
+.pw-fab-card-head { display: flex; align-items: center; gap: .24rem; }
+.pw-fab-card-head strong { font-size: .42rem; color: #22384c; }
+.pw-fab-px { font-size: .32rem; color: #8a8172; }
+.pw-fab-full { margin-left: auto; border: .03rem solid #ddd3bf; background: #fff; color: #208edc; border-radius: .5rem; padding: .08rem .3rem; font-size: .33rem; cursor: pointer; }
+.pw-fab-size2 { display: grid; grid-template-columns: 1fr 1fr; gap: .3rem; }
+.pw-stepper > span { display: block; font-size: .32rem; color: #7b7264; margin-bottom: .08rem; }
+.pw-stepper > div { display: flex; align-items: stretch; border: .03rem solid #ddd3bf; border-radius: .26rem; overflow: hidden; background: #fff; }
+.pw-stepper button { width: .78rem; flex-shrink: 0; border: 0; background: #f4efe3; color: #22384c; font-size: .5rem; cursor: pointer; }
+.pw-stepper input { flex: 1; min-width: 0; border: 0; text-align: center; font-size: .46rem; font-weight: 600; color: #22384c; padding: .14rem 0; background: #fff; }
+.pw-fab-presets { display: flex; align-items: center; gap: .16rem; flex-wrap: wrap; }
+.pw-fab-presets button { border: .03rem solid #ddd3bf; background: #fff; color: #5c5546; border-radius: .5rem; padding: .1rem .3rem; font-size: .33rem; cursor: pointer; }
+.pw-fab-presets button.on { background: #208edc; border-color: #208edc; color: #fff; }
+.pw-fab-presets span { font-size: .3rem; color: #8a8172; }
+.pw-fab-name { display: flex; align-items: center; gap: .24rem; font-size: .34rem; color: #7b7264; }
+.pw-fab-name input { flex: 1; min-width: 0; border: .03rem solid #ddd3bf; border-radius: .22rem; padding: .14rem .24rem; font-size: .42rem; color: #22384c; background: #fff; }
+
+/* 布料上传 v3：上传只做选区 + 一个宽度，其余（改名/精调）回布料面板编辑 */
+.pw-fab-bar { flex-shrink: 0; margin-top: .28rem; display: flex; align-items: center; gap: .3rem; }
+.pw-fab-bar label { display: flex; align-items: center; gap: .18rem; font-size: .36rem; color: #5c5546; }
+.pw-fab-bar input { width: 2rem; border: .03rem solid #ddd3bf; border-radius: .22rem; padding: .14rem .18rem; font-size: .44rem; font-weight: 600; text-align: center; color: #22384c; background: #fffdf8; }
+.pw-fab-bar label span { font-size: .32rem; color: #8a8172; white-space: nowrap; }
+.pw-fab-bar .pw-fab-full { margin-left: auto; }

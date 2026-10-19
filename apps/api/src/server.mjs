@@ -1,5 +1,6 @@
 import http from 'node:http';
 import { createHmac, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
+import { Readable } from 'node:stream';
 import { openSqliteDatabase } from './sqliteStore.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -38,7 +39,12 @@ const SESSION_DAYS = 30;
 const MAX_EXTRACT_IMAGE_BYTES = 20 * 1024 * 1024;
 const XHS_UPSTREAM_TIMEOUT_MS = 15 * 1000;
 const MAX_PROJECT_IMAGE_BYTES = 20 * 1024 * 1024;
-const PROJECT_ASSET_ACCESS_SECONDS = 15 * 60;
+const PROJECT_ASSET_ACCESS_BUCKET_SECONDS = 86_400;
+
+function nextProjectAssetAccessExpiry() {
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  return (Math.floor(nowSeconds / PROJECT_ASSET_ACCESS_BUCKET_SECONDS) + 1) * PROJECT_ASSET_ACCESS_BUCKET_SECONDS;
+}
 const COMMUNITY_TAGS = ['动物', '人物', '植物', '食物', '风景', '动漫', '游戏', '节日', '文字', '新手', '其他'];
 const MARD_COLOR_RANGES = {
   A: 26,
@@ -237,6 +243,21 @@ function initSchema() {
       FOREIGN KEY (user_id) REFERENCES users(id)
     );
 
+    CREATE TABLE IF NOT EXISTS fabric_items (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      color TEXT,
+      image TEXT,
+      width_mm REAL,
+      height_mm REAL,
+      quantity REAL NOT NULL DEFAULT 1,
+      note TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
     CREATE TABLE IF NOT EXISTS project_folders (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -388,6 +409,17 @@ function initSchema() {
       // Existing databases already contain the column.
     }
   }
+  for (const statement of [
+    "ALTER TABLE projects ADD COLUMN kind TEXT NOT NULL DEFAULT 'bead'",
+    'ALTER TABLE projects ADD COLUMN content TEXT',
+  ]) {
+    try { db.run(statement); } catch { /* Existing databases already contain the column. */ }
+  }
+  // Keep paginated work lists in index order instead of sorting every user's
+  // projects; the existing user/folder index remains useful for folder counts.
+  db.run('CREATE INDEX IF NOT EXISTS idx_projects_user_updated ON projects(user_id, updated_at DESC)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_projects_user_kind_updated ON projects(user_id, kind, updated_at DESC)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_project_folders_user_created ON project_folders(user_id, created_at ASC, id ASC)');
   db.run('CREATE INDEX IF NOT EXISTS idx_projects_community_hot ON projects(shared_to_community, likes_count DESC, shared_at DESC, id DESC)');
   db.run('CREATE INDEX IF NOT EXISTS idx_projects_community_latest ON projects(shared_to_community, shared_at DESC, id DESC)');
   db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_beading_sessions_active_key ON beading_sessions(active_key)');
@@ -540,6 +572,19 @@ async function route(request, response) {
   }
   if (request.method === 'PATCH' && url.pathname === '/api/profile') {
     return updateProfile(request, response, user.id);
+  }
+  if (request.method === 'GET' && url.pathname === '/api/fabrics') {
+    return listFabrics(response, user.id);
+  }
+  if (request.method === 'POST' && url.pathname === '/api/fabrics') {
+    return createFabric(request, response, user.id);
+  }
+  const fabricMatch = url.pathname.match(/^\/api\/fabrics\/([^/]+)$/);
+  if (fabricMatch && request.method === 'PATCH') {
+    return updateFabric(request, response, user.id, fabricMatch[1]);
+  }
+  if (fabricMatch && request.method === 'DELETE') {
+    return deleteFabric(response, user.id, fabricMatch[1]);
   }
   if (request.method === 'GET' && url.pathname === '/api/warehouses') {
     return listWarehouses(response, user.id);
@@ -1180,7 +1225,7 @@ function resolveProjectImage(value, accessUserId = '') {
   if (!image || !image.startsWith('cos://')) return image;
   const params = new URLSearchParams({ path: image });
   if (accessUserId) {
-    const expiresAt = Math.floor(Date.now() / 1000) + PROJECT_ASSET_ACCESS_SECONDS;
+    const expiresAt = nextProjectAssetAccessExpiry();
     params.set('expires', String(expiresAt));
     params.set('access', signProjectAssetAccess(image, accessUserId, expiresAt));
   }
@@ -1189,7 +1234,7 @@ function resolveProjectImage(value, accessUserId = '') {
 
 function resolveLegacyProjectThumbnail(projectId, accessUserId) {
   const assetPath = `project-thumbnail:${projectId}`;
-  const expiresAt = Math.floor(Date.now() / 1000) + PROJECT_ASSET_ACCESS_SECONDS;
+  const expiresAt = nextProjectAssetAccessExpiry();
   const params = new URLSearchParams({
     expires: String(expiresAt),
     access: signProjectAssetAccess(assetPath, accessUserId, expiresAt),
@@ -1240,7 +1285,7 @@ function normalizeProjectImagePath(value, userId, kind) {
   return image;
 }
 
-function redirectProjectAsset(request, url, response) {
+async function redirectProjectAsset(request, url, response) {
   const assetPath = String(url.searchParams.get('path') || '').trim();
   if (!assetPath.startsWith('cos://')) {
     return sendJson(response, 400, { error: 'INVALID_INPUT', message: '项目图片路径无效' });
@@ -1248,20 +1293,20 @@ function redirectProjectAsset(request, url, response) {
   const projects = getAll(
     `SELECT user_id AS userId, shared_to_community AS sharedToCommunity
      FROM projects
-     WHERE source_image = ? OR thumbnail_image = ?
+     WHERE source_image = ? OR thumbnail_image = ? OR (kind = 'patchwork' AND content LIKE ? ESCAPE '\\')
      `,
-    [assetPath, assetPath],
+    [assetPath, assetPath, '%' + assetPath.replace(/[\\%_]/g, (c) => '\\' + c) + '%'],
   );
   if (projects.length === 0) return sendJson(response, 404, { error: 'NOT_FOUND', message: '项目图片不存在' });
-  if (projects.some((project) => project.sharedToCommunity)) return redirectToCosAsset(response, assetPath);
+  if (projects.some((project) => project.sharedToCommunity)) return streamCosAsset(response, assetPath);
   const access = String(url.searchParams.get('access') || '');
   const expires = String(url.searchParams.get('expires') || '');
   if (projects.some((project) => verifyProjectAssetAccess(assetPath, project.userId, access, expires))) {
-    return redirectToCosAsset(response, assetPath);
+    return streamCosAsset(response, assetPath);
   }
   const user = getUserFromRequest(request);
   if (!user) return sendJson(response, 401, { error: 'UNAUTHORIZED', message: '请先登录' });
-  if (projects.some((project) => project.userId === user.id)) return redirectToCosAsset(response, assetPath);
+  if (projects.some((project) => project.userId === user.id)) return streamCosAsset(response, assetPath);
   return sendJson(response, 404, { error: 'NOT_FOUND', message: '项目图片不存在' });
 }
 
@@ -1287,7 +1332,7 @@ function serveLegacyProjectThumbnail(request, response, projectId, url) {
     response.writeHead(200, {
       'Content-Type': contentType,
       'Content-Length': buffer.length,
-      'Cache-Control': 'private, max-age=0',
+      'Cache-Control': 'private, max-age=3600',
       'X-Content-Type-Options': 'nosniff',
     });
     response.end(buffer);
@@ -1296,11 +1341,33 @@ function serveLegacyProjectThumbnail(request, response, projectId, url) {
   }
 }
 
+async function streamCosAsset(response, assetPath) {
+  try {
+    const signedUrl = resolveCosAssetUrl(assetPath, loadTencentCosConfig());
+    const upstream = await fetch(signedUrl);
+    if (!upstream.ok) throw new Error(`COS ${upstream.status}`);
+    const headers = {
+      'Content-Type': upstream.headers.get('content-type') || 'application/octet-stream',
+      'Cache-Control': 'private, max-age=86400, immutable',
+      'X-Content-Type-Options': 'nosniff',
+    };
+    const length = upstream.headers.get('content-length');
+    if (length) headers['Content-Length'] = length;
+    const etag = upstream.headers.get('etag');
+    if (etag) headers.ETag = etag;
+    response.writeHead(200, headers);
+    if (!upstream.body) { response.end(); return; }
+    Readable.fromWeb(upstream.body).pipe(response);
+  } catch {
+    return redirectToCosAsset(response, assetPath);
+  }
+}
+
 function redirectToCosAsset(response, assetPath) {
   try {
     response.writeHead(302, {
       Location: resolveCosAssetUrl(assetPath, loadTencentCosConfig()),
-      'Cache-Control': 'no-store',
+      'Cache-Control': 'private, max-age=3600',
     });
     response.end();
   } catch {
@@ -1376,15 +1443,85 @@ async function uploadProjectImage(input) {
   }
 }
 
+function fabricRow(row) {
+  return row ? { ...row, widthMm: row.widthMm === null ? null : Number(row.widthMm), heightMm: row.heightMm === null ? null : Number(row.heightMm), quantity: Number(row.quantity) } : null;
+}
+
+function listFabrics(response, userId) {
+  const fabrics = getAll(
+    `SELECT id, name, color, image, width_mm AS widthMm, height_mm AS heightMm, quantity, note,
+            created_at AS createdAt, updated_at AS updatedAt
+     FROM fabric_items WHERE user_id = ? ORDER BY updated_at DESC`,
+    [userId],
+  );
+  sendJson(response, 200, { fabrics: fabrics.map(fabricRow) });
+}
+
+function cleanFabricFields(body, base = {}) {
+  const name = Object.hasOwn(body, 'name') ? String(body.name || '').trim() : (base.name || '');
+  const color = Object.hasOwn(body, 'color') ? (String(body.color || '').trim() || null) : (base.color ?? null);
+  let image = Object.hasOwn(body, 'image') ? (String(body.image || '').trim() || null) : (base.image ?? null);
+  if (image && image.length > 400000) image = null;
+  const num = (value, fallback) => {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+  };
+  const widthMm = Object.hasOwn(body, 'widthMm') ? num(body.widthMm, null) : (base.widthMm ?? null);
+  const heightMm = Object.hasOwn(body, 'heightMm') ? num(body.heightMm, null) : (base.heightMm ?? null);
+  const quantity = Object.hasOwn(body, 'quantity') ? num(body.quantity, 1) : (base.quantity ?? 1);
+  const note = Object.hasOwn(body, 'note') ? (String(body.note || '').trim() || null) : (base.note ?? null);
+  return { name, color, image, widthMm, heightMm, quantity, note };
+}
+
+async function createFabric(request, response, userId) {
+  const body = await readJson(request);
+  const fields = cleanFabricFields(body);
+  if (!fields.name) return sendJson(response, 400, { error: 'INVALID_INPUT', message: '布料名称不能为空' });
+  const now = new Date().toISOString();
+  const id = randomUUID();
+  db.run(
+    'INSERT INTO fabric_items (id, user_id, name, color, image, width_mm, height_mm, quantity, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [id, userId, fields.name, fields.color, fields.image, fields.widthMm, fields.heightMm, fields.quantity, fields.note, now, now],
+  );
+  await persist();
+  sendJson(response, 201, { fabric: fabricRow(getOne('SELECT id, name, color, image, width_mm AS widthMm, height_mm AS heightMm, quantity, note, created_at AS createdAt, updated_at AS updatedAt FROM fabric_items WHERE id = ?', [id])) });
+}
+
+async function updateFabric(request, response, userId, fabricId) {
+  const existing = getOne('SELECT id, name, color, image, width_mm AS widthMm, height_mm AS heightMm, quantity, note FROM fabric_items WHERE id = ? AND user_id = ?', [fabricId, userId]);
+  if (!existing) return sendJson(response, 404, { error: 'NOT_FOUND', message: '布料不存在' });
+  const body = await readJson(request);
+  const fields = cleanFabricFields(body, existing);
+  if (!fields.name) return sendJson(response, 400, { error: 'INVALID_INPUT', message: '布料名称不能为空' });
+  const now = new Date().toISOString();
+  db.run(
+    'UPDATE fabric_items SET name = ?, color = ?, image = ?, width_mm = ?, height_mm = ?, quantity = ?, note = ?, updated_at = ? WHERE id = ? AND user_id = ?',
+    [fields.name, fields.color, fields.image, fields.widthMm, fields.heightMm, fields.quantity, fields.note, now, fabricId, userId],
+  );
+  await persist();
+  sendJson(response, 200, { fabric: fabricRow(getOne('SELECT id, name, color, image, width_mm AS widthMm, height_mm AS heightMm, quantity, note, created_at AS createdAt, updated_at AS updatedAt FROM fabric_items WHERE id = ?', [fabricId])) });
+}
+
+async function deleteFabric(response, userId, fabricId) {
+  const existing = getOne('SELECT id FROM fabric_items WHERE id = ? AND user_id = ?', [fabricId, userId]);
+  if (!existing) return sendJson(response, 404, { error: 'NOT_FOUND', message: '布料不存在' });
+  db.run('DELETE FROM fabric_items WHERE id = ? AND user_id = ?', [fabricId, userId]);
+  await persist();
+  sendJson(response, 200, { ok: true });
+}
+
 function listProjects(response, userId, url) {
   const pagination = parsePagination(url.searchParams);
   const folderId = String(url.searchParams.get('folder') || '').trim();
-  const folderClause = folderId && folderId !== 'all' ? ' AND folder_id = ?' : '';
-  const queryParams = folderClause
-    ? [userId, folderId, pagination.pageSize, pagination.offset]
-    : [userId, pagination.pageSize, pagination.offset];
+  const kindParam = String(url.searchParams.get('kind') || '').trim();
+  const clauses = [];
+  const clauseParams = [];
+  if (folderId && folderId !== 'all') { clauses.push('folder_id = ?'); clauseParams.push(folderId); }
+  if (kindParam === 'patchwork' || kindParam === 'bead') { clauses.push('kind = ?'); clauseParams.push(kindParam); }
+  const folderClause = clauses.length ? ` AND ${clauses.join(' AND ')}` : '';
+  const queryParams = [userId, ...clauseParams, pagination.pageSize, pagination.offset];
   const projects = getAll(
-    `SELECT id, folder_id AS folderId, name, rows, cols, tone, thumbnail_image AS thumbnailImage,
+    `SELECT id, folder_id AS folderId, name, rows, cols, tone, kind, thumbnail_image AS thumbnailImage,
             shared_to_community AS sharedToCommunity, shared_at AS sharedAt, likes_count AS likesCount,
             created_at AS createdAt, updated_at AS updatedAt
      FROM projects
@@ -1393,7 +1530,7 @@ function listProjects(response, userId, url) {
      LIMIT ? OFFSET ?`,
     queryParams,
   );
-  const total = getOne(`SELECT COUNT(*) AS total FROM projects WHERE user_id = ?${folderClause}`, folderClause ? [userId, folderId] : [userId]).total;
+  const total = getOne(`SELECT COUNT(*) AS total FROM projects WHERE user_id = ?${folderClause}`, [userId, ...clauseParams]).total;
   sendJson(response, 200, {
     projects: projects.map((project) => ({
       ...project,
@@ -1404,7 +1541,7 @@ function listProjects(response, userId, url) {
     page: pagination.page,
     pageSize: pagination.pageSize,
     total: Number(total),
-    hasMore: projects.length === pagination.pageSize,
+    hasMore: pagination.offset + projects.length < Number(total),
   });
 }
 
@@ -1445,8 +1582,8 @@ function listLikedProjects(response, userId, url) {
 
 function getProjectDetail(response, userId, projectId) {
   const project = getOne(
-    `SELECT id, folder_id AS folderId, name, rows, cols, tone,
-            source_image AS sourceImage, thumbnail_image AS thumbnailImage, canvas_data AS canvasData,
+    `SELECT id, folder_id AS folderId, name, rows, cols, tone, kind,
+            source_image AS sourceImage, thumbnail_image AS thumbnailImage, canvas_data AS canvasData, content,
             bead_list AS beadList, revision, shared_to_community AS sharedToCommunity,
             shared_at AS sharedAt, likes_count AS likesCount,
             created_at AS createdAt, updated_at AS updatedAt
@@ -1558,8 +1695,13 @@ async function createProject(request, response, userId) {
   } catch (error) {
     return sendJson(response, 400, { error: 'INVALID_INPUT', message: error instanceof Error ? error.message : '项目图片路径无效' });
   }
-  const canvasData = String(body.canvasData || '').trim();
-  const beadList = Array.isArray(body.beadList) ? JSON.stringify(body.beadList) : '';
+  const kind = body.kind === 'patchwork' ? 'patchwork' : 'bead';
+  const content = kind === 'patchwork' ? String(body.content || '').trim() : '';
+  if (kind === 'patchwork' && !content) {
+    return sendJson(response, 400, { error: 'INVALID_INPUT', message: '拼布作品内容为空' });
+  }
+  const canvasData = kind === 'patchwork' ? '' : String(body.canvasData || '').trim();
+  const beadList = kind === 'patchwork' ? '' : (Array.isArray(body.beadList) ? JSON.stringify(body.beadList) : '');
   if (!name || !Number.isInteger(rows) || !Number.isInteger(cols) || rows < 1 || cols < 1) {
     return sendJson(response, 400, { error: 'INVALID_INPUT', message: '项目名称和画布尺寸无效' });
   }
@@ -1568,12 +1710,12 @@ async function createProject(request, response, userId) {
   const now = new Date().toISOString();
   const id = randomUUID();
   db.run(
-    'INSERT INTO projects (id, user_id, folder_id, name, rows, cols, tone, source_image, thumbnail_image, canvas_data, bead_list, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [id, userId, folderId, name, rows, cols, tone, sourceImage, thumbnailImage, canvasData, beadList, now, now],
+    'INSERT INTO projects (id, user_id, folder_id, name, rows, cols, tone, kind, content, source_image, thumbnail_image, canvas_data, bead_list, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [id, userId, folderId, name, rows, cols, tone, kind, content, sourceImage, thumbnailImage, canvasData, beadList, now, now],
   );
   await persist();
   sendJson(response, 201, { project: {
-    id, folderId, name, rows, cols, tone,
+    id, folderId, name, rows, cols, tone, kind, content,
     sourceImage: resolveProjectImage(sourceImage, userId),
     thumbnailImage: resolveProjectImage(thumbnailImage, userId),
     canvasData,
@@ -1588,7 +1730,7 @@ async function createProject(request, response, userId) {
 async function updateProject(request, response, userId, projectId) {
   const existing = getOne(
     `SELECT id, user_id, folder_id AS folderId, source_image AS sourceImage, thumbnail_image AS thumbnailImage,
-            bead_list AS beadList,
+            bead_list AS beadList, kind, content,
             shared_to_community AS sharedToCommunity, shared_at AS sharedAt, likes_count AS likesCount,
             created_at AS createdAt
      FROM projects WHERE id = ?`,
@@ -1608,8 +1750,13 @@ async function updateProject(request, response, userId, projectId) {
   } catch (error) {
     return sendJson(response, 400, { error: 'INVALID_INPUT', message: error instanceof Error ? error.message : '项目图片路径无效' });
   }
-  const canvasData = String(body.canvasData || '').trim();
-  const beadList = Array.isArray(body.beadList) ? JSON.stringify(body.beadList) : existing.beadList || '';
+  const isPatchwork = existing.kind === 'patchwork';
+  const content = isPatchwork ? String(body.content || '').trim() : (existing.content || '');
+  if (isPatchwork && !content) {
+    return sendJson(response, 400, { error: 'INVALID_INPUT', message: '拼布作品内容为空' });
+  }
+  const canvasData = isPatchwork ? '' : String(body.canvasData || '').trim();
+  const beadList = isPatchwork ? (existing.beadList || '') : (Array.isArray(body.beadList) ? JSON.stringify(body.beadList) : existing.beadList || '');
   if (!name || !Number.isInteger(rows) || !Number.isInteger(cols) || rows < 1 || cols < 1) {
     return sendJson(response, 400, { error: 'INVALID_INPUT', message: '项目名称和画布尺寸无效' });
   }
@@ -1620,9 +1767,9 @@ async function updateProject(request, response, userId, projectId) {
   const now = new Date().toISOString();
   db.run(
     `UPDATE projects
-     SET folder_id = ?, name = ?, rows = ?, cols = ?, tone = ?, source_image = ?, thumbnail_image = ?, canvas_data = ?, bead_list = ?, revision = revision + 1, updated_at = ?
+     SET folder_id = ?, name = ?, rows = ?, cols = ?, tone = ?, source_image = ?, thumbnail_image = ?, canvas_data = ?, bead_list = ?, content = ?, revision = revision + 1, updated_at = ?
      WHERE id = ? AND user_id = ?`,
-    [folderId, name, rows, cols, tone, sourceImage, thumbnailImage, canvasData, beadList, now, projectId, userId],
+    [folderId, name, rows, cols, tone, sourceImage, thumbnailImage, canvasData, beadList, content, now, projectId, userId],
   );
   await persist();
   sendJson(response, 200, { project: {
@@ -1632,6 +1779,8 @@ async function updateProject(request, response, userId, projectId) {
     rows,
     cols,
     tone,
+    kind: existing.kind || 'bead',
+    content,
     sourceImage: resolveProjectImage(sourceImage, userId),
     thumbnailImage: resolveProjectImage(thumbnailImage, userId),
     canvasData,
@@ -1644,7 +1793,7 @@ async function updateProject(request, response, userId, projectId) {
 }
 
 async function copyCommunityProject(response, userId, projectId) {
-  const source = getOne(`SELECT id, name, rows, cols, tone, source_image AS sourceImage, thumbnail_image AS thumbnailImage,
+  const source = getOne(`SELECT id, name, rows, cols, tone, kind, content, source_image AS sourceImage, thumbnail_image AS thumbnailImage,
     canvas_data AS canvasData, bead_list AS beadList, shared_to_community AS sharedToCommunity
     FROM projects WHERE id = ? AND shared_to_community = 1`, [projectId]);
   if (!source) return sendJson(response, 404, { error: 'NOT_FOUND', message: '社区稿件不存在或不可复制' });
@@ -1662,10 +1811,10 @@ async function copyCommunityProject(response, userId, projectId) {
     )
   );
 
-  db.run(`INSERT INTO projects (id, user_id, name, rows, cols, tone, source_image, thumbnail_image, canvas_data, bead_list, revision, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`, [copyId, userId, `${source.name}（副本）`, source.rows, source.cols, source.tone, copiedSourceImage, copiedThumbnailImage, source.canvasData || '', source.beadList || '', now, now]);
+  db.run(`INSERT INTO projects (id, user_id, name, rows, cols, tone, kind, content, source_image, thumbnail_image, canvas_data, bead_list, revision, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`, [copyId, userId, `${source.name}（副本）`, source.rows, source.cols, source.tone, source.kind || 'bead', source.content || '', copiedSourceImage, copiedThumbnailImage, source.canvasData || '', source.beadList || '', now, now]);
   await persist();
-  return sendJson(response, 201, { project: { id: copyId, userId, name: `${source.name}（副本）`, rows: Number(source.rows), cols: Number(source.cols), tone: source.tone, sourceImage: resolveProjectImage(copiedSourceImage, userId), thumbnailImage: resolveProjectImage(copiedThumbnailImage, userId), canvasData: source.canvasData || '', revision: 1, createdAt: now, updatedAt: now } });
+  return sendJson(response, 201, { project: { id: copyId, userId, name: `${source.name}（副本）`, rows: Number(source.rows), cols: Number(source.cols), tone: source.tone, sourceImage: resolveProjectImage(copiedSourceImage, userId), thumbnailImage: resolveProjectImage(copiedThumbnailImage, userId), canvasData: source.canvasData || '', kind: source.kind || 'bead', content: source.content || '', revision: 1, createdAt: now, updatedAt: now } });
 }
 
 async function deleteProject(response, userId, projectId) {
@@ -1860,7 +2009,7 @@ function parseCommunityTagFilters(value) {
 function parsePagination(searchParams) {
   const page = Math.max(1, Number.parseInt(searchParams.get('page') || '1', 10) || 1);
   const pageSizeInput = Number.parseInt(searchParams.get('pageSize') || '20', 10) || 20;
-  const pageSize = Math.max(1, Math.min(50, pageSizeInput));
+  const pageSize = Math.max(1, Math.min(100, pageSizeInput));
   return { page, pageSize, offset: (page - 1) * pageSize };
 }
 
@@ -1971,8 +2120,9 @@ async function shareProject(request, response, userId, projectId) {
   } catch (error) {
     return sendJson(response, 400, { error: 'INVALID_INPUT', message: error.message });
   }
-  const project = getOne('SELECT id, user_id, thumbnail_image AS thumbnailImage, source_image AS sourceImage, canvas_data AS canvasData, bead_list AS beadList, shared_to_community AS sharedToCommunity, shared_at AS sharedAt FROM projects WHERE id = ?', [projectId]);
+  const project = getOne('SELECT id, user_id, kind, thumbnail_image AS thumbnailImage, source_image AS sourceImage, canvas_data AS canvasData, bead_list AS beadList, shared_to_community AS sharedToCommunity, shared_at AS sharedAt FROM projects WHERE id = ?', [projectId]);
   if (!project || project.user_id !== userId) return sendJson(response, 404, { error: 'NOT_FOUND', message: '作品不存在' });
+  if (project.kind === 'patchwork') return sendJson(response, 400, { error: 'INVALID_INPUT', message: '拼布作品暂不支持分享到社区' });
   if (!String(project.thumbnailImage || project.sourceImage || '').trim()) {
     return sendJson(response, 400, { error: 'INVALID_INPUT', message: '作品缺少有效预览图，无法分享到社区' });
   }

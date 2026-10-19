@@ -49,6 +49,7 @@ export type RecentProject = {
   rows: number;
   cols: number;
   tone: string;
+  kind?: 'bead' | 'patchwork';
   createdAt: string;
   updatedAt: string;
   sourceImage?: string;

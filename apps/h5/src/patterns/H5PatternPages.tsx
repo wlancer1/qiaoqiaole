@@ -75,6 +75,8 @@ export function AuthorProfilePage({ patterns, authorPattern, authorProfile, load
   );
 }
 
+const fmtProjectCm = (mm: number) => { const v = mm / 10; return Number.isInteger(v) ? String(v) : v.toFixed(1); };
+
 export function MyWorksPage({
   projects,
   likedProjects = [],
@@ -86,6 +88,8 @@ export function MyWorksPage({
   actionSheet,
   activeContentTab,
   onContentTabChange,
+  activeKind = 'all',
+  onKindChange,
   folders = [],
   activeFolderId = 'all',
   onFolderChange,
@@ -102,6 +106,8 @@ export function MyWorksPage({
   likedLoading?: boolean;
   activeContentTab?: 'works' | 'likes';
   onContentTabChange?: (tab: 'works' | 'likes') => void;
+  activeKind?: 'all' | 'bead' | 'patchwork';
+  onKindChange?: (kind: 'all' | 'bead' | 'patchwork') => void;
   receivedLikesCount?: number;
   onOpenLiked?: (project: RecentProject) => void;
   onBack: () => void;
@@ -159,7 +165,7 @@ export function MyWorksPage({
         <UserAvatar className="author-profile-avatar" />
         <div className="author-profile-copy">
           <div className="author-profile-name"><h2>我的创作</h2><em>作品</em></div>
-          <p>保存的拼豆图纸都会显示在这里</p>
+          <p>保存的作品都会显示在这里</p>
         </div>
         <span className="my-works-count">{total} 件</span>
       </section>
@@ -172,6 +178,13 @@ export function MyWorksPage({
         <button className={currentContentTab === 'works' ? 'active' : ''} type="button" onClick={() => selectContentTab('works')}>作品</button>
         <button className={currentContentTab === 'likes' ? 'active' : ''} type="button" onClick={() => selectContentTab('likes')}>喜欢</button>
       </nav>
+      {currentContentTab === 'works' && onKindChange ? (
+        <nav className="my-works-kind-filter" aria-label="作品类型">
+          {([['all', '全部'], ['bead', '拼豆'], ['patchwork', '拼布']] as const).map(([value, label]) => (
+            <button key={value} type="button" className={activeKind === value ? 'active' : ''} onClick={() => onKindChange(value)}>{label}</button>
+          ))}
+        </nav>
+      ) : null}
       {currentContentTab === 'works' ? <section className="my-works-folder-filter" aria-label="作品文件夹">
         <div className="my-works-folder-header">
           <div className="my-works-folder-title"><strong>文件夹</strong><span>{folders.length}</span></div>
@@ -208,15 +221,15 @@ export function MyWorksPage({
                   src={project.thumbnailImage || project.sourceImage}
                   alt=""
                   loading={projectIndex < 6 ? 'eager' : 'lazy'}
-                  loadTimeoutMs={projectIndex < 6 ? 2_500 : 0}
-                  maxRetries={projectIndex < 6 ? 0 : undefined}
+                  loadTimeoutMs={10_000}
                   fallback={<div className="my-work-thumb-placeholder" aria-hidden="true" />}
                 />
               ) : (
                 <div className="author-work-art my-work-thumb-placeholder" aria-hidden="true" />
               )}
+              <span className={`my-work-kind-badge my-work-kind-badge--${project.kind === 'patchwork' ? 'patchwork' : 'bead'}`}>{project.kind === 'patchwork' ? '拼布' : '拼豆'}</span>
               <strong>{project.name.startsWith('wx') ? '未命名作品' : project.name}</strong>
-              <small>{project.cols}×{project.rows}</small>
+              <small>{project.kind === 'patchwork' ? `${fmtProjectCm(project.cols)}×${fmtProjectCm(project.rows)} cm` : `${project.cols}×${project.rows}`}</small>
             </article>
           ))}
         </section>

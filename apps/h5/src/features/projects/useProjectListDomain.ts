@@ -31,6 +31,7 @@ export type ProjectListDomainResult = {
 };
 
 const defaultPageSize = 12;
+const folderRefreshIntervalMs = 30_000;
 
 export function useProjectListDomain({ requestApi, setStatus, pageSize = defaultPageSize }: ProjectListDomainOptions): ProjectListDomainResult {
   const dispatch = useDispatch();
@@ -38,6 +39,7 @@ export function useProjectListDomain({ requestApi, setStatus, pageSize = default
   const folders = useSelector(selectProjectFolders as (state: { projects: { projects: RecentProject[]; folders: ProjectFolder[] } }) => ProjectFolder[]);
   const [page, setPage] = useState(1);
   const [folderId, setFolderId] = useState<ProjectListRoute['folderId']>('all');
+  const [kind, setKind] = useState<ProjectListRoute['kind']>('all');
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
   const [overallTotal, setOverallTotal] = useState(0);
@@ -46,37 +48,59 @@ export function useProjectListDomain({ requestApi, setStatus, pageSize = default
   const [likedLoading, setLikedLoading] = useState(false);
   const requestSequence = useRef(0);
   const overallTotalToken = useRef('');
+  const folderRequestRef = useRef<{ token: string; fetchedAt: number; pending: Promise<void> | null }>({
+    token: '', fetchedAt: 0, pending: null,
+  });
 
   const projects = useMemo(() => {
     const sorted = [...allProjects].sort((a, b) => Date.parse(b.updatedAt || b.createdAt) - Date.parse(a.updatedAt || a.createdAt));
     return sorted;
   }, [allProjects, folderId]);
 
-  const loadFolders = async (token: string) => {
-    try {
-      const payload = await getProjectFolders(requestApi, token);
-      dispatch(foldersLoaded(Array.isArray(payload.folders) ? payload.folders : []));
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : '文件夹读取失败');
+  const loadFolders = (token: string): Promise<void> => {
+    const current = folderRequestRef.current;
+    if (current.token === token) {
+      if (current.pending) return current.pending;
+      if (Date.now() - current.fetchedAt < folderRefreshIntervalMs) return Promise.resolve();
     }
+    const pending = getProjectFolders(requestApi, token)
+      .then((payload) => {
+        if (folderRequestRef.current.token !== token) return;
+        dispatch(foldersLoaded(Array.isArray(payload.folders) ? payload.folders : []));
+        folderRequestRef.current.fetchedAt = Date.now();
+      })
+      .catch((error) => {
+        if (folderRequestRef.current.token === token) setStatus(error instanceof Error ? error.message : '文件夹读取失败');
+      })
+      .finally(() => {
+        if (folderRequestRef.current.pending === pending) folderRequestRef.current.pending = null;
+      });
+    folderRequestRef.current = { token, fetchedAt: 0, pending };
+    return pending;
   };
 
   const loadPage = async (token: string, route: ProjectListRoute, { preserveOnError = false } = {}) => {
+    const routeKind = route.kind ?? 'all';
     const sequence = requestSequence.current + 1;
     requestSequence.current = sequence;
     setLoading(true);
     try {
-      const payload = await getRecentProjects(requestApi, token, { page: route.page, pageSize, folderId: route.folderId });
+      const pageRequest = getRecentProjects(requestApi, token, { page: route.page, pageSize, folderId: route.folderId, kind: routeKind === 'all' ? undefined : routeKind });
+      // Metadata is independent of pagination: load alongside the page and avoid
+      // a second folder GET on each quick page/filter switch.
+      void loadFolders(token);
+      const payload = await pageRequest;
       if (requestSequence.current !== sequence) return;
       const nextProjects = Array.isArray(payload.projects) ? payload.projects : [];
-      const appendPage = route.page > page && route.folderId === folderId && allProjects.length > 0;
+      const appendPage = route.page > page && route.folderId === folderId && routeKind === kind && allProjects.length > 0;
       dispatch(appendPage ? projectsAppended(nextProjects) : projectsLoaded(nextProjects));
       setPage(payload.page || route.page);
       setFolderId(route.folderId);
+      setKind(routeKind);
       setHasMore(Boolean(payload.hasMore));
       const nextTotal = Number(payload.total) || 0;
       setTotal(nextTotal);
-      if (route.folderId === 'all') {
+      if (route.folderId === 'all' && routeKind === 'all') {
         overallTotalToken.current = token;
         setOverallTotal(nextTotal);
       } else if (overallTotalToken.current !== token) {
@@ -98,7 +122,6 @@ export function useProjectListDomain({ requestApi, setStatus, pageSize = default
           // succeeded and should remain usable.
         }
       }
-      void loadFolders(token);
     } catch (error) {
       if (requestSequence.current !== sequence) return;
       if (!preserveOnError) {
