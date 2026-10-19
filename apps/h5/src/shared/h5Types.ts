@@ -20,6 +20,7 @@ export type XhsExtractedImage = { imageUrl?: string; imageDataUrl?: string };
 export type ReferenceImage = { name: string; url: string };
 export type HomeTab = 'home' | 'discover' | 'messages' | 'profile';
 export type PatternListCard = {
+  kind?: 'bead' | 'patchwork';
   id: string;
   title: string;
   author: string;

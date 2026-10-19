@@ -46,13 +46,15 @@ beforeAll(async () => {
     },
     stdio: 'ignore',
   });
-  for (let attempt = 0; attempt < 30; attempt += 1) {
+  let ready = false;
+  for (let attempt = 0; attempt < 200; attempt += 1) {
     try {
       const health = await request('/api/health');
-      if (health.status === 200) break;
+      if (health.status === 200) { ready = true; break; }
     } catch {}
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
+  if (!ready) throw new Error('test community API failed to start');
   const login = await request('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'test-user', password: 'test-password' }) });
   token = login.body.token;
   userId = login.body.user.id;
@@ -65,7 +67,7 @@ beforeAll(async () => {
   const secondUser = await createMockPhoneUser(`http://127.0.0.1:${port}`);
   secondUserToken = secondUser.token;
   secondUserId = secondUser.user.id;
-});
+}, 20_000);
 
 afterAll(async () => {
   serverProcess?.kill();
@@ -634,5 +636,50 @@ describe('community API', () => {
     expect((await request(`/api/projects/${target}`, { headers })).status).toBe(404);
     expect((await request(`/api/community/posts/${target}`)).status).toBe(404);
     expect((await request(`/api/projects/${target}`, { method: 'DELETE', headers })).status).toBe(404);
+  });
+});
+
+describe('patchwork community publishing', () => {
+  const content = JSON.stringify({ version: 1, widthMm: 400, heightMm: 300, materials: [{ id: 'A', name: '棉布', color: '#d9ad45' }], pieces: [], guides: [], base: { materialId: 'A' } });
+  const preview = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+  it('publishes with a thumbnail, supports community interactions and preserves patchwork copies', async () => {
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+    const created = await request('/api/projects', { method: 'POST', headers, body: JSON.stringify({ kind: 'patchwork', name: '社区拼布验证', rows: 300, cols: 400, content, thumbnailImagePath: preview }) });
+    expect(created.status).toBe(201);
+    const id = created.body.project.id;
+    expect((await shareProject(id, { authorization: `Bearer ${secondUserToken}` })).status).toBe(404);
+    const shared = await shareProject(id, headers);
+    expect(shared.status).toBe(200);
+    expect(shared.body.beadList).toEqual([]);
+    expect((await shareProject(id, headers)).body.sharedAt).toBe(shared.body.sharedAt);
+    const listed = await request('/api/community/posts?sort=latest&q=社区拼布验证');
+    const post = listed.body.posts.find((item) => item.id === id);
+    expect(post).toMatchObject({ kind: 'patchwork', rows: 300, cols: 400 });
+    for (const field of ['content', 'canvasData', 'beadList', 'sourceImage']) expect(post).not.toHaveProperty(field);
+    expect(post.thumbnailImage).toMatch(/^\/api\/projects\/.+\/thumbnail\?/);
+    const image = await fetch(`http://127.0.0.1:${port}${post.thumbnailImage}`);
+    expect(image.status).toBe(200);
+    expect(image.headers.get('content-type')).toBe('image/png');
+    const detail = await request(`/api/community/posts/${id}`);
+    expect(detail.body.post).toMatchObject({ kind: 'patchwork', beadList: [], tags: ['其他'] });
+    const author = await request(`/api/community/users/${userId}/profile`);
+    expect(author.body.posts.find((item) => item.id === id)?.kind).toBe('patchwork');
+    expect((await request(`/api/community/posts/${id}/like`, { method: 'POST', headers })).status).toBe(200);
+    expect((await request(`/api/community/posts/${id}/comments`, { method: 'POST', headers, body: JSON.stringify({ content: '拼布很漂亮' }) })).status).toBe(201);
+    expect((await request(`/api/projects/${id}/community-tags`, { method: 'PATCH', headers, body: JSON.stringify({ tags: ['植物'] }) })).status).toBe(200);
+    const copied = await request(`/api/projects/${id}/copy`, { method: 'POST', headers: { authorization: `Bearer ${secondUserToken}` } });
+    expect(copied.status).toBe(201);
+    expect(copied.body.project).toMatchObject({ kind: 'patchwork', content, rows: 300, cols: 400 });
+    expect((await request(`/api/projects/${copied.body.project.id}`, { headers: { authorization: `Bearer ${secondUserToken}` } })).body.project.content).toBe(content);
+    expect((await request(`/api/projects/${copied.body.project.id}`, { headers })).status).toBe(404);
+  });
+  it('still rejects missing previews and anonymous publishing', async () => {
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+    const created = await request('/api/projects', { method: 'POST', headers, body: JSON.stringify({ kind: 'patchwork', name: '无预览拼布', rows: 300, cols: 400, content }) });
+    const id = created.body.project.id;
+    expect((await shareProject(id, {})).status).toBe(401);
+    const shared = await shareProject(id, headers);
+    expect(shared.status).toBe(400);
+    expect(shared.body.message).toContain('预览图');
   });
 });

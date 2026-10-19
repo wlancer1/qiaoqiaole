@@ -1548,7 +1548,7 @@ function listProjects(response, userId, url) {
 function listLikedProjects(response, userId, url) {
   const pagination = parsePagination(url.searchParams);
   const projects = getAll(
-    `SELECT p.id, p.name, p.rows, p.cols, p.tone, p.thumbnail_image AS thumbnailImage,
+    `SELECT p.id, p.name, p.rows, p.cols, p.tone, p.kind, p.thumbnail_image AS thumbnailImage,
             p.shared_to_community AS sharedToCommunity, p.shared_at AS sharedAt,
             p.likes_count AS likesCount, p.created_at AS createdAt, p.updated_at AS updatedAt,
             l.created_at AS likedAt
@@ -1891,7 +1891,7 @@ function servePublicAvatar(userId, response) {
 
 function getCommunityPost(userId, projectId) {
   const post = getOne(
-    `SELECT p.id, p.name, p.rows, p.cols, p.tone,
+    `SELECT p.id, p.name, p.rows, p.cols, p.tone, p.kind,
             p.source_image AS sourceImage, p.thumbnail_image AS thumbnailImage, p.canvas_data AS canvasData, p.bead_list AS beadList,
             p.shared_at AS sharedAt, p.likes_count AS likesCount,
             u.id AS authorId, COALESCE(NULLIF(u.nickname, ''), u.username) AS author, u.avatar_url AS authorAvatar,
@@ -1918,6 +1918,7 @@ function formatCommunityPost(post) {
     rows: Number(post.rows),
     cols: Number(post.cols),
     tone: post.tone,
+    kind: post.kind === 'patchwork' ? 'patchwork' : 'bead',
     sharedAt: post.sharedAt,
     authorId: post.authorId,
     author: post.author,
@@ -1925,7 +1926,7 @@ function formatCommunityPost(post) {
     isFollowing: Boolean(post.isFollowing),
     sourceImage: resolveProjectImage(post.sourceImage),
     thumbnailImage: resolveProjectImage(post.thumbnailImage),
-    beadList: storedBeadList.length > 0 ? storedBeadList : buildBeadList(post.canvasData),
+    beadList: post.kind === 'patchwork' ? [] : storedBeadList.length > 0 ? storedBeadList : buildBeadList(post.canvasData),
     likesCount: Number(post.likesCount || 0),
     commentsCount: Number(post.commentsCount || 0),
     likedByMe: Boolean(post.likedByMe),
@@ -1954,9 +1955,11 @@ function formatCommunityPosts(posts) {
     rows: Number(post.rows),
     cols: Number(post.cols),
     tone: post.tone,
-    // List payloads must stay summary-sized. A data URL can be an entire original
-    // bitmap; callers fall back to the card placeholder until a stable asset URL exists.
-    thumbnailImage: String(post.thumbnailImage || '').startsWith('data:') ? '' : resolveProjectImage(post.thumbnailImage),
+    kind: post.kind === 'patchwork' ? 'patchwork' : 'bead',
+    // Keep embedded thumbnails out of list JSON; load them through the signed image route.
+    thumbnailImage: String(post.thumbnailImage || '').startsWith('data:')
+      ? resolveLegacyProjectThumbnail(post.id, post.authorId)
+      : resolveProjectImage(post.thumbnailImage),
     sharedAt: post.sharedAt,
     likesCount: Number(post.likesCount || 0),
     commentsCount: Number(post.commentsCount || 0),
@@ -2032,7 +2035,7 @@ function listCommunityPosts(response, userId, sort, pagination = { page: 1, page
     params.push(...tagFilters.tags);
   }
   const posts = getAll(
-    `SELECT p.id, p.name, p.rows, p.cols, p.tone,
+    `SELECT p.id, p.name, p.rows, p.cols, p.tone, p.kind,
             p.thumbnail_image AS thumbnailImage,
             p.shared_at AS sharedAt, p.likes_count AS likesCount,
             u.id AS authorId, COALESCE(NULLIF(u.nickname, ''), u.username) AS author, u.avatar_url AS authorAvatar,
@@ -2076,7 +2079,7 @@ function listAuthorProfile(response, viewerId, authorId, pagination = { page: 1,
   const profile = getAuthorProfile(viewerId, authorId);
   if (!profile) return sendJson(response, 404, { error: 'NOT_FOUND', message: '用户不存在' });
   const posts = getAll(
-    `SELECT p.id, p.name, p.rows, p.cols, p.tone,
+    `SELECT p.id, p.name, p.rows, p.cols, p.tone, p.kind,
             p.thumbnail_image AS thumbnailImage,
             p.shared_at AS sharedAt, p.likes_count AS likesCount,
             u.id AS authorId, COALESCE(NULLIF(u.nickname, ''), u.username) AS author, u.avatar_url AS authorAvatar,
@@ -2122,11 +2125,10 @@ async function shareProject(request, response, userId, projectId) {
   }
   const project = getOne('SELECT id, user_id, kind, thumbnail_image AS thumbnailImage, source_image AS sourceImage, canvas_data AS canvasData, bead_list AS beadList, shared_to_community AS sharedToCommunity, shared_at AS sharedAt FROM projects WHERE id = ?', [projectId]);
   if (!project || project.user_id !== userId) return sendJson(response, 404, { error: 'NOT_FOUND', message: '作品不存在' });
-  if (project.kind === 'patchwork') return sendJson(response, 400, { error: 'INVALID_INPUT', message: '拼布作品暂不支持分享到社区' });
   if (!String(project.thumbnailImage || project.sourceImage || '').trim()) {
     return sendJson(response, 400, { error: 'INVALID_INPUT', message: '作品缺少有效预览图，无法分享到社区' });
   }
-  const beadList = buildBeadList(project.canvasData);
+  const beadList = project.kind === 'patchwork' ? [] : buildBeadList(project.canvasData);
   const now = new Date().toISOString();
   const sharedAt = project.sharedToCommunity ? project.sharedAt : now;
   await withTransaction(async () => {

@@ -86,3 +86,8 @@ describe('community data helpers', () => {
     expect(next[0]?.replies.map((reply) => reply.id)).toEqual(['reply-3']);
   });
 });
+
+it('preserves patchwork type and uses millimeters rather than bead grid units', () => {
+  const card = toPatternListCard({ id: 'quilt', name: '拼布', kind: 'patchwork', author: '作者', rows: 300, cols: 400, tone: 'recent-flower', likesCount: 0, commentsCount: 0, likedByMe: false, sharedAt: '', beadList: [{ color: '#fff', count: 3 }] });
+  expect(card).toMatchObject({ kind: 'patchwork', size: '400 × 300 mm', physicalSize: '40 × 30 cm', beadList: [] });
+});

@@ -573,3 +573,14 @@ describe('limitCommentContent', () => {
     expect(limitCommentContent(`${content}🙂`)).toBe(content);
   });
 });
+
+it('shows patchwork dimensions and type without a bead inventory', () => {
+  const markup = renderToStaticMarkup(createElement(PatternDetailPage, {
+    pattern: { id: 'quilt', kind: 'patchwork', title: '拼布作品', author: '作者', size: '400 × 300 mm', physicalSize: '40 × 30 cm', meta: '', likes: '0', comments: '0', downloads: '0', tone: 'recent-flower', beads: [], image: '', likesCount: 0, commentsCount: 0, likedByMe: false },
+    isLoggedIn: false, comments: [], isLoadingComments: false, onLoadComments: () => {}, onLike: () => {}, onComment: () => {}, onLogin: () => {}, onBack: () => {},
+  }));
+  expect(markup).toContain('40 × 30 cm');
+  expect(markup).toContain('作品类型');
+  expect(markup).not.toContain('豆子清单');
+  expect(markup).not.toContain('格数');
+});

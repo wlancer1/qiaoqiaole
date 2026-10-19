@@ -41,3 +41,10 @@ describe('ShareCommunityDialog', () => {
     expect(onConfirm).toHaveBeenCalledWith(['动物', '动漫']);
   });
 });
+
+it('shows patchwork dimensions in centimeters and submits the normal community share flow', () => {
+  const { renderer, onConfirm } = renderDialog({ project: { id: 'quilt', kind: 'patchwork', name: '拼布', rows: 300, cols: 400, tone: 'recent-flower', createdAt: '', updatedAt: '' }, tags: ['植物'] });
+  expect(renderer.root.findByProps({ className: 'share-community-project' }).findByType('span').children).toEqual(['拼布 · 40 × 30 cm']);
+  act(() => renderer.root.findByProps({ 'aria-label': '确认发布' }).props.onClick());
+  expect(onConfirm).toHaveBeenCalledWith(['植物']);
+});

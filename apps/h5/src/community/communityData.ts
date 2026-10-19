@@ -1,6 +1,7 @@
 import type { PatternListCard } from '../shared/h5Types';
 
 export type CommunityPost = {
+  kind?: 'bead' | 'patchwork';
   id: string;
   name: string;
   author: string;
@@ -109,8 +110,8 @@ export type CommunityNotification = {
   senderAvatar?: string | null;
 };
 
-export function formatPatternSizeCm(cols: number, rows: number): string {
-  const toCm = (count: number) => Number(((count * 2.6) / 10).toFixed(2)).toString();
+export function formatPatternSizeCm(cols: number, rows: number, kind: 'bead' | 'patchwork' = 'bead'): string {
+  const toCm = (count: number) => Number(((count * (kind === 'patchwork' ? 1 : 2.6)) / 10).toFixed(2)).toString();
   return `${toCm(cols)} × ${toCm(rows)} cm`;
 }
 
@@ -137,23 +138,24 @@ export function sortCommunityPosts<T extends { likesCount: number; sharedAt: str
 export function toPatternListCard(post: CommunityPost): PatternListCard {
   return {
     id: post.id,
+    kind: post.kind,
     title: post.name,
     author: post.author,
     authorId: post.authorId,
     authorAvatar: post.authorAvatar,
     isFollowing: post.isFollowing,
-    size: `${post.cols} × ${post.rows}`,
+    size: `${post.cols} × ${post.rows}${post.kind === 'patchwork' ? ' mm' : ''}`,
     meta: formatCommunityTime(post.sharedAt),
     likes: String(post.likesCount),
     comments: String(post.commentsCount),
     downloads: '0',
     tone: post.tone,
     beads: [],
-    beadList: post.beadList || [],
+    beadList: post.kind === 'patchwork' ? [] : post.beadList || [],
     image: post.thumbnailImage || post.sourceImage || '',
     detailImage: post.thumbnailImage || post.sourceImage || '',
     imageAspectRatio: `${post.cols} / ${post.rows}`,
-    physicalSize: formatPatternSizeCm(post.cols, post.rows),
+    physicalSize: formatPatternSizeCm(post.cols, post.rows, post.kind),
     likesCount: post.likesCount,
     commentsCount: post.commentsCount,
     likedByMe: post.likedByMe,

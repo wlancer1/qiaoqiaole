@@ -1,3 +1,4 @@
+import { formatPatternSizeCm } from './communityData';
 import type { RecentProject } from '../shared/h5Types';
 import { normalizeSelectedTags } from './communityTags';
 import { CommunityTagSelector } from './CommunityTagSelector';
@@ -18,7 +19,7 @@ export function ShareCommunityDialog({ project, tags, onTagsChange, onConfirm, o
     <div className="share-community-modal" role="presentation" onClick={() => { if (!isSaving) onClose(); }} onTouchStart={(event) => event.stopPropagation()}>
       <section className="share-community-panel" role="dialog" aria-modal="true" aria-labelledby="share-community-title" onClick={(event) => event.stopPropagation()} onTouchStart={(event) => event.stopPropagation()}>
         <h2 id="share-community-title">{isShared ? '编辑社区标签' : '发布到社区'}</h2>
-        <div className="share-community-project"><strong>{project.name}</strong><span>{project.cols} × {project.rows} 格</span></div>
+        <div className="share-community-project"><strong>{project.name}</strong><span>{project.kind === 'patchwork' ? `拼布 · ${formatPatternSizeCm(project.cols, project.rows, project.kind)}` : `${project.cols} × ${project.rows} 格`}</span></div>
         <p>发布后，所有用户都可以浏览、点赞和评论。</p>
         <div className="share-community-tags-head"><strong>选择标签</strong><span>1–3 个</span></div>
         <CommunityTagSelector value={selectedTags} onChange={onTagsChange} disabled={isSaving} />

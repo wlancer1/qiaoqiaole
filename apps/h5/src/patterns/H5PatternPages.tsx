@@ -449,7 +449,8 @@ export function PatternDetailPage({ pattern, currentUserId = '', onBack, onOpenA
     setReplyTarget(null);
   };
 
-  const beadItems = pattern.beadList ?? [];
+  const isPatchwork = pattern.kind === 'patchwork';
+  const beadItems = isPatchwork ? [] : pattern.beadList ?? [];
   const totalBeads = beadItems.reduce((total, item) => total + item.count, 0);
   const drawerColors: BeadColorItem[] = beadItems.map((item) => ({ color: item.color, code: colorCodeOf(item.color), count: item.count }));
 
@@ -493,12 +494,12 @@ export function PatternDetailPage({ pattern, currentUserId = '', onBack, onOpenA
             </div>
             <div className="detail-meta-card">
               <span className="detail-meta-icon"><Grid2X2 aria-hidden="true" /></span>
-              <span><small>格数</small><strong>{pattern.size}</strong></span>
+              <span><small>{isPatchwork ? '作品类型' : '格数'}</small><strong>{isPatchwork ? '拼布' : pattern.size}</strong></span>
             </div>
           </div>
         </section>
 
-        <section className="detail-beads-card" aria-label="豆子清单">
+        {!isPatchwork && <section className="detail-beads-card" aria-label="豆子清单">
           <div className="detail-section-title">
             <h2>豆子清单</h2>
           <span>{totalBeads} 颗 · {beadItems.length} 色</span>
@@ -515,7 +516,7 @@ export function PatternDetailPage({ pattern, currentUserId = '', onBack, onOpenA
               <button type="button" className="detail-bead-more" onClick={() => setShowFullBeadList(true)}>查看全部颜色</button>
             </div>
           ) : <p className="community-empty">该稿件没有可统计的豆子。</p>}
-        </section>
+        </section>}
 
         <section id="comments" className="detail-comments-card" aria-label="部分评论">
           <div className="detail-section-title"><h2>评论</h2><span>({pattern.commentsCount})</span></div>
