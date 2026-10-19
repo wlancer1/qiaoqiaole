@@ -394,3 +394,47 @@ button.danger,.patchwork-actions button.danger{background:#fdf1f1;border-color:#
 .pw-fab-delactions button{flex:1;border:1px solid #d7e1ea;background:#fff;border-radius:.45rem;padding:.36rem 0;font-size:.5rem;color:#33475e}
 .pw-fab-delactions button.danger{background:#d94f3d;border-color:#d94f3d;color:#fff}
 .pw-fab-delactions button.danger:disabled{opacity:.45}
+
+/* 布料弹窗密度收敛：元素整体缩小、圆角改小，与既有面板的设计语言统一 */
+.patchwork-overlay .patchwork-panel.fabricsheet{padding:.42rem .38rem calc(.45rem + env(safe-area-inset-bottom))}
+.pw-fab-open-thumb{border-radius:.3rem}
+.pw-fab-title strong{font-size:.56rem}
+.pw-fab-title span{font-size:.4rem}
+.pw-fab-editbtn{font-size:.48rem}
+.pw-fab-search{padding:.25rem .4rem;margin-top:.38rem;border-radius:.35rem}
+.pw-fab-search input{font-size:.46rem}
+.pw-fab-grid{gap:.38rem .3rem;padding:.45rem .02rem .15rem}
+.pw-fab-card{gap:.12rem}
+.pw-fab-card-sw{aspect-ratio:1.12;border-radius:.3rem}
+.pw-fab-card-sw .pw-swatch{border-radius:.3rem}
+.pw-fab-card.on .pw-fab-card-sw{border-radius:.3rem;outline-width:2px;outline-offset:1.5px}
+.pw-fab-card-name{font-size:.42rem}
+.pw-fab-badge{width:.66rem;height:.66rem}
+.pw-fab-badge svg{width:.38rem;height:.38rem}
+.pw-fab-badge.check{right:.1rem;bottom:.82rem}
+.pw-fab-badge.edit{right:.1rem;top:.1rem}
+.pw-fab-addsw{border-radius:.3rem}
+.pw-fab-addrow{gap:.28rem;padding-top:.28rem}
+.pw-fab-addrow button{border-radius:.35rem;padding:.28rem .08rem;font-size:.43rem}
+.pw-fab-dhead strong{font-size:.56rem}
+.pw-fab-save{border-radius:.35rem;padding:.28rem .55rem;font-size:.49rem}
+.pw-fab-preview{height:4.1rem;margin-top:.45rem;margin-bottom:.75rem}
+.pw-fab-preview .pw-swatch{border-radius:.32rem}
+.pw-fab-preview .pw-patprev{border-radius:.32rem}
+.pw-fab-preview-empty{border-radius:.32rem}
+.pw-fab-replace{bottom:-.52rem;border-radius:.35rem;padding:.25rem .5rem;font-size:.45rem}
+.pw-fab-field{margin-top:.48rem;font-size:.47rem}
+.pw-fab-field>input,.pw-fab-field input[type="text"]{border-radius:.32rem;padding:.3rem .4rem}
+.pw-fab-seg{border-radius:.35rem}
+.pw-fab-seg button{border-radius:.28rem;padding:.25rem 0;font-size:.47rem}
+.pw-fab-colors{gap:.26rem}
+.pw-fab-colors button{width:.85rem;height:.85rem}
+.pw-fab-hexrow{margin-top:.3rem}
+.pw-fab-textures{gap:.32rem}
+.pw-fab-textures .pw-patprev{width:1.35rem;height:1.02rem;border-radius:.26rem}
+.pw-fab-textures em{font-size:.4rem}
+.pw-fab-usage{margin-top:.5rem;border-radius:.35rem;padding:.36rem .45rem;font-size:.43rem}
+.pw-fab-delete{font-size:.49rem;padding:.45rem 0 .15rem}
+.pw-fab-repgrid{gap:.28rem}
+.pw-fab-repgrid .pw-swatch{width:1.25rem;height:1.25rem;border-radius:.3rem}
+.pw-fab-delactions button{border-radius:.35rem;padding:.3rem 0;font-size:.47rem}
