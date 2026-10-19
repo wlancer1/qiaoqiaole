@@ -4,6 +4,7 @@ import { LoadMoreSentinel, PatternDiscoverPage, PatternMessagesPage } from '../.
 import { CommunityPatternCard } from '../../community/CommunityPatternCard';
 import { Icon } from '../../shared/h5Icons';
 import { ImageWithSkeleton } from '../../shared/ImageWithSkeleton';
+import { WorkKindBadge } from '../../shared/WorkKindBadge';
 import { UserAvatar } from '../../shared/UserAvatar';
 import { LogOut } from 'lucide-react';
 import { useEffect, type ReactNode } from 'react';
@@ -220,6 +221,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
                       ) : (
                         <RecentProjectThumbnailPlaceholder />
                       )}
+                      <WorkKindBadge kind={project.kind} />
                       <strong>{project.name}</strong>
                       <span>{project.cols}×{project.rows}</span>
                     </button>
@@ -253,6 +255,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
                         key={template.id}
                         pattern={template}
                         className="home-template-card"
+                        showKindBadge
                         loading="lazy"
                         fetchPriority="low"
                         deferUntilVisible

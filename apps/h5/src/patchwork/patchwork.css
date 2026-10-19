@@ -1,19 +1,23 @@
 /* 拼布编辑器样式：版式对齐设计稿 S01–S09（白卡片 + 天蓝 #208edc + 大圆角 + 柔和阴影） */
 .patchwork-page{height:100dvh;display:flex;flex-direction:column;background:#edf3f7;color:#22384c;font-family:PingFangSC,-apple-system,sans-serif}
 
-/* 顶栏：沿用拼豆 .canvas-topbar 的 left/center/right 分组 */
-.patchwork-page .canvas-topbar{gap:.2rem}
-.patchwork-page .topbar-left,.patchwork-page .topbar-right{width:auto;flex-shrink:0}
-.patchwork-page .topbar-center{gap:.18rem;min-width:0}
-.patchwork-sizebtn{display:flex;align-items:center;gap:.06rem;background:none;font-size:.42rem;font-weight:600;color:#22384c;white-space:nowrap;padding:.15rem .1rem}
-.patchwork-sizebtn svg{width:.45rem;height:.45rem;color:#7d93a8}
-.patchwork-topbtn{display:flex;flex-direction:column;align-items:center;gap:.02rem;background:none;padding:.1rem .14rem;font-size:.27rem;color:#42566b;border-radius:.25rem}
-.patchwork-topbtn svg{width:.6rem;height:.6rem}
-.patchwork-topbtn:active{background:#eef5fc}
-.patchwork-savebtn{display:flex;align-items:center;gap:.1rem;background:#208edc;color:#fff;border-radius:999px;height:1.02rem;padding:0 .48rem;font-size:.4rem;font-weight:600;box-shadow:0 4px 12px rgba(32,142,220,.35);white-space:nowrap}
-.patchwork-savebtn svg{width:.5rem;height:.5rem}
-.patchwork-savebtn:active{background:#1a7bc4}
-@media(max-width:380px){.patchwork-topbtn span{display:none}.patchwork-topbtn{padding:.1rem .08rem}}
+/* 顶栏：沿用拼豆 .canvas-topbar 的 left/center/right 三栏分组，统一控件高度与水平基线 */
+.patchwork-page .canvas-topbar{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:.1905rem;padding:env(safe-area-inset-top) max(.3175rem,env(safe-area-inset-right)) 0 max(.3175rem,env(safe-area-inset-left))}
+.patchwork-page .topbar-left,.patchwork-page .topbar-center,.patchwork-page .topbar-right{display:flex;align-items:center;width:auto;min-width:0;flex-shrink:0}
+.patchwork-page .topbar-left{justify-content:flex-start;gap:.127rem}
+.patchwork-page .topbar-center{justify-content:center;gap:.127rem;flex:1}
+.patchwork-page .topbar-right{justify-content:flex-end;gap:.1905rem}
+.patchwork-page .canvas-topbar .top-icon-btn{width:1.0159rem;height:1.0159rem;border-radius:.254rem;color:#22384c;flex-shrink:0}
+.patchwork-page .canvas-topbar .top-icon-btn svg{width:.5714rem;height:.5714rem;stroke-width:2.1}
+.patchwork-sizebtn{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:.0952rem;height:1.0159rem;padding:0 .2857rem;border:1px solid #d8e3ee;border-radius:999px;background:#f4f8fc;color:#22384c;font-size:.381rem;font-weight:600;line-height:1;white-space:nowrap;flex-shrink:0;transition:background .14s ease,border-color .14s ease}
+.patchwork-sizebtn:active{background:#e8f1fa;border-color:#c4d5e6}
+.patchwork-sizebtn svg{width:.4127rem;height:.4127rem;color:#64788c;flex-shrink:0;stroke-width:2.2}
+.patchwork-topbtn,.patchwork-savebtn{box-sizing:border-box;display:inline-flex;flex-direction:row;align-items:center;justify-content:center;gap:.127rem;height:1.0159rem;border-radius:999px;font-size:.381rem;font-weight:600;line-height:1;white-space:nowrap;flex-shrink:0;transition:background .14s ease,border-color .14s ease}
+.patchwork-topbtn{padding:0 .3492rem;border:1px solid #d8e3ee;background:#f4f8fc;color:#22384c}
+.patchwork-topbtn:active{background:#e8f1fa;border-color:#c4d5e6}
+.patchwork-savebtn{padding:0 .381rem;border:1px solid var(--blue,#208edc);background:var(--blue,#208edc);color:#fff;box-shadow:0 .127rem .381rem rgba(32,142,220,.28)}
+.patchwork-savebtn:active{background:#1a7bc4;border-color:#1a7bc4}
+.patchwork-topbtn svg,.patchwork-savebtn svg{width:.4444rem;height:.4444rem;flex-shrink:0;stroke-width:2.2}
 
 /* 工作区与左栏（浮动白卡） */
 .patchwork-work{flex:1;min-height:0;position:relative;display:flex}
@@ -68,38 +72,66 @@
 .pw-switchrow small{font-size:.32rem;color:#8fa3b5}
 
 /* iOS 风格开关 */
-.patchwork-switch{appearance:none;width:1.45rem;height:.86rem;border-radius:999px;background:#cfdbe6;position:relative;flex-shrink:0;cursor:pointer;transition:background .15s}
-.patchwork-switch::after{content:'';position:absolute;top:.07rem;left:.07rem;width:.72rem;height:.72rem;border-radius:50%;background:#fff;box-shadow:0 2px 6px rgba(31,58,84,.25);transition:left .15s}
-.patchwork-switch:checked{background:#208edc}
-.patchwork-switch:checked::after{left:.66rem}
+.patchwork-switch{appearance:none;-webkit-appearance:none;box-sizing:border-box;width:1.3968rem;height:.8254rem;padding:0;border:0;border-radius:999px;background:#cfdbe6;position:relative;flex-shrink:0;cursor:pointer;transition:background .16s ease}
+.patchwork-switch::after{content:'';position:absolute;top:.0952rem;left:.0952rem;width:.6349rem;height:.6349rem;border-radius:50%;background:#fff;box-shadow:0 .0635rem .1905rem rgba(31,58,84,.24);transition:transform .16s ease}
+.patchwork-switch:checked{background:var(--blue,#208edc)}
+.patchwork-switch:checked::after{transform:translateX(.5714rem)}
 
 /* 底部抽屉面板 */
-.patchwork-overlay{position:fixed;inset:0;background:rgba(17,33,48,.45);z-index:100;display:flex;align-items:flex-end;justify-content:center}
-.patchwork-panel{width:min(100%,16rem);max-height:80dvh;overflow:auto;border-radius:.7rem .7rem 0 0;background:#fff;padding:.48rem .55rem calc(.55rem + env(safe-area-inset-bottom));box-shadow:0 -12px 34px rgba(31,58,84,.18)}
-.patchwork-panel>header{display:flex;justify-content:space-between;align-items:center;margin-bottom:.45rem;font-size:.5rem;font-weight:600;color:#22384c}
-.patchwork-panel>header button{background:none;border-radius:50%;padding:.16rem;display:grid;place-items:center;color:#42566b}
-.patchwork-panel>header svg{width:.58rem;height:.58rem}
+.patchwork-overlay{position:fixed;inset:0;background:var(--sheet-backdrop,rgba(17,24,39,.38));backdrop-filter:blur(.1905rem);-webkit-backdrop-filter:blur(.1905rem);z-index:100;display:flex;align-items:flex-end;justify-content:center}
+.patchwork-panel{box-sizing:border-box;width:min(calc(100% - .7619rem),var(--sheet-width,12.127rem));max-height:min(86dvh,24.127rem);overflow:auto;overscroll-behavior:contain;border-radius:var(--sheet-radius,.6984rem) var(--sheet-radius,.6984rem) 0 0;background:var(--panel,#fff);padding:.254rem .4444rem calc(.4444rem + env(safe-area-inset-bottom));box-shadow:var(--sheet-shadow,0 -.254rem .8889rem rgba(14,26,44,.14));animation:modal-sheet-in 220ms cubic-bezier(.2,.85,.35,1)}
+.patchwork-panel:not(.importfull)::before{content:'';display:block;width:1.1429rem;height:.127rem;background:var(--sheet-handle,#d5e0f0);border-radius:1rem;margin:0 auto .381rem;flex-shrink:0}
+.patchwork-panel>header{display:flex;justify-content:space-between;align-items:center;gap:.127rem;margin-bottom:.381rem;font-size:.508rem;font-weight:700;color:var(--ink,#171819)}
+.patchwork-panel>header button{display:grid;place-items:center;width:.8889rem;height:.8889rem;padding:0;border-radius:50%;background:#f2f4f8;color:#5a6b7d;flex-shrink:0;transition:background .14s ease,color .14s ease}
+.patchwork-panel>header button:hover,.patchwork-panel>header button:focus-visible{background:#e7ebf2;color:var(--ink,#171819)}
+.patchwork-panel>header svg{width:.508rem;height:.508rem}
 
-.patchwork-form{display:grid;gap:.4rem;font-size:.42rem}
-.patchwork-form h4{font-size:.42rem;color:#22384c}
-.patchwork-form label{display:flex;align-items:center;justify-content:space-between;gap:.3rem;font-size:.38rem;color:#33475c}
-.patchwork-form input[type=number],.patchwork-form input[type=text]{width:4.6rem;max-width:58%;flex:none}
+.patchwork-form{display:grid;gap:.381rem;font-size:.4127rem}
+.patchwork-form h4{font-size:.4127rem;color:#22384c;margin:0}
+.patchwork-form label{display:flex;align-items:center;justify-content:space-between;gap:.3rem;font-size:.381rem;color:#33475c}
+.patchwork-form input[type=number],.patchwork-form input[type=text],.patchwork-form input:not([type]){width:4.6rem;max-width:58%;flex:none}
 .patchwork-form label>select{width:4.6rem;max-width:58%;flex:none}
-.patchwork-form input,.patchwork-form select{padding:.14rem .3rem;border:1px solid #dbe5ee;border-radius:.3rem;font-size:.39rem;background:#f8fbfd;color:#22384c;height:1.06rem}
+.patchwork-form input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]),.patchwork-form select{padding:.14rem .3175rem;border:1px solid #dbe5ee;border-radius:.3175rem;font-size:.381rem;background:#f8fbfd;color:#22384c;height:1.1429rem;box-sizing:border-box}
+.patchwork-form input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):focus-visible,.patchwork-form select:focus-visible{background:#fff;border-color:var(--blue,#208edc)}
 .patchwork-form input[type=range]{flex:1;max-width:55%;height:auto;padding:0;accent-color:#208edc}
 .patchwork-form input[type=color]{width:1.5rem;height:1rem;padding:.06rem}
-label.patchwork-check{justify-content:flex-start;gap:.25rem}
-.patchwork-row{display:flex;gap:.4rem}
-.patchwork-row label{flex:1;flex-direction:column;align-items:stretch;gap:.1rem}
+label.patchwork-check{justify-content:flex-start;gap:.254rem}
+.patchwork-row{display:flex;gap:.3175rem}
+.patchwork-row label{flex:1;flex-direction:column;align-items:stretch;gap:.127rem}
 .patchwork-form .patchwork-row label>input,.patchwork-form .patchwork-row label>select{width:100%;max-width:none;flex:none}
 
+/* 底布与项目设置表单 */
+.patchwork-form.pw-base-form{gap:.3175rem}
+.patchwork-form .pw-base-grid{gap:.254rem .3175rem}
+.patchwork-form .pw-base-grid label{gap:.127rem;font-size:.3492rem;font-weight:600;color:#52657c}
+.patchwork-form .pw-base-grid input,.patchwork-form .pw-base-grid select{width:100%;max-width:none;height:1.1429rem;padding:0 .3175rem;border:1px solid #dbe3ea;border-radius:.3175rem;background:#f8fafc;color:var(--ink,#171819);font-size:.4127rem;font-weight:500}
+.pw-base-mat-section{min-width:0}
+.pw-base-fabric-trigger{display:flex;align-items:center;gap:.3175rem;width:100%;min-height:1.5873rem;padding:.1905rem .3175rem;border:1px solid #dbe5ee;border-radius:.3175rem;background:#f8fbfd;text-align:left;color:#22384c}
+.pw-base-fabric-trigger:focus-visible{outline:2px solid var(--blue,#208edc);outline-offset:2px}
+.pw-base-fabric-trigger>.pw-base-fabric-thumb{display:grid;place-items:center;flex:0 0 1.0794rem;width:1.0794rem;height:1.0794rem;overflow:hidden;border-radius:.2222rem;border:1px solid #e1e9f0;background:#eaf3fc}
+.pw-base-fabric-thumb .pw-swatch{width:100%;height:100%;border-radius:0;box-shadow:none}
+.pw-base-fabric-thumb svg{width:.5714rem;height:.5714rem;color:var(--blue,#208edc)}
+.pw-base-fabric-copy{display:flex;flex:1;min-width:0;flex-direction:column;gap:.0635rem}
+.pw-base-fabric-copy strong{font-size:.4127rem;font-weight:600}
+.pw-base-fabric-copy small{color:#73869b;font-size:.3492rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pw-base-fabric-trigger>svg{width:.4762rem;height:.4762rem;color:#8a9cb0;flex-shrink:0}
+.pw-settings-card{display:flex;flex-direction:column;border:1px solid #e6edf5;border-radius:.4444rem;background:#f8fafc;padding:.0635rem .381rem}
+.patchwork-form label.pw-setting-row{display:flex;align-items:center;justify-content:space-between;gap:.3175rem;padding:.254rem 0;border-bottom:1px solid #edf2f7;cursor:pointer}
+.patchwork-form label.pw-setting-row:last-child{border-bottom:0}
+.pw-setting-copy{display:flex;flex-direction:column;gap:.0317rem;min-width:0}
+.pw-setting-copy strong{font-size:.381rem;font-weight:600;color:var(--ink,#171819);line-height:1.3}
+.pw-setting-copy small{font-size:.3175rem;font-weight:400;color:var(--muted,#6f7478);line-height:1.25}
+
 /* 按钮体系 */
-.patchwork-actions{display:flex;gap:.25rem;flex-wrap:wrap}
-.patchwork-actions button,.patchwork-form>button,.patchwork-bigbtn{background:#fff;border:1px solid #dbe5ee;color:#33475c;border-radius:.35rem;padding:.3rem .4rem;font-size:.42rem;display:inline-flex;align-items:center;justify-content:center;gap:.15rem;min-height:1.25rem}
-.patchwork-actions button.primary,.patchwork-form button.primary{background:#208edc;border-color:#208edc;color:#fff;font-weight:600}
+.patchwork-actions{display:flex;gap:.254rem;flex-wrap:wrap}
+.patchwork-actions>button{flex:1 1 auto}
+.patchwork-actions button,.patchwork-form>button,.patchwork-bigbtn{background:#fff;border:1px solid #dbe5ee;color:#33475c;border-radius:.381rem;padding:.254rem .381rem;font-size:.4127rem;font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:.15rem;min-height:1.2698rem}
+.patchwork-actions button.primary,.patchwork-form button.primary{background:var(--blue,#208edc);border-color:var(--blue,#208edc);color:#fff;font-weight:600;box-shadow:0 .1905rem .4444rem rgba(32,142,220,.22)}
+.pw-base-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.3175rem;margin-top:.0635rem}
+.pw-base-actions button{border-radius:.4444rem}
 .patchwork-actions svg{width:.5rem;height:.5rem}
 button.danger,.patchwork-actions button.danger{background:#fdf1f1;border-color:#f3d3d3;color:#c0392b}
-.pw-exportbtn{width:100%;min-height:1.35rem;font-size:.46rem;border-radius:.4rem}
+.pw-exportbtn{width:100%;min-height:1.2698rem;font-size:.4127rem;border-radius:.4444rem}
 .patchwork-bigbtn{flex-direction:column;align-items:flex-start!important;gap:.08rem;text-align:left;width:100%}
 .patchwork-bigbtn span{font-size:.33rem;color:#8fa3b5}
 
@@ -107,9 +139,9 @@ button.danger,.patchwork-actions button.danger{background:#fdf1f1;border-color:#
 .patchwork-seg{display:flex;background:#edf2f7;border-radius:.35rem;padding:.07rem;gap:.07rem}
 .patchwork-seg button{flex:1;padding:.18rem .3rem;border-radius:.28rem;background:transparent;font-size:.38rem;color:#5b7186}
 .patchwork-seg button.on{background:#208edc;color:#fff;font-weight:600;box-shadow:0 3px 8px rgba(32,142,220,.3)}
-.pw-tabs{display:flex;gap:.55rem;border-bottom:1px solid #e6edf3;padding:0 .05rem}
-.pw-tabs button{background:none;padding:.18rem .02rem;font-size:.42rem;color:#5b7186;border-bottom:2.5px solid transparent;margin-bottom:-1px}
-.pw-tabs button.on{color:#208edc;font-weight:600;border-bottom-color:#208edc}
+.pw-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));border-bottom:1px solid #e6edf5;flex-shrink:0;margin:0 -.4444rem;padding:0 .3175rem}
+.pw-tabs button{min-width:0;background:none;padding:.2857rem .127rem;border-radius:0;font-size:.381rem;font-weight:500;color:#61758a;text-align:center;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .14s ease,border-color .14s ease}
+.pw-tabs button.on,.pw-tabs button[aria-selected=true]{color:var(--blue,#208edc);font-weight:600;border-bottom-color:var(--blue,#208edc)}
 .patchwork-chip{padding:.18rem .32rem;border-radius:.3rem;background:#fff;border:1px solid #dbe5ee;font-size:.4rem;color:#33475c}
 .patchwork-chip.on{background:#208edc;border-color:#208edc;color:#fff;font-weight:600}
 .pw-chiprow{display:flex;align-items:center;gap:.22rem;flex-wrap:wrap;font-size:.42rem;color:#33475c}
@@ -144,14 +176,23 @@ button.danger,.patchwork-actions button.danger{background:#fdf1f1;border-color:#
 .patchwork-matedit label{display:flex;align-items:center;justify-content:space-between;gap:.3rem;font-size:.38rem}
 
 /* 导出 */
-.patchwork-issues{background:#fdf1f1;border-radius:.35rem;padding:.32rem;font-size:.37rem;color:#8c2f26}
-.patchwork-ok{background:#eefaf1;border-radius:.35rem;padding:.32rem;font-size:.37rem;color:#256b36}
+.patchwork-overlay .patchwork-panel.exportsheet{height:min(78dvh,19.5rem);max-height:86dvh;display:flex;flex-direction:column;overflow:hidden}
+.patchwork-panel.exportsheet>header{flex-shrink:0;margin-bottom:.254rem}
+.patchwork-form.pw-export-form{display:flex;flex-direction:column;flex:1;min-height:0;gap:0}
+.pw-export-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:.3175rem;padding:.3175rem .0317rem}
+.pw-export-body.is-preview{overflow:hidden;gap:.254rem}
+.pw-export-preview-stage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:.3175rem;border:1px dashed #c8d8e6;border-radius:.4444rem;background:#f8fbfd;overflow:hidden}
+.pw-export-preview-img{display:block;width:auto;height:auto;max-width:100%;max-height:100%;object-fit:contain;border-radius:.254rem;border:0;background:transparent;box-shadow:0 .127rem .381rem rgba(31,58,84,.10)}
+.pw-export-note{margin:0;flex-shrink:0;line-height:1.4}
+.pw-export-footer{display:grid;grid-template-columns:1fr 1.35fr;gap:.3175rem;flex-shrink:0;padding-top:.3175rem;border-top:1px solid #edf1f6;background:var(--panel,#fff)}
+.pw-export-footer button{border-radius:.4444rem;margin:0}
+.patchwork-issues{background:#fdf1f1;border-radius:.35rem;padding:.2857rem .3175rem;font-size:.3492rem;color:#8c2f26;flex-shrink:0}
+.patchwork-ok{background:#eefaf1;border-radius:.35rem;padding:.2857rem .3175rem;font-size:.3492rem;color:#256b36;flex-shrink:0}
 .pw-cutlist{display:grid;gap:.16rem}
 .pw-cutrow{display:flex;align-items:center;gap:.25rem;background:#fff;border:1px solid #e6edf3;border-radius:.35rem;padding:.2rem .3rem}
-.pw-cutname{flex:1;font-size:.42rem;color:#22384c}
+.pw-cutname{flex:1;font-size:.381rem;color:#22384c;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pw-cutname b{color:#208edc;font-weight:600;margin-right:.08rem}
-.pw-count{font-size:.4rem;color:#5b7186;font-weight:600}
-.pw-preview{width:100%;border-radius:.4rem;border:1px dashed #c8d8e6;background:#f8fbfd}
+.pw-count{font-size:.381rem;color:#5b7186;font-weight:600;flex-shrink:0}
 .patchwork-cands{max-height:6.5rem;overflow-y:auto}
 /* 图片导入：线稿预览与转换设置 */
 .patchwork-import{display:grid;gap:.35rem}
@@ -201,19 +242,11 @@ button.danger,.patchwork-actions button.danger{background:#fdf1f1;border-color:#
 .patchwork-overlay.nonmodal .patchwork-panel{pointer-events:auto;border-radius:.7rem;box-shadow:0 18px 44px rgba(31,58,84,.25);max-height:60dvh;width:min(94%,15.5rem)}
 
 .patchwork-form label>input[type=range]+span{min-width:1.05rem;text-align:right;font-variant-numeric:tabular-nums}
-/* 拼布顶栏：三列网格——中间组按内容宽居中、两侧等分可收缩，窄屏不重叠 */
-.patchwork-page .canvas-topbar{display:grid;grid-template-columns:auto minmax(0,1fr) auto}
-.patchwork-page .topbar-left,.patchwork-page .topbar-right{width:auto;min-width:0}
-.patchwork-page .topbar-center{flex:1;min-width:0}
-@media(max-width:480px){
-  /* 窄屏收紧：齿轮与尺寸键同开底布面板，隐藏齿轮；其余按钮瘦身防重叠（标签在图标下方、不占宽，保留） */
-  .patchwork-page .topbar-left [aria-label="底布与项目设置"]{display:none}
-  .patchwork-page .topbar-center{gap:.22rem}
-  .patchwork-page .canvas-topbar{gap:.15rem}
-  .patchwork-page .topbar-center .top-icon-btn{width:1rem;height:1rem}
-  .patchwork-page .patchwork-savebtn{padding:0 .38rem;font-size:.37rem;height:.94rem}
-  .patchwork-page .patchwork-topbtn{padding:.08rem .06rem}
-  .patchwork-page .patchwork-sizebtn{padding:.12rem .06rem;font-size:.38rem}
+@media(max-width:360px){
+  .patchwork-page .canvas-topbar{gap:.127rem;padding-right:max(.254rem,env(safe-area-inset-right));padding-left:max(.254rem,env(safe-area-inset-left))}
+  .patchwork-page .topbar-left,.patchwork-page .topbar-center,.patchwork-page .topbar-right{gap:.0952rem}
+  .patchwork-page .patchwork-sizebtn{padding:0 .2222rem;font-size:.3492rem}
+  .patchwork-page .patchwork-topbtn,.patchwork-page .patchwork-savebtn{padding:0 .2857rem;font-size:.3492rem;gap:.0952rem}
 }
 /* 选中浮动条按钮等宽 */
 .patchwork-selbar button{min-width:1.04rem}
@@ -236,9 +269,6 @@ button.danger,.patchwork-actions button.danger{background:#fdf1f1;border-color:#
 .patchwork-workrow-del svg{width:.4rem;height:.4rem}
 .patchwork-fabric-thumb{width:.9rem;height:.9rem;object-fit:cover;border-radius:.18rem;flex-shrink:0}
 .patchwork-hintpill.pw-brushpill{display:inline-flex;align-items:center;gap:.35rem}
-.pw-brushmode{display:inline-flex;background:rgba(255,255,255,.16);border-radius:999px;padding:.06rem}
-.pw-brushmode button{border:none;background:transparent;color:#dbe7f3;font:inherit;font-size:.32rem;padding:.1rem .3rem;border-radius:999px;cursor:pointer}
-.pw-brushmode button.active{background:#fff;color:#22384c;font-weight:700}
 
 /* 导入选区（框选导入区域 → 预览分区） */
 .pw-crop-stage { position: relative; overflow: hidden; border-radius: .28rem; touch-action: none; user-select: none; -webkit-user-select: none; background: #efe9dd; }
@@ -264,7 +294,7 @@ button.danger,.patchwork-actions button.danger{background:#fdf1f1;border-color:#
 .pw-crop { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .pw-crop-areawrap { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: .1rem 0; }
 .pw-crop-stage img { width: 100%; height: 100%; }
-.pw-preview { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.patchwork-import .pw-preview { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .pw-import-preview { position: relative; flex-shrink: 0; margin: .05rem auto .1rem; }
 .pw-import-preview img { display: block; width: 100%; height: 100%; border-radius: .28rem; }
 .pw-import-preview svg { position: absolute; inset: 0; width: 100%; height: 100%; }
@@ -438,3 +468,10 @@ button.danger,.patchwork-actions button.danger{background:#fdf1f1;border-color:#
 .pw-fab-repgrid{gap:.28rem}
 .pw-fab-repgrid .pw-swatch{width:1.25rem;height:1.25rem;border-radius:.3rem}
 .pw-fab-delactions button{border-radius:.35rem;padding:.3rem 0;font-size:.47rem}
+
+/* 添加面板收拢图片导入入口，与现有形状卡片使用同一尺寸体系。 */
+.patchwork-import-entry{display:flex;align-items:center;gap:.3175rem;width:100%;padding:.3175rem .381rem;margin-bottom:.381rem;border:1px solid #d5e2ee;border-radius:.3175rem;background:#f2f7fb;color:#22384c;text-align:left}
+.patchwork-import-entry>svg{width:.635rem;height:.635rem;flex-shrink:0;color:var(--blue)}
+.patchwork-import-entry>span{display:flex;flex-direction:column;gap:.127rem}
+.patchwork-import-entry strong{font-size:.381rem;font-weight:600}
+.patchwork-import-entry small{font-size:.3175rem;color:#61758a}

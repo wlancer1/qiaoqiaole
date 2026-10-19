@@ -88,7 +88,29 @@
   scroll-snap-type: x proximity;
   padding-bottom: .127rem;
 }
-.home-page .home-recent-card { text-align: left; scroll-snap-align: start; }
+.home-page .home-recent-card { position: relative; text-align: left; scroll-snap-align: start; }
+/* Work-type labels float over the thumbnail, not in the title/meta flow. */
+.home-page .home-recent-card > .my-work-kind-badge {
+  position: absolute;
+  z-index: 3;
+  top: .1905rem;
+  left: .1905rem;
+  display: inline-flex;
+  width: auto;
+  min-height: .5397rem;
+  margin: 0;
+  padding: .0635rem .1905rem;
+  overflow: visible;
+  font-size: .3175rem;
+  line-height: 1;
+}
+.home-page .home-template-card .pattern-art > .my-work-kind-badge {
+  z-index: 3;
+  top: .1905rem;
+  left: .1905rem;
+  min-height: .5397rem;
+  font-size: .3175rem;
+}
 .home-page .home-recent-thumb { aspect-ratio: 1.12; border-radius: .4444rem; box-shadow: none; }
 .home-page .home-recent-thumb::before { content: none; }
 .home-page .home-recent-card strong {

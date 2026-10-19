@@ -6,6 +6,7 @@ import { colorCodeOf } from '../utils/h5AppUtils';
 import type { CommunityComment, CommunityNotification } from '../community/communityData';
 import type { FollowingUser, PatternListCard, RecentProject } from '../shared/h5Types';
 import { ImageWithSkeleton } from '../shared/ImageWithSkeleton';
+import { WorkKindBadge } from '../shared/WorkKindBadge';
 import { UserAvatar } from '../shared/UserAvatar';
 import { CommentAvatar } from './CommentAvatar';
 import { CommunityPatternCard } from '../community/CommunityPatternCard';
@@ -227,7 +228,7 @@ export function MyWorksPage({
               ) : (
                 <div className="author-work-art my-work-thumb-placeholder" aria-hidden="true" />
               )}
-              <span className={`my-work-kind-badge my-work-kind-badge--${project.kind === 'patchwork' ? 'patchwork' : 'bead'}`}>{project.kind === 'patchwork' ? '拼布' : '拼豆'}</span>
+              <WorkKindBadge kind={project.kind} />
               <strong>{project.name.startsWith('wx') ? '未命名作品' : project.name}</strong>
               <small>{project.kind === 'patchwork' ? `${fmtProjectCm(project.cols)}×${fmtProjectCm(project.rows)} cm` : `${project.cols}×${project.rows}`}</small>
             </article>

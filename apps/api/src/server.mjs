@@ -2,6 +2,7 @@ import http from 'node:http';
 import { createHmac, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { openSqliteDatabase } from './sqliteStore.mjs';
+import { createPatchworkShapeApi } from './patchworkShapeApi.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -60,6 +61,7 @@ const MARD_COLOR_RANGES = {
 
 const db = openSqliteDatabase(DB_PATH);
 initSchema();
+const patchworkShapeApi = createPatchworkShapeApi({ db, readJson, sendJson });
 let communityTagCountsCache = null;
 let phoneAuthService;
 let beadingService;
@@ -547,6 +549,8 @@ async function route(request, response) {
 
   const user = requireUser(request, response);
   if (!user) return;
+
+  if (url.pathname === '/api/patchwork-shapes' || url.pathname.startsWith('/api/patchwork-shapes/')) return patchworkShapeApi.handle(request, response, url, user.id);
 
   if (request.method === 'GET' && url.pathname === '/api/admin/users') {
     if (user.username !== AUTH_USERNAME) return sendJson(response, 403, { error: 'FORBIDDEN', message: '无权限' });
@@ -2559,7 +2563,7 @@ function sendJson(response, status, payload, extraHeaders = {}) {
 function corsHeaders() {
   return {
     'access-control-allow-origin': '*',
-    'access-control-allow-methods': 'GET,POST,PATCH,DELETE,OPTIONS',
+    'access-control-allow-methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
     'access-control-allow-headers': 'content-type, authorization, x-client-platform, x-client-version, x-sign-version, x-request-id, x-timestamp, x-nonce, x-challenge-id, x-signature',
     'access-control-expose-headers': 'retry-after',
   };

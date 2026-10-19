@@ -9,6 +9,7 @@ export const API_TAG_TYPES = [
   'Notification',
   'Project',
   'ProjectFolder',
+  'PatchworkShape',
   'Warehouse',
   'Inventory',
   'BeadingSession',
