@@ -5,6 +5,7 @@ import {
   PaintBucket, Layers, Trash2, Copy, Lock, Unlock, Eye, EyeOff, RotateCw, FlipHorizontal2,
   FlipVertical2, X, Plus, Check, ChevronUp, ChevronDown, FolderOpen, RefreshCw, Scissors,
   Square, Circle, Triangle, Diamond, Hexagon, Star, Flower2, Leaf, LayoutGrid, SlidersHorizontal,
+  Search, Palette, ImagePlus,
 } from 'lucide-react';
 import {
   area, clearCanvasContent, cloneDocument, hitTest, isConcave, makePiece, makeProject, makeShape, pointBounds,
@@ -15,6 +16,7 @@ import {
 import { drawScene, metrics, screenToWorld, worldToScreen, type Metrics, type View } from './canvas';
 import { buildPatternPdf, cutList, downloadBlob, planIssues } from './export';
 import { deleteAsset, getAsset, loadImage, putAsset, putAssetWithId, readDraft, saveDraft } from './assets';
+import { renderPatternTile, shadeColor, TEXTURE_PATTERNS, type TexturePatternId } from './textures';
 import { useAppOverlay } from '../app/overlays/AppOverlayContext';
 import type { ProjectApiRequest } from '../projects/projectApi';
 import { newPatchworkId } from './ids';
@@ -24,7 +26,9 @@ import './patchwork.css';
 /* 拼布编辑器：几何一律毫米；历史以“一次完整手势 = 一条记录”为粒度（AC02）。 */
 
 type Tool = 'select' | 'brush' | 'add' | 'fill' | 'layers';
-type Panel = 'base' | 'add' | 'fill' | 'layers' | 'materials' | 'export' | 'import' | 'save' | 'open' | 'props' | 'leave' | 'fabriccrop' | null;
+type Panel = 'base' | 'add' | 'fill' | 'layers' | 'fabrics' | 'export' | 'import' | 'save' | 'open' | 'props' | 'leave' | 'fabriccrop' | null;
+type MatDraft = { name: string; kind: 'color' | 'image'; color: string; pattern: TexturePatternId | 'none'; assetId?: string; sampleWidthMm?: number };
+const PRESET_COLORS = ['#f2e6d2', '#e6cf9f', '#d9ad45', '#e8915a', '#e8a58c', '#d94f3d', '#ef9db4', '#b7a6e8', '#9db98a', '#7d9dbd'];
 type CropRect = { x: number; y: number; w: number; h: number };
 const clampCropRect = (r: CropRect): CropRect => {
   const MIN = 0.06;
@@ -69,6 +73,21 @@ function thumbPoints(p: Piece): string {
   const s = Math.min(20 / Math.max(1, b.width), 20 / Math.max(1, b.height));
   return p.points.map((pt) => `${(2 + (pt.x - b.x) * s).toFixed(1)},${(2 + (pt.y - b.y) * s).toFixed(1)}`).join(' ');
 }
+function PatternSwatch({ pattern, color }: { pattern: TexturePatternId | 'none'; color: string }) {
+  if (pattern === 'none') return <span className="pw-patprev" style={{ background: color }} />;
+  const dark = shadeColor(color, 0.8);
+  const light = shadeColor(color, 1.22);
+  return (
+    <svg className="pw-patprev" viewBox="0 0 48 48" preserveAspectRatio="none" aria-hidden="true">
+      <rect width="48" height="48" fill={color} />
+      {pattern === 'linen' && [0, 10, 20, 30, 40].map((i) => (<g key={i}><rect x="0" y={i} width="48" height="1.6" fill="rgba(0,0,0,0.07)" /><rect x={i} y="0" width="1.6" height="48" fill="rgba(255,255,255,0.07)" /></g>))}
+      {pattern === 'check' && (<><rect x="0" y="0" width="24" height="48" fill="rgba(255,255,255,0.34)" /><rect x="0" y="0" width="48" height="24" fill="rgba(255,255,255,0.34)" /></>)}
+      {pattern === 'stripe' && (<><rect x="0" y="0" width="10" height="48" fill={dark} /><rect x="24" y="0" width="10" height="48" fill={dark} /></>)}
+      {pattern === 'dot' && [0, 1].map((r) => [0, 1].map((c) => (<circle key={`${r}-${c}`} cx={12 + c * 24 + (r % 2 ? 12 : 0)} cy={12 + r * 24} r="5" fill={light} />)))}
+    </svg>
+  );
+}
+
 function MatSwatch({ m }: { m: Material }) {
   const [url, setUrl] = useState('');
   const [tick, setTick] = useState(0);
@@ -218,8 +237,15 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
   const [addTab, setAddTab] = useState<'base' | 'flora' | 'combo' | 'mine'>('base');
   const [expTab, setExpTab] = useState<'list' | 'preview'>('list');
   const [expUrl, setExpUrl] = useState('');
-  const [editingMat, setEditingMat] = useState<string | null>(null);
-  const [replaceWith, setReplaceWith] = useState<string>('');
+  const [fabEdit, setFabEdit] = useState(false);
+  const [fabQuery, setFabQuery] = useState('');
+  const [matDetailId, setMatDetailId] = useState<string | null>(null);
+  const [matDraft, setMatDraft] = useState<MatDraft | null>(null);
+  const [matDeleting, setMatDeleting] = useState(false);
+  const [matReplaceId, setMatReplaceId] = useState('');
+  const [fabAddOpen, setFabAddOpen] = useState(false);
+  const [fabTarget, setFabTarget] = useState<string | null>(null);
+  const fabReturnRef = useRef(false);
 
   useEffect(() => {
     if (panel === 'base') {
@@ -1034,13 +1060,127 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
   };
   const leave = () => { if (dirty) setPanel('leave'); else navigate('/'); };
 
+  /* ---------- 布料选择与编辑（新版） ---------- */
+  const usageOf = (id: string) => project.pieces.filter((pc) => pc.materialId === id).length + (project.base.materialId === id ? 1 : 0);
+  const closeFabrics = () => { setPanel(null); setMatDetailId(null); setMatDraft(null); setMatDeleting(false); setFabricPick(null); setFabAddOpen(false); };
+  const closeMatDetail = () => { setMatDetailId(null); setMatDraft(null); setMatDeleting(false); };
+  const pickMaterial = (id: string) => { setActiveMaterialId(id); closeFabrics(); };
+  const openMatDetail = (id: string, override?: Material) => {
+    const m = override || project.materials.find((x) => x.id === id);
+    if (!m) return;
+    setMatDetailId(id);
+    setMatDraft({
+      name: m.name,
+      kind: m.assetId && !m.texturePattern ? 'image' : 'color',
+      color: m.color,
+      pattern: m.texturePattern || 'none',
+      assetId: m.texturePattern ? undefined : m.assetId,
+      sampleWidthMm: m.sampleWidthMm,
+    });
+    setMatDeleting(false);
+    setMatReplaceId('');
+  };
+  const launchUpload = () => { setFabTarget(null); fabReturnRef.current = true; setFabAddOpen(false); fabricFileRef.current?.click(); };
+  const launchReplaceImage = () => { if (!matDetailId) return; setFabTarget(matDetailId); fabReturnRef.current = true; fabricFileRef.current?.click(); };
+  const createColorMat = () => {
+    const holder: { mat: Material | null } = { mat: null };
+    commit((doc) => {
+      const seq = nextMatSeq(doc.materials);
+      holder.mat = { id: `M${seq}`, name: `新布料 ${seq}`, color: '#b7c9a8' };
+      doc.materials.push(holder.mat);
+    });
+    if (!holder.mat) return;
+    setActiveMaterialId(holder.mat.id);
+    setFabAddOpen(false);
+    setFabEdit(true);
+    openMatDetail(holder.mat.id, holder.mat);
+  };
+  const saveMatDetail = async () => {
+    const d = matDraft;
+    const m = project.materials.find((x) => x.id === matDetailId);
+    if (!d || !m) { closeMatDetail(); return; }
+    let assetId = m.assetId;
+    let assetPath = m.assetPath;
+    let sampleWidthMm = m.sampleWidthMm;
+    let calibrated = m.calibrated;
+    let texturePattern = m.texturePattern;
+    if (d.kind === 'color') {
+      if (d.pattern === 'none') {
+        if (assetId && m.texturePattern) void deleteAsset(assetId);
+        assetId = undefined; assetPath = undefined; sampleWidthMm = undefined; calibrated = undefined; texturePattern = undefined;
+      } else if (m.texturePattern !== d.pattern || m.color !== d.color || !m.assetId) {
+        const blob = await renderPatternTile(d.pattern, d.color);
+        const newAsset = await putAsset(blob);
+        if (assetId && m.texturePattern) void deleteAsset(assetId);
+        assetId = newAsset; assetPath = undefined; sampleWidthMm = 64; calibrated = true; texturePattern = d.pattern;
+      }
+    } else {
+      if (m.texturePattern && m.assetId && m.assetId !== d.assetId) void deleteAsset(m.assetId);
+      assetId = d.assetId;
+      assetPath = d.assetId === m.assetId ? m.assetPath : undefined;
+      sampleWidthMm = d.sampleWidthMm && d.sampleWidthMm > 0 ? d.sampleWidthMm : undefined;
+      calibrated = sampleWidthMm ? true : undefined;
+      texturePattern = undefined;
+    }
+    const name = d.name.trim() || m.name;
+    commit((doc) => {
+      const t = doc.materials.find((x) => x.id === m.id);
+      if (t) { t.name = name; t.color = d.color; t.assetId = assetId; t.assetPath = assetPath; t.sampleWidthMm = sampleWidthMm; t.calibrated = calibrated; t.texturePattern = texturePattern; }
+    });
+    closeMatDetail();
+    toast('布料已保存');
+  };
+  const startDeleteMat = () => {
+    const m = project.materials.find((x) => x.id === matDetailId);
+    if (!m) return;
+    if (project.materials.length <= 1) { toast('至少保留一块布料'); return; }
+    if (usageOf(m.id) === 0) {
+      openConfirm({
+        title: '删除布料', message: `确定删除布料「${m.name}」吗？`, confirmText: '删除', danger: true,
+        onConfirm: () => {
+          commit((doc) => { doc.materials = doc.materials.filter((x) => x.id !== m.id); });
+          if (activeMaterialId === m.id) setActiveMaterialId(project.materials.find((x) => x.id !== m.id)?.id || '');
+          closeMatDetail();
+        },
+      });
+      return;
+    }
+    setMatReplaceId(project.materials.find((x) => x.id !== m.id)?.id || '');
+    setMatDeleting(true);
+  };
+  const confirmDeleteMat = () => {
+    const m = project.materials.find((x) => x.id === matDetailId);
+    if (!m || !matReplaceId) return;
+    const rep = project.materials.find((x) => x.id === matReplaceId);
+    const refs = usageOf(m.id);
+    openConfirm({
+      title: '删除布料',
+      message: `「${m.name}」正被 ${refs} 处使用，删除后将替换为「${rep?.name || matReplaceId}」。确定删除吗？`,
+      confirmText: '删除', danger: true,
+      onConfirm: () => {
+        commit((doc) => {
+          doc.pieces.forEach((pc) => { if (pc.materialId === m.id) pc.materialId = matReplaceId; });
+          if (doc.base.materialId === m.id) doc.base.materialId = matReplaceId;
+          doc.materials = doc.materials.filter((x) => x.id !== m.id);
+        });
+        if (activeMaterialId === m.id) setActiveMaterialId(matReplaceId);
+        closeMatDetail();
+        toast('已删除并替换布料');
+      },
+    });
+  };
+
   /* ---------- 布料上传（选区 + 定标） ---------- */
   const fabAspect = fabSource ? (fabRect.w * fabSource.w) / Math.max(1, fabRect.h * fabSource.h) : 1;
-  const cancelFabCrop = () => {
+  const exitFabCrop = () => {
     setFabSource((cur) => { if (cur) URL.revokeObjectURL(cur.url); return null; });
     fabImgRef.current = null;
-    setPanel(null);
+    setFabTarget(null);
+    const back = fabReturnRef.current;
+    fabReturnRef.current = false;
+    setPanel(back ? 'fabrics' : null);
   };
+  const cancelFabCrop = () => exitFabCrop();
   const fabPoint = (e: React.PointerEvent) => {
     const rect = fabStageRef.current!.getBoundingClientRect();
     return { fx: Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)), fy: Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height)) };
@@ -1087,6 +1227,13 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
     if (!blob) { toast('图片处理失败'); return; }
     const assetId = await putAsset(blob);
     const wMm = Math.max(5, Math.round(fabW));
+    if (fabTarget) {
+      // 详情页「更换图片」：新图先写回正在编辑的草稿，保存详情后才正式生效
+      setMatDraft((d) => (d ? { ...d, kind: 'image', assetId, sampleWidthMm: wMm } : d));
+      exitFabCrop();
+      toast('图片已更换，记得点保存');
+      return;
+    }
     const holder: { mat: Material | null } = { mat: null };
     commit((doc) => {
       const seq = nextMatSeq(doc.materials);
@@ -1096,7 +1243,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
     if (!holder.mat) return;
     const mat = holder.mat;
     setActiveMaterialId(mat.id);
-    cancelFabCrop();
+    exitFabCrop();
     toast(`已添加布料「${mat.name}」，选区实际宽度 ${wMm}mm 已校准`);
   };
 
@@ -1508,19 +1655,19 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
       </div>
 
       <footer className="patchwork-materials">
-        {project.materials.map((m) => (
+        <button className="pw-fab-open" aria-label="打开布料列表" onClick={() => { setFabEdit(false); setMatDetailId(null); setMatDraft(null); setFabAddOpen(false); setPanel('fabrics'); }}>
+          <span className="pw-fab-open-thumb">{activeMaterial ? <MatSwatch m={activeMaterial} /> : <Palette />}</span>
+          <span className="pw-label">布料</span>
+        </button>
+        {project.materials.filter((m) => usageOf(m.id) > 0).map((m) => (
           <button key={m.id} className={activeMaterialId === m.id ? 'selected' : ''}
             aria-label={`布料 ${m.id} ${m.name}`} title={`${m.id} · ${m.name}${m.assetId && !m.calibrated ? '（未校准，仅效果参考）' : ''}`}
             onClick={() => selectMaterial(m.id)}
-            onContextMenu={(e) => { e.preventDefault(); setEditingMat(m.id); setPanel('materials'); }}>
+            onContextMenu={(e) => { e.preventDefault(); setFabEdit(true); openMatDetail(m.id); setPanel('fabrics'); }}>
             <MatSwatch m={m} />
             <span className="pw-label">{m.id}</span>
           </button>
         ))}
-        <button className="pw-addtile" aria-label="管理布料" onClick={() => setPanel('materials')}>
-          <span className="pw-swatch pw-dashed"><Plus /></span>
-          <span className="pw-label">添加</span>
-        </button>
         <span className="patchwork-count">{project.pieces.length} 片</span>
       </footer>
 
@@ -1549,11 +1696,13 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
 
       {panel && (
         <div className={`patchwork-overlay ${(panel === 'fill' || panel === 'import') ? 'nonmodal' : ''}${(panel === 'import' && (importSource || candidates)) || (panel === 'fabriccrop' && fabSource) ? ' import-overlay' : ''}`} onClick={() => { if (panel === 'fabriccrop') cancelFabCrop(); else setPanel(null); }}>
-          <section role="dialog" aria-modal={panel !== 'fill'} className={`patchwork-panel${(panel === 'import' && (importSource || candidates)) || (panel === 'fabriccrop' && fabSource) ? ' importfull' : ''}`} onClick={(e) => e.stopPropagation()}>
-            <header>
-              <strong>{{ base: '底布与项目设置', add: '添加布片', fill: '填布', layers: '图层', materials: '项目布料', export: '图纸导出', import: '导入图片', save: '保存拼布', open: '我的拼布作品', props: '布片属性', leave: '离开编辑器', fabriccrop: '布料上传' }[panel]}</strong>
-              <button aria-label="关闭面板" onClick={() => panel === 'import' ? cancelAnalysis() : panel === 'fabriccrop' ? cancelFabCrop() : setPanel(null)}><X /></button>
-            </header>
+          <section role="dialog" aria-modal={panel !== 'fill'} className={`patchwork-panel${(panel === 'import' && (importSource || candidates)) || (panel === 'fabriccrop' && fabSource) ? ' importfull' : ''}${panel === 'fabrics' ? ' fabricsheet' : ''}`} onClick={(e) => e.stopPropagation()}>
+            {panel !== 'fabrics' && (
+              <header>
+                <strong>{{ base: '底布与项目设置', add: '添加布片', fill: '填布', layers: '图层', fabrics: '选择布料', export: '图纸导出', import: '导入图片', save: '保存拼布', open: '我的拼布作品', props: '布片属性', leave: '离开编辑器', fabriccrop: '布料上传' }[panel]}</strong>
+                <button aria-label="关闭面板" onClick={() => panel === 'import' ? cancelAnalysis() : panel === 'fabriccrop' ? cancelFabCrop() : setPanel(null)}><X /></button>
+              </header>
+            )}
 
             {panel === 'base' && baseForm && (
               <div className="patchwork-form">
@@ -1595,7 +1744,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
                   </div>
                   <div className="patchwork-import-footer">
                     <button onClick={cancelFabCrop}>取消</button>
-                    <button className="primary" onClick={() => void confirmFabCrop()}><Check />添加布料</button>
+                    <button className="primary" onClick={() => void confirmFabCrop()}><Check />{fabTarget ? '使用这张图' : '添加布料'}</button>
                   </div>
                 </div>
               </div>
@@ -1835,84 +1984,129 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
               </div>
             )}
 
-            {panel === 'materials' && (
-              <div className="patchwork-form">
-                {project.materials.map((m) => {
-                  const refs = project.pieces.filter((p) => p.materialId === m.id).length + (project.base.materialId === m.id ? 1 : 0);
-                  const editing = editingMat === m.id;
-                  return (
-                    <div key={m.id} className="patchwork-matrow">
-                      <span className="patchwork-chip-color" style={{ background: m.color }} />
-                      <button className="patchwork-layer-name" onClick={() => setActiveMaterialId(m.id)}>{m.id} · {m.name}</button>
-                      <span className="patchwork-hint">{m.assetId ? (m.calibrated ? '已校准' : '未校准·仅效果参考') : '纯色'} · 引用 {refs}</span>
-                      <button onClick={() => { setEditingMat(editing ? null : m.id); setReplaceWith(project.materials.find((x) => x.id !== m.id)?.id || ''); }}>{editing ? '收起' : '编辑'}</button>
-                      {editing && (
-                        <div className="patchwork-matedit">
-                          <label>名称<input defaultValue={m.name} id={`mat-name-${m.id}`} /></label>
-                          {!m.assetId && <label>颜色<input type="color" defaultValue={m.color} id={`mat-color-${m.id}`} /></label>}
-                          {m.assetId && <label>样本实际宽度 (mm，校准用)<input type="number" min={0} defaultValue={m.sampleWidthMm || 0} id={`mat-sample-${m.id}`} /></label>}
-                          <div className="patchwork-actions">
-                            <button className="primary" onClick={() => {
-                              const name = (document.getElementById(`mat-name-${m.id}`) as HTMLInputElement)?.value || m.name;
-                              const colorEl = document.getElementById(`mat-color-${m.id}`) as HTMLInputElement | null;
-                              const sampleEl = document.getElementById(`mat-sample-${m.id}`) as HTMLInputElement | null;
-                              commit((doc) => { const t = doc.materials.find((x) => x.id === m.id); if (t) { t.name = name; if (colorEl) t.color = colorEl.value; if (sampleEl) { const v = Number(sampleEl.value); t.sampleWidthMm = v > 0 ? v : undefined; t.calibrated = v > 0; } } });
-                              setEditingMat(null);
-                            }}>保存布料</button>
-                          </div>
-                          {refs > 0 && (
-                            <label>被引用时删除需替换为<select value={replaceWith} onChange={(e) => setReplaceWith(e.target.value)}>
-                              {project.materials.filter((x) => x.id !== m.id).map((x) => <option key={x.id} value={x.id}>{x.id} · {x.name}</option>)}
-                            </select></label>
-                          )}
-                          <button className="danger" onClick={() => {
-                            if (refs > 0 && !replaceWith) { toast('该布料仍被引用，请先选择替换布料'); return; }
-                            openConfirm({
-                              title: '删除布料',
-                              message: refs > 0 ? `「${m.id} · ${m.name}」正被 ${refs} 处引用，删除后将替换为「${replaceWith}」。确定删除吗？` : `确定删除布料「${m.id} · ${m.name}」吗？`,
-                              confirmText: '删除',
-                              danger: true,
-                              onConfirm: () => {
-                                commit((doc) => {
-                                  if (refs > 0) { doc.pieces.forEach((p) => { if (p.materialId === m.id) p.materialId = replaceWith; }); if (doc.base.materialId === m.id) doc.base.materialId = replaceWith; }
-                                  doc.materials = doc.materials.filter((x) => x.id !== m.id);
-                                });
-                                if (activeMaterialId === m.id) setActiveMaterialId(replaceWith || 'A');
-                                setEditingMat(null);
-                              },
-                            });
-                          }}>删除布料</button>
+            {panel === 'fabrics' && (
+              matDetailId && matDraft ? (
+                <div className="pw-fab-detail">
+                  <header className="pw-fab-dhead">
+                    <button className="pw-fab-back" onClick={closeMatDetail}><ArrowLeft />取消</button>
+                    <strong>编辑布料</strong>
+                    <button className="pw-fab-save" onClick={() => void saveMatDetail()}>保存</button>
+                  </header>
+                  <div className="pw-fab-preview">
+                    {matDraft.kind === 'image'
+                      ? (matDraft.assetId
+                        ? <MatSwatch m={{ id: matDetailId, name: matDraft.name, color: matDraft.color, assetId: matDraft.assetId }} />
+                        : <span className="pw-fab-preview-empty">还没有图案图片</span>)
+                      : <PatternSwatch pattern={matDraft.pattern} color={matDraft.color} />}
+                    <button className="pw-fab-replace" onClick={launchReplaceImage}><ImagePlus />更换图片</button>
+                  </div>
+                  <label className="pw-fab-field">布料名称<input value={matDraft.name} onChange={(e) => setMatDraft({ ...matDraft, name: e.target.value })} placeholder="给布料起个名字" /></label>
+                  <div className="pw-fab-field"><span>布料类型</span>
+                    <div className="pw-fab-seg">
+                      <button className={matDraft.kind === 'color' ? 'on' : ''} onClick={() => setMatDraft({ ...matDraft, kind: 'color' })}>纯色</button>
+                      <button className={matDraft.kind === 'image' ? 'on' : ''} onClick={() => { if (matDraft.assetId) setMatDraft({ ...matDraft, kind: 'image' }); else launchReplaceImage(); }}>图案布</button>
+                    </div>
+                  </div>
+                  {matDraft.kind === 'color' && (
+                    <>
+                      <div className="pw-fab-field"><span>颜色</span>
+                        <div className="pw-fab-colors">
+                          {PRESET_COLORS.map((c) => (
+                            <button key={c} style={{ background: c }} className={matDraft.color.toLowerCase() === c ? 'on' : ''} aria-label={`预设颜色 ${c}`} onClick={() => setMatDraft({ ...matDraft, color: c })} />
+                          ))}
+                        </div>
+                        <div className="pw-fab-hexrow">
+                          <input type="color" value={matDraft.color} onChange={(e) => setMatDraft({ ...matDraft, color: e.target.value })} aria-label="自定义颜色" />
+                          <input value={matDraft.color} onChange={(e) => setMatDraft({ ...matDraft, color: e.target.value })} aria-label="颜色值" />
+                        </div>
+                      </div>
+                      <div className="pw-fab-field"><span>纹理</span>
+                        <div className="pw-fab-textures">
+                          <button className={matDraft.pattern === 'none' ? 'on' : ''} onClick={() => setMatDraft({ ...matDraft, pattern: 'none' })}><PatternSwatch pattern="none" color={matDraft.color} /><em>无纹理</em></button>
+                          {TEXTURE_PATTERNS.map((p) => (
+                            <button key={p.id} className={matDraft.pattern === p.id ? 'on' : ''} onClick={() => setMatDraft({ ...matDraft, pattern: p.id })}><PatternSwatch pattern={p.id} color={matDraft.color} /><em>{p.name}</em></button>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                  {matDraft.kind === 'image' && (
+                    <label className="pw-fab-field">图案实际宽度 (mm，校准纹理比例)<input type="number" min={0} value={matDraft.sampleWidthMm ?? ''} onChange={(e) => setMatDraft({ ...matDraft, sampleWidthMm: Number(e.target.value) || undefined })} placeholder="如 150" /></label>
+                  )}
+                  <p className="pw-fab-usage">当前项目使用 {usageOf(matDetailId)} 处，保存后同步更新这些图形。</p>
+                  {matDeleting ? (
+                    <div className="pw-fab-replacepick">
+                      <span>这块布正被使用，先选择替代布料（{usageOf(matDetailId)} 处引用会改用它）：</span>
+                      <div className="pw-fab-repgrid">
+                        {project.materials.filter((x) => x.id !== matDetailId).map((x) => (
+                          <button key={x.id} className={matReplaceId === x.id ? 'on' : ''} onClick={() => setMatReplaceId(x.id)}>
+                            <MatSwatch m={x} /><em>{x.name}</em>
+                          </button>
+                        ))}
+                      </div>
+                      <div className="pw-fab-delactions">
+                        <button onClick={() => setMatDeleting(false)}>取消</button>
+                        <button className="danger" disabled={!matReplaceId} onClick={confirmDeleteMat}>替换并删除</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button className="pw-fab-delete" onClick={startDeleteMat}><Trash2 />删除布料</button>
+                  )}
+                </div>
+              ) : (
+                <div className="pw-fab-listwrap">
+                  <header className="pw-fab-head">
+                    <div className="pw-fab-title">
+                      <strong>{fabEdit ? '编辑布料' : '选择布料'}</strong>
+                      {fabEdit && <span>点击布料进行编辑</span>}
+                    </div>
+                    <button className="pw-fab-editbtn" onClick={() => setFabEdit(!fabEdit)}>{fabEdit ? '完成' : '编辑'}</button>
+                    <button className="pw-fab-close" aria-label="关闭布料面板" onClick={closeFabrics}><X /></button>
+                  </header>
+                  <label className="pw-fab-search"><Search /><input value={fabQuery} onChange={(e) => setFabQuery(e.target.value)} placeholder="搜索布料名称" /></label>
+                  {fabricPick ? (
+                    <div className="patchwork-works">
+                      <button className="pw-fab-backlink" onClick={() => setFabricPick(null)}><ArrowLeft />返回布料列表</button>
+                      {fabricPick.length === 0 && <p className="patchwork-hint">布料仓库还是空的。去底部「我的 → 仓库 → 布料仓库」先把囤的布登记进来。</p>}
+                      {fabricPick.map((f) => (
+                        <div className="patchwork-workrow" key={f.id}>
+                          <button className="patchwork-workrow-main" onClick={() => void addFabricMaterial(f)}>
+                            <strong>{f.name}</strong>
+                            <small>{f.widthMm && f.heightMm ? `${f.widthMm}×${f.heightMm} mm · ` : ''}库存 {f.quantity}</small>
+                          </button>
+                          {f.image ? <img className="patchwork-fabric-thumb" src={f.image} alt="" /> : <span className="patchwork-chip-color" style={{ background: f.color || '#d9c8a9' }} />}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <>
+                      <div className="pw-fab-grid">
+                        {project.materials.filter((m) => !fabQuery.trim() || m.name.toLowerCase().includes(fabQuery.trim().toLowerCase()) || m.id.toLowerCase().includes(fabQuery.trim().toLowerCase())).map((m) => (
+                          <button key={m.id} className={`pw-fab-card${activeMaterialId === m.id ? ' on' : ''}`} onClick={() => (fabEdit ? openMatDetail(m.id) : pickMaterial(m.id))}>
+                            <span className="pw-fab-card-sw"><MatSwatch m={m} /></span>
+                            <span className="pw-fab-card-name">{m.name}</span>
+                            {fabEdit
+                              ? <span className="pw-fab-badge edit"><Pencil /></span>
+                              : activeMaterialId === m.id ? <span className="pw-fab-badge check"><Check /></span> : null}
+                          </button>
+                        ))}
+                        <button className="pw-fab-card add" onClick={() => setFabAddOpen(!fabAddOpen)}>
+                          <span className="pw-fab-card-sw pw-fab-addsw"><Plus /></span>
+                          <span className="pw-fab-card-name">添加布料</span>
+                        </button>
+                      </div>
+                      {fabAddOpen && (
+                        <div className="pw-fab-addrow">
+                          <button onClick={launchUpload}><Upload />上传照片</button>
+                          <button onClick={() => withToken(openFabricPicker)}>从布料仓库</button>
+                          <button onClick={createColorMat}><Plus />新建纯色</button>
                         </div>
                       )}
-                    </div>
-                  );
-                })}
-                <div className="patchwork-actions">
-                  <button onClick={() => {
-                    const seq = nextMatSeq(project.materials);
-                    const mat: Material = { id: `M${seq}`, name: `新布料 ${seq}`, color: '#b7c9a8' };
-                    commit((doc) => { doc.materials.push(mat); });
-                    setActiveMaterialId(mat.id); setEditingMat(mat.id);
-                  }}><Plus />新增纯色布料</button>
-                  <button onClick={() => fabricFileRef.current?.click()}><Upload />上传布料照片</button>
-                  <button onClick={() => withToken(openFabricPicker)}>从布料仓库添加</button>
+                      <p className="patchwork-hint">点布料设为当前布料并收起，不会改动画布；填充仍由当前工具完成。</p>
+                    </>
+                  )}
                 </div>
-                {fabricPick && (
-                  <div className="patchwork-works">
-                    {fabricPick.length === 0 && <p className="patchwork-hint">布料仓库还是空的。去底部「我的 → 仓库 → 布料仓库」先把囤的布登记进来。</p>}
-                    {fabricPick.map((f) => (
-                      <div className="patchwork-workrow" key={f.id}>
-                        <button className="patchwork-workrow-main" onClick={() => void addFabricMaterial(f)}>
-                          <strong>{f.name}</strong>
-                          <small>{f.widthMm && f.heightMm ? `${f.widthMm}×${f.heightMm} mm · ` : ''}库存 {f.quantity}</small>
-                        </button>
-                        {f.image ? <img className="patchwork-fabric-thumb" src={f.image} alt="" /> : <span className="patchwork-chip-color" style={{ background: f.color || '#d9c8a9' }} />}
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <p className="patchwork-hint">布料编号（A/B/C…）用于材料清单，布片编号用于几何，两者分开。长按底部布料块也可直接编辑。</p>
-              </div>
+              )
             )}
 
             {panel === 'export' && (
