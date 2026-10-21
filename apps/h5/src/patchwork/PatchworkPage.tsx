@@ -1,3 +1,5 @@
+import { CompositionSafeInput } from '../shared/CompositionSafeInput';
+import { isImeComposing } from '../shared/ime';
 import { findBuiltinFabric, unifiedFabrics, presetAsset, matchesMaterialFabric, registerUsedPresetFabrics } from '../fabrics/fabricCatalog';
 import { FabricStockDialog, recordFabricStock } from '../fabrics/FabricStockDialog';
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
@@ -421,7 +423,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
   useEffect(() => {
     if (creatingFabric || !panel || typeof window === 'undefined' || typeof window.addEventListener !== 'function') return undefined;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
+      if (isImeComposing(event) || event.key !== 'Escape') return;
       event.preventDefault();
       if (panel === 'import') cancelAnalysis();
       else if (panel === 'fabriccrop') cancelFabCrop();
@@ -2225,7 +2227,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
                 <div className="pw-grid pw-base-grid">
                   <label className="pw-span2">
                     <span>项目名称</span>
-                    <input type="text" value={baseForm.name} placeholder="未命名拼布" onChange={(e) => setBaseForm((cur) => (cur ? { ...cur, name: e.target.value } : cur))} />
+                    <CompositionSafeInput type="text" value={baseForm.name} placeholder="未命名拼布" onValueChange={(name) => setBaseForm((cur) => (cur ? { ...cur, name } : cur))} />
                   </label>
                   <label>
                     <span>底布宽度 (cm)</span>
@@ -2415,7 +2417,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
                             </div>
                           ))}
                         </div>
-                        {importToShapesRef.current && <label className="pw-shape-import-name">形状名称<input aria-label="导入形状名称" value={importName} onChange={(e) => setImportName(e.target.value)} /></label>}
+                        {importToShapesRef.current && <label className="pw-shape-import-name">形状名称<CompositionSafeInput aria-label="导入形状名称" value={importName} onValueChange={setImportName} /></label>}
                         <div className="patchwork-import-footer">
                           <button onClick={cancelAnalysis}>取消</button>
                           <button onClick={mergeCandidates} disabled={candidates.filter((c) => c.chosen && !c.excluded).length < 2}>合并选中</button>
@@ -2568,7 +2570,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
                       : <PatternSwatch pattern={matDraft.pattern} color={matDraft.color} />}
                     <button className="pw-fab-replace" onClick={launchReplaceImage}><ImagePlus />更换图片</button>
                   </div>
-                  <label className="pw-fab-field">布料名称<input value={matDraft.name} onChange={(e) => setMatDraft({ ...matDraft, name: e.target.value })} placeholder="给布料起个名字" /></label>
+                  <label className="pw-fab-field">布料名称<CompositionSafeInput value={matDraft.name} onValueChange={(name) => setMatDraft(cur => cur ? { ...cur, name } : cur)} placeholder="给布料起个名字" /></label>
                   <div className="pw-fab-field"><span>布料类型</span>
                     <div className="pw-fab-seg">
                       <button className={matDraft.kind === 'color' ? 'on' : ''} onClick={() => setMatDraft({ ...matDraft, kind: 'color' })}>纯色</button>
@@ -2932,12 +2934,12 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
                 <div className="pw-grid pw-base-grid">
                   <label className="pw-span2">
                     <span>名称</span>
-                    <input
+                    <CompositionSafeInput
                       type="text"
                       value={single.name}
                       placeholder="未命名布片"
                       onFocus={() => { if (!nameOrig.current) nameOrig.current = cloneDocument(docOf(project)); }}
-                      onChange={(e) => { const v = e.target.value; const pid = single.id; setProject((cur) => ({ ...cur, pieces: cur.pieces.map((p) => (p.id === pid ? { ...p, name: v } : p)) })); }}
+                      onValueChange={(v) => { const pid = single.id; setProject((cur) => ({ ...cur, pieces: cur.pieces.map((p) => (p.id === pid ? { ...p, name: v } : p)) })); }}
                       onBlur={nameCommit}
                     />
                   </label>
@@ -2997,7 +2999,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
             )}
             {panel === 'save' && (
               <div className="patchwork-form">
-                <label>作品名称<input value={saveName} onChange={(e) => setSaveName(e.target.value)} placeholder="未命名拼布" /></label>
+                <label>作品名称<CompositionSafeInput value={saveName} onValueChange={setSaveName} placeholder="未命名拼布" /></label>
                 <p className="patchwork-hint">保存到「我的作品」，可从「我的作品」页打开继续编辑。</p>
                 <div className="patchwork-actions">
                   <button onClick={() => setPanel(null)}>取消</button>

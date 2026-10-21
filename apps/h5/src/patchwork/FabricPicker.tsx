@@ -1,3 +1,4 @@
+import { CompositionSafeInput } from '../shared/CompositionSafeInput';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Ban, Check, Pencil, Plus, Search, X } from 'lucide-react';
 import { unifiedFabrics, matchesMaterialFabric } from '../fabrics/fabricCatalog';
@@ -94,7 +95,7 @@ export function FabricPicker({
         {!hideEditorActions && <button type="button" className="pw-fab-editbtn" onClick={() => onEditModeChange(!editMode)}>{editMode ? '完成' : '编辑'}</button>}
         <button type="button" className="pw-fab-close" aria-label="关闭布料面板" onClick={onClose}><X /></button>
       </header>
-      <label className="pw-fab-search"><Search /><input value={query} onChange={e => onQueryChange(e.target.value)} placeholder="搜索布料名称" /></label>
+      <label className="pw-fab-search"><Search /><CompositionSafeInput value={query} onValueChange={onQueryChange} placeholder="搜索布料名称" /></label>
       {warehouseContent ?? <div className="pw-fab-scroll" ref={scrollRef}
         onScroll={e => loadAtBottom(e.currentTarget)}
         onWheel={e => { if (e.deltaY > 0) loadAtBottom(e.currentTarget); }}

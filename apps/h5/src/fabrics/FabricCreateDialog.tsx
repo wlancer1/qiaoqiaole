@@ -1,3 +1,5 @@
+import { CompositionSafeInput } from '../shared/CompositionSafeInput';
+import { isImeComposing } from '../shared/ime';
 import { useEffect, useRef, useState } from 'react';
 import { Crop, Upload } from 'lucide-react';
 import { useAppOverlay } from '../app/overlays/AppOverlayContext';
@@ -72,6 +74,7 @@ export function FabricCreateDialog({ allowProjectOnly = false, onClose, onSave }
  useEffect(() => {
   if (typeof window === 'undefined') return;
   const handler = (event: KeyboardEvent) => {
+   if (isImeComposing(event)) return;
    if (typeof document !== 'undefined' && document.querySelector?.('[data-overlay-slot="login"] [role="dialog"]')) return;
    if (event.key === 'Escape') {
     event.preventDefault();
@@ -298,9 +301,9 @@ export function FabricCreateDialog({ allowProjectOnly = false, onClose, onSave }
        </div>
        <label className="fabric-create-field">
         名称
-        <input
+        <CompositionSafeInput
          value={name}
-         onChange={e => setName(e.target.value)}
+         onValueChange={setName}
          placeholder="如：复古红碎花棉布"
          maxLength={80}
         />
@@ -355,9 +358,9 @@ export function FabricCreateDialog({ allowProjectOnly = false, onClose, onSave }
 
        <label className="fabric-create-field">
         备注
-        <input
+        <CompositionSafeInput
          value={note}
-         onChange={e => setNote(e.target.value)}
+         onValueChange={setNote}
          placeholder="如：宜家购入，做裙子剩的"
         />
        </label>

@@ -21,7 +21,7 @@ async function mount(requestApi: ReturnType<typeof vi.fn>) {
  await act(async () => { renderer = create(<Provider store={createH5Store()}><MemoryRouter><AppOverlayProvider><AppOverlayHost /><PatchworkPage token="token" requestApi={requestApi as any} /></AppOverlayProvider></MemoryRouter></Provider>, { createNodeMock: e => e.type === 'canvas' ? { getContext: () => null, getBoundingClientRect: () => ({ left: 0, top: 0, width: 360, height: 480 }) } : null }); });
  await act(async () => button('打开布料列表').props.onClick());
  act(() => button('新增布料').props.onClick());
- act(() => dialog().findByProps({placeholder:'如：复古红碎花棉布'}).props.onChange({target:{value:'新布料'}}));
+ act(() => dialog().find(node => node.type === 'input' && node.props.placeholder === '如：复古红碎花棉布').props.onChange({target:{value:'新布料'}}));
 }
 const dialog = () => renderer.root.findAll(n => n.props.role === 'dialog' && n.props['aria-label'] === '新增布料')[0];
 const posts = (api: ReturnType<typeof vi.fn>) => api.mock.calls.filter(([url, init]) => url === '/fabrics' && init?.method === 'POST');
@@ -105,6 +105,19 @@ describe('editor new fabric inventory', () => {
   act(()=>scroll().props.onTouchEnd({changedTouches:[{clientY:250}],currentTarget:el}));
   act(()=>scroll().props.onWheel({deltaY:50,currentTarget:el}));
   expect(loadMore).toHaveBeenCalledTimes(1);
+ });
+
+ it('does not search for unfinished pinyin and keeps the committed Chinese query', async () => {
+  const query=vi.fn();const props={materials:[],selectedId:'',editMode:false,query:'',onQueryChange:query,onSelect:vi.fn(),onEditMaterial:vi.fn(),onEditModeChange:vi.fn(),onCreate:vi.fn(),onClose:vi.fn()};
+  await act(async()=>{renderer=create(<FabricPicker {...props}/>);});
+  const input=()=>renderer.root.findByType('input');
+  act(()=>input().props.onCompositionStart({currentTarget:{value:''}}));
+  act(()=>input().props.onChange({currentTarget:{value:'suige'}}));
+  expect(query).not.toHaveBeenCalled();expect(input().props.value).toBe('suige');
+  await act(async()=>renderer.update(<FabricPicker {...props} editMode/>));
+  expect(input().props.value).toBe('suige');
+  act(()=>input().props.onCompositionEnd({currentTarget:{value:'碎格'}}));
+  expect(query).toHaveBeenCalledWith('碎格');
  });
 
 });

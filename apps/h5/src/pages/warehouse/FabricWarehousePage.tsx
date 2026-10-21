@@ -1,3 +1,4 @@
+import { CompositionSafeInput } from '../../shared/CompositionSafeInput';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, History, Pencil, Plus, Search, Trash2, Upload } from 'lucide-react';
 import { useAppOverlay } from '../../app/overlays/AppOverlayContext';
@@ -318,7 +319,7 @@ export function FabricWarehousePage({ token, onBack, request, withLogin }: {
           <div className="fabric-form-row-2">
             <label style={undefined}>
               名称
-              <input value={form.name} onChange={(e) => setForm((current) => ({ ...current, name: e.target.value }))} placeholder="如：复古红碎花棉布" />
+              <CompositionSafeInput value={form.name} onValueChange={(value) => setForm((current) => ({ ...current, name: value }))} placeholder="如：复古红碎花棉布" />
             </label>
             {true ? (
             <label>
@@ -401,7 +402,7 @@ export function FabricWarehousePage({ token, onBack, request, withLogin }: {
             <p className="fabric-area-calc">折合可用面积：<strong>{previewAreaCm2} cm²</strong></p>
           ) : null}
 
-          <label>备注<input value={form.note} onChange={(e) => setForm((current) => ({ ...current, note: e.target.value }))} placeholder="如：宜家购入，做裙子剩的" /></label>
+          <label>备注<CompositionSafeInput value={form.note} onValueChange={(value) => setForm((current) => ({ ...current, note: value }))} placeholder="如：宜家购入，做裙子剩的" /></label>
           <div className="fabric-form-actions">
             <button type="button" className="primary home-create-submit" disabled={saving} onClick={submit}>{saving ? '保存中…' : '保存布料'}</button>
             {true ? <button type="button" className="danger" disabled={saving} onClick={() => remove(editing)}><Trash2 aria-hidden="true" />删除</button> : null}
@@ -471,12 +472,12 @@ export function FabricWarehousePage({ token, onBack, request, withLogin }: {
       <section className="fabric-filter-bar" aria-label="布料搜索与筛选">
         <label className="fabric-search-box">
           <Search aria-hidden="true" />
-          <input
+          <CompositionSafeInput
             type="search"
             aria-label="搜索布料名称、色系或分类"
             placeholder="搜索布料名称、花色、备注…"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onValueChange={setSearch}
           />
         </label>
         <div className="fabric-filter-chips" role="tablist" aria-label="库存状态筛选">

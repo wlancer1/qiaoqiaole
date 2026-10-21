@@ -1,3 +1,4 @@
+import { isImeComposing } from '../shared/ime';
 import { useEffect, useState } from 'react';
 import { useAppOverlay } from '../app/overlays/AppOverlayContext';
 import { useBodyScrollLock } from '../app/overlays/useBodyScrollLock';
@@ -31,7 +32,7 @@ export function PatchworkCreateDialog({ onCancel, onConfirm, warehouseFabrics = 
     : [];
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
+      if (isImeComposing(event) || event.key !== 'Escape') return;
       event.preventDefault(); event.stopImmediatePropagation();
       if (pickerOpen) setPickerOpen(false); else onCancel();
     };

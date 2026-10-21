@@ -1,3 +1,4 @@
+import { isImeComposing } from './ime';
 import { useEffect, useRef, useState } from 'react';
 import { useBodyScrollLock } from '../app/overlays/useBodyScrollLock';
 
@@ -22,7 +23,7 @@ export function ConfirmDialog({ title, message, confirmText = '确认', cancelTe
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !isSubmitting) onCancel();
+      if (!isImeComposing(event) && event.key === 'Escape' && !isSubmitting) onCancel();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);

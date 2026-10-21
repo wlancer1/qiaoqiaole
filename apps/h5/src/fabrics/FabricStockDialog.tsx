@@ -1,3 +1,4 @@
+import { isImeComposing } from '../shared/ime';
 import { useEffect, useRef, useState } from 'react';
 import { useAppOverlay } from '../app/overlays/AppOverlayContext';
 import { useBodyScrollLock } from '../app/overlays/useBodyScrollLock';
@@ -29,7 +30,7 @@ export function FabricStockDialog({ fabric, onSave, onClose }: {
  useBodyScrollLock(true);
  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
  useEffect(() => {
-  const key = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); if (!busy.current) onClose(); } };
+  const key = (event: KeyboardEvent) => { if (!isImeComposing(event) && event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); if (!busy.current) onClose(); } };
   window.addEventListener('keydown', key, true);
   return () => window.removeEventListener('keydown', key, true);
  }, [onClose]);

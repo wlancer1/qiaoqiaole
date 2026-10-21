@@ -1,3 +1,4 @@
+import { CompositionSafeInput } from '../shared/CompositionSafeInput';
 import { useEffect, useRef, useState } from 'react';
 import { ImagePlus, Search, Star } from 'lucide-react';
 import { pointBounds } from './model';
@@ -83,7 +84,7 @@ export function AddShapePanel({ templates, onTemplatesChange, onImport, onPlace,
     <div className="pw-add-tabs" role="tablist" aria-label="形状分类">{categories.map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={category === id} onClick={() => { setCategory(id); setShapeGroup('all'); setQuery(''); setVisibleLimit(SHAPE_BATCH_SIZE); }}>{label}</button>)}</div>
     <div className="pw-add-body" ref={bodyRef} onScroll={(event) => loadOnScroll(event.currentTarget)}>
       <div className="pw-add-search-row">
-        <label className="pw-add-search"><Search /><input aria-label="搜索形状" placeholder={category === 'mine' ? '搜索我的形状…' : '搜索形状…'} value={query} onChange={(e) => { setQuery(e.target.value); setVisibleLimit(SHAPE_BATCH_SIZE); }} /></label>
+        <label className="pw-add-search"><Search /><CompositionSafeInput aria-label="搜索形状" placeholder={category === 'mine' ? '搜索我的形状…' : '搜索形状…'} value={query} onValueChange={(value) => { setQuery(value); setVisibleLimit(SHAPE_BATCH_SIZE); }} /></label>
         {category === 'mine' && <button type="button" className="pw-add-import" disabled={library?.saving} onClick={onImport}><ImagePlus />导入图片</button>}
       </div>
       {category === 'mine' && library && <div className="pw-add-sync" role="status">{library.error ? <>{library.error} <button type="button" onClick={library.retry}>重试</button></> : library.saving ? '正在保存…' : library.loading ? '正在加载…' : library.accountId ? '形状保存到当前账号' : '当前保存于本机，登录后同步到账号'}</div>}

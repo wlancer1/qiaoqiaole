@@ -62,7 +62,7 @@ describe('AddShapePanel：点击形状立即放到画布', () => {
     clickText(h.root, '花叶植物');
     expect(h.root.findAllByProps({ className: 'pw-add-choice' })).toHaveLength(7);
     expect(h.root.findAllByProps({ 'aria-label': '添加形状 六瓣花' })).toHaveLength(1);
-    act(() => h.root.findByProps({ 'aria-label': '搜索形状' }).props.onChange({ target: { value: '蝴蝶' } }));
+    act(() => h.root.find(node => node.type === 'input' && node.props['aria-label'] === '搜索形状').props.onChange({ target: { value: '蝴蝶' } }));
     expect(h.root.findAllByProps({ 'aria-label': '添加形状 蝴蝶' })).toHaveLength(1);
     expect(h.root.findAllByProps({ 'aria-label': '添加形状 蝴蝶结' })).toHaveLength(1);
     await act(async () => { h.root.findByProps({ 'aria-label': '添加形状 蝴蝶' }).props.onClick(); });
@@ -71,7 +71,7 @@ describe('AddShapePanel：点击形状立即放到画布', () => {
     clickText(h.root, '几何裁片');
     // 有搜索词时仍在全部基础形状中搜索；清空搜索后恢复几何分组。
     expect(h.root.findAllByProps({ 'aria-label': '添加形状 蝴蝶' })).toHaveLength(1);
-    act(() => h.root.findByProps({ 'aria-label': '搜索形状' }).props.onChange({ target: { value: '' } }));
+    act(() => h.root.find(node => node.type === 'input' && node.props['aria-label'] === '搜索形状').props.onChange({ target: { value: '' } }));
     expect(h.root.findAllByProps({ 'aria-label': '添加形状 蝴蝶' })).toHaveLength(0);
     expect(h.root.findAllByProps({ 'aria-label': '添加形状 长方形' })).toHaveLength(1);
   });
@@ -109,9 +109,9 @@ describe('AddShapePanel：点击形状立即放到画布', () => {
     expect(h.root.findAllByProps({ className: 'pw-add-choice' })).toHaveLength(16);
     clickText(h.root, '基础形状');
     scroll(h.root);
-    act(() => h.root.findByProps({ 'aria-label': '搜索形状' }).props.onChange({ target: { value: '三角形' } }));
+    act(() => h.root.find(node => node.type === 'input' && node.props['aria-label'] === '搜索形状').props.onChange({ target: { value: '三角形' } }));
     expect(h.root.findByProps({ 'aria-label': '添加形状 等边三角形' })).toBeTruthy();
-    act(() => h.root.findByProps({ 'aria-label': '搜索形状' }).props.onChange({ target: { value: '' } }));
+    act(() => h.root.find(node => node.type === 'input' && node.props['aria-label'] === '搜索形状').props.onChange({ target: { value: '' } }));
     expect(h.root.findAllByProps({ className: 'pw-add-choice' })).toHaveLength(16);
     scroll(h.root);
     clickText(h.root, '几何裁片');
@@ -152,7 +152,7 @@ describe('AddShapePanel：点击形状立即放到画布', () => {
     expect(h.onImport).toHaveBeenCalledOnce();
     act(() => h.root.findByProps({ 'aria-label': '收藏 测试叶片' }).props.onClick());
     expect(h.onTemplatesChange).toHaveBeenCalledWith([expect.objectContaining({ favorite: true })]);
-    act(() => h.root.findByProps({ 'aria-label': '搜索形状' }).props.onChange({ target: { value: '不存在' } }));
+    act(() => h.root.find(node => node.type === 'input' && node.props['aria-label'] === '搜索形状').props.onChange({ target: { value: '不存在' } }));
     expect(h.root.findAllByProps({ 'aria-label': '添加形状 测试叶片' })).toHaveLength(0);
     expect(h.onPlace).not.toHaveBeenCalled();
   });

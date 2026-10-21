@@ -22,15 +22,36 @@ describe('shared fabric create dialog',()=>{
   const dialog=renderer!.root.findByProps({role:'dialog','aria-label':'新增布料'});const stop=vi.fn();
   act(()=>dialog.props.onClick({stopPropagation:stop}));expect(stop).toHaveBeenCalled();expect(close).not.toHaveBeenCalled();
   act(()=>button('关闭布料表单').props.onClick());expect(close).toHaveBeenCalledTimes(1);expect(save).not.toHaveBeenCalled();
+  act(()=>listeners.get('keydown')!({key:'Escape',isComposing:true,preventDefault:vi.fn(),stopImmediatePropagation:vi.fn()}));expect(close).toHaveBeenCalledTimes(1);
   const prevent=vi.fn();act(()=>listeners.get('keydown')!({key:'Escape',preventDefault:prevent,stopImmediatePropagation:vi.fn()}));expect(prevent).toHaveBeenCalled();expect(close).toHaveBeenCalledTimes(2);
   act(()=>renderer!.root.findByProps({role:'presentation'}).props.onClick());expect(close).toHaveBeenCalledTimes(3);
   vi.stubGlobal('document',{querySelector:()=>({})});
   act(()=>listeners.get('keydown')!({key:'Escape',preventDefault:vi.fn(),stopImmediatePropagation:vi.fn()}));expect(close).toHaveBeenCalledTimes(3);
  });
+
+ it('keeps Chinese names and notes intact, and treats Escape as candidate input even without isComposing', async()=>{
+  const listeners=new Map<string,Function>(),close=vi.fn(),save=vi.fn(async()=>{});
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);vi.stubGlobal('window',{addEventListener:(name:string,fn:Function)=>listeners.set(name,fn),removeEventListener:vi.fn()});
+  await act(async()=>{renderer=create(<AppOverlayProvider><FabricCreateDialog onClose={close} onSave={save}/><Host/></AppOverlayProvider>);});
+  const name=()=>renderer!.root.find(node=>node.type==='input'&&node.props.placeholder==='如：复古红碎花棉布');
+  const target={value:''};
+  act(()=>name().props.onCompositionStart({currentTarget:target}));
+  target.value='suige';act(()=>name().props.onChange({currentTarget:target}));
+  const prevent=vi.fn();act(()=>listeners.get('keydown')!({key:'Escape',target,isComposing:false,preventDefault:prevent}));
+  expect(close).not.toHaveBeenCalled();expect(prevent).not.toHaveBeenCalled();
+  expect(name().props.value).toBe('suige');
+  target.value='碎格棉布';act(()=>name().props.onCompositionEnd({currentTarget:target}));
+  const note=()=>renderer!.root.find(node=>node.type==='input'&&node.props.placeholder==='如：宜家购入，做裙子剩的');
+  act(()=>note().props.onCompositionStart({currentTarget:{value:''}}));
+  act(()=>note().props.onChange({currentTarget:{value:'ce shi'}}));
+  act(()=>note().props.onCompositionEnd({currentTarget:{value:'测试备注'}}));
+  await act(async()=>button('保存布料').props.onClick());
+  expect(save).toHaveBeenCalledWith(expect.objectContaining({payload:expect.objectContaining({name:'碎格棉布',note:'测试备注'})}));
+ });
  it('defaults unknown stock, validates dimensions and emits the same payload for both entry points',async()=>{
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);vi.stubGlobal('window',{addEventListener:vi.fn(),removeEventListener:vi.fn()});const save=vi.fn(async()=>{});
   await act(async()=>{renderer=create(<AppOverlayProvider><FabricCreateDialog onClose={vi.fn()} onSave={save}/><Host/></AppOverlayProvider>);});
-  act(()=>renderer!.root.findByProps({placeholder:'如：复古红碎花棉布'}).props.onChange({target:{value:'测试布料'}}));
+  act(()=>renderer!.root.find(node => node.type === 'input' && node.props.placeholder === '如：复古红碎花棉布').props.onChange({target:{value:'测试布料'}}));
   expect(renderer!.root.findAllByType('select')).toHaveLength(0);
   await act(async()=>{await button('保存布料').props.onClick();});
   expect(save).toHaveBeenLastCalledWith(expect.objectContaining({payload:expect.objectContaining({stockMode:'own',availableAreaMm2:null,widthMm:null,heightMm:null})}));
