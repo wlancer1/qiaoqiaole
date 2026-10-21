@@ -1,3 +1,4 @@
+import { presetAssetUrl } from '../fabrics/fabricCatalog';
 import { newPatchworkId } from './ids';
 
 /** 图片字节存 IndexedDB；作品 JSON 只存稳定的 assetId。 */
@@ -26,6 +27,8 @@ export async function deleteAsset(id: string) {
   finally { db.close(); }
 }
 export async function getAsset(id: string): Promise<Blob | undefined> {
+  const presetUrl = presetAssetUrl(id);
+  if (presetUrl) { const response = await fetch(presetUrl); if (!response.ok) throw new Error('布料图案加载失败'); return response.blob(); }
   const db = await openDb();
   try { return await new Promise<Blob | undefined>((resolve, reject) => {
     const req = db.transaction(STORE).objectStore(STORE).get(id);

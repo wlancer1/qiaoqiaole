@@ -23,6 +23,7 @@ export function H5RouteSwitch({ pages }: { pages: H5RoutePages }) {
     <Route path={H5_ROUTE_PATHS.projectBeading} element={pages.beading} />
     <Route path={H5_ROUTE_PATHS.warehouses} element={pages.warehouse} />
     <Route path={H5_ROUTE_PATHS.warehouseDetail} element={pages['warehouse-detail']} />
+    <Route path={H5_ROUTE_PATHS.fabrics} element={pages.fabrics} />
     <Route path={H5_ROUTE_PATHS.split} element={pages.split} />
     <Route path={H5_ROUTE_PATHS.splitCrop} element={pages['split-crop']} />
     <Route path={H5_ROUTE_PATHS.splitPreview} element={pages['split-preview']} />
@@ -42,7 +43,7 @@ export function H5RoutedContent({ pages, onReload, authStatus }: {
 }) {
   const location = useLocation();
   const resetKey = `${location.pathname}${location.search}${location.hash}`;
-  const isProtectedPath = /^\/(?:projects|warehouses|following|followers)(?:\/|$)/.test(location.pathname);
+  const isProtectedPath = /^\/(?:projects|warehouses|fabrics|following|followers)(?:\/|$)/.test(location.pathname);
   const authDecision = isProtectedPath && authStatus ? resolveAuthRoute({ status: authStatus }) : 'allow';
 
   if (authDecision === 'wait') return <DelayedRouteLoadingFallback />;

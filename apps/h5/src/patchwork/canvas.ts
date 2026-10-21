@@ -32,7 +32,17 @@ export function drawScene(canvas:HTMLCanvasElement,project:PatchworkProject,view
   const base=project.materials.find((a)=>a.id===project.base.materialId);
   if(base?.assetId && opts.images.has(base.assetId)) {
     const image=opts.images.get(base.assetId)!;
-    ctx.globalAlpha=.83;ctx.drawImage(image,ox,oy,bw,bh);ctx.globalAlpha=1;
+    const pattern = ctx.createPattern(image, 'repeat');
+    if (pattern && image.naturalWidth > 0 && image.naturalHeight > 0) {
+      // Anchor at the base origin; preserve the calibrated physical size in both axes.
+      const sampleWidthMm = Number.isFinite(base.sampleWidthMm) && base.sampleWidthMm! > 0 ? base.sampleWidthMm! : 64;
+      const imageScale = sampleWidthMm / image.naturalWidth * m.scale;
+      ctx.save();
+      ctx.translate(ox, oy);ctx.scale(imageScale, imageScale);
+      ctx.globalAlpha=.83;ctx.fillStyle=pattern;
+      ctx.fillRect(0, 0, bw / imageScale, bh / imageScale);
+      ctx.restore();
+    }
   }
   if(project.reference && opts.images.has(project.reference.assetId)) {
     const image=opts.images.get(project.reference.assetId)!;

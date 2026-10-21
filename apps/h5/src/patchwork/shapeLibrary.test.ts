@@ -1,9 +1,39 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { pointBounds } from './model';
-import { placeShapePieces, readShapeTemplates, shapeChoices, toShapeTemplate, validShapePlacement } from './shapeLibrary';
+import { area, pointBounds, validatePiece } from './model';
+import { BASE_SHAPE_GROUPS, placeShapePieces, readShapeTemplates, shapeChoices, toShapeTemplate, validShapePlacement } from './shapeLibrary';
 
 afterEach(() => vi.unstubAllGlobals());
 describe('shape library', () => {
+  it('exposes 53 individual builtin cutting outlines grouped by their actual usage', () => {
+    const choices = shapeChoices('base', []);
+    expect(choices).toHaveLength(53);
+    expect(new Set(choices.map((c) => c.id)).size).toBe(choices.length);
+    expect(new Set(choices.map((c) => c.name)).size).toBe(choices.length);
+    expect(new Set(choices.map((c) => c.group))).toEqual(new Set(BASE_SHAPE_GROUPS.map((group) => group.id)));
+    for (const name of ['等边三角形', '不等边三角形', '直角梯形', '细长菱形', '长条形', '七边形', '十边形', '十二边形', 'L形', 'T形', '半圆环', '四分之一圆环', '正方形', '长方形', '直角三角形', '梯形', '半圆形', '贝壳形', '六瓣花', '蝴蝶', '爱心']) {
+      expect(choices.some((choice) => choice.name === name)).toBe(true);
+    }
+    expect(shapeChoices('mine', [])).toEqual([]);
+  });
+  it('every builtin shape is closed implicitly, non-self-intersecting, scalable, and usable as one fabric piece', () => {
+    const choices = shapeChoices('base', []);
+    for (const choice of choices) {
+      expect(choice.polygons, choice.name).toHaveLength(1);
+      const [points] = choice.polygons;
+      expect(points.length, choice.name).toBeGreaterThanOrEqual(3);
+      expect(validatePiece(points), choice.name).toBe('');
+      expect(area(points), choice.name).toBeGreaterThan(1);
+      const bounds = pointBounds(points);
+      expect(bounds.width, choice.name).toBeGreaterThanOrEqual(5);
+      expect(bounds.height, choice.name).toBeGreaterThanOrEqual(5);
+      const pieces = placeShapePieces(choice, { width: 75, height: 120, seam: 5, rotation: 0 }, { x: 160, y: 190 }, 'A');
+      expect(pieces, choice.name).toHaveLength(1);
+      expect(validatePiece(pieces[0].points), choice.name).toBe('');
+      expect(pointBounds(pieces[0].points).width, choice.name).toBeCloseTo(75);
+      expect(pointBounds(pieces[0].points).height, choice.name).toBeCloseTo(120);
+      expect(pieces[0]).toMatchObject({ name: choice.name, materialId: 'A', seamMm: 5 });
+    }
+  });
   it('migrates legacy templates and discards invalid saved outlines', () => {
     vi.stubGlobal('localStorage', { getItem: () => JSON.stringify([{ name: '旧形状', points: [{ x: 0, y: 0 }, { x: 80, y: 0 }, { x: 0, y: 120 }] }, { name: '损坏', points: [] }]) });
     const list = readShapeTemplates();

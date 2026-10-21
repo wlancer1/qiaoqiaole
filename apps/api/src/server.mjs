@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import { createHmac, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { Readable } from 'node:stream';
@@ -25,6 +26,8 @@ import { loadTencentCosConfig, resolveCosAssetUrl, uploadToTencentCos } from './
 import { createPhoneAuthService, AuthError, verifyAccessToken } from './phoneAuth.mjs';
 import { getRedisClient, closeRedisClient } from './redisStore.mjs';
 import { createBeadingSessionService, BeadingError } from './beadingSessionService.mjs';
+
+const FABRIC_PRESETS = JSON.parse(readFileSync(new URL('./fabricPresets.json', import.meta.url), 'utf8'));
 
 loadEnvFile();
 
@@ -250,14 +253,34 @@ function initSchema() {
       user_id TEXT NOT NULL,
       name TEXT NOT NULL,
       color TEXT,
+      category TEXT,
+      stock_mode TEXT NOT NULL DEFAULT 'size',
+      sample_width_mm REAL,
       image TEXT,
       width_mm REAL,
       height_mm REAL,
       quantity REAL NOT NULL DEFAULT 1,
+      available_area_mm2 REAL,
       note TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS fabric_transactions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      fabric_id TEXT NOT NULL,
+      project_id TEXT,
+      project_name TEXT,
+      operation_id TEXT NOT NULL,
+      delta_area_mm2 REAL NOT NULL,
+      balance_area_mm2 REAL,
+      note TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE(user_id, operation_id, fabric_id),
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (fabric_id) REFERENCES fabric_items(id)
     );
 
     CREATE TABLE IF NOT EXISTS project_folders (
@@ -414,9 +437,16 @@ function initSchema() {
   for (const statement of [
     "ALTER TABLE projects ADD COLUMN kind TEXT NOT NULL DEFAULT 'bead'",
     'ALTER TABLE projects ADD COLUMN content TEXT',
+    'ALTER TABLE fabric_items ADD COLUMN category TEXT',
+    "ALTER TABLE fabric_items ADD COLUMN stock_mode TEXT NOT NULL DEFAULT 'size'",
+    'ALTER TABLE fabric_items ADD COLUMN available_area_mm2 REAL',
+    'ALTER TABLE fabric_items ADD COLUMN sample_width_mm REAL',
+    'ALTER TABLE fabric_items ADD COLUMN preset_id TEXT',
   ]) {
     try { db.run(statement); } catch { /* Existing databases already contain the column. */ }
   }
+  db.run('CREATE INDEX IF NOT EXISTS idx_fabric_user_updated ON fabric_items(user_id, updated_at DESC, id DESC)');
+  db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_fabric_user_preset ON fabric_items(user_id, preset_id) WHERE preset_id IS NOT NULL');
   // Keep paginated work lists in index order instead of sorting every user's
   // projects; the existing user/folder index remains useful for folder counts.
   db.run('CREATE INDEX IF NOT EXISTS idx_projects_user_updated ON projects(user_id, updated_at DESC)');
@@ -514,6 +544,8 @@ async function route(request, response) {
   if (projectThumbnailMatch && request.method === 'GET') {
     return serveLegacyProjectThumbnail(request, response, projectThumbnailMatch[1], url);
   }
+  const fabricImageMatch = url.pathname.match(/^\/api\/fabrics\/([^/]+)\/image$/);
+  if (fabricImageMatch && request.method === 'GET') return serveFabricImage(response, fabricImageMatch[1], url);
   const publicAvatarMatch = url.pathname.match(/^\/api\/community\/users\/([^/]+)\/avatar$/);
   if (publicAvatarMatch && request.method === 'GET') {
     return servePublicAvatar(publicAvatarMatch[1], response);
@@ -577,13 +609,26 @@ async function route(request, response) {
   if (request.method === 'PATCH' && url.pathname === '/api/profile') {
     return updateProfile(request, response, user.id);
   }
+  if (request.method === 'GET' && url.pathname === '/api/fabrics/browse') return browseFabrics(response, user.id, url);
   if (request.method === 'GET' && url.pathname === '/api/fabrics') {
     return listFabrics(response, user.id);
   }
   if (request.method === 'POST' && url.pathname === '/api/fabrics') {
     return createFabric(request, response, user.id);
   }
+  if (request.method === 'POST' && url.pathname === '/api/fabrics/consume') {
+    return consumeFabrics(request, response, user.id);
+  }
+  if (request.method === 'GET' && url.pathname === '/api/fabrics/transactions') {
+    return listFabricTransactions(response, user.id);
+  }
+  const presetFabricMatch = url.pathname.match(/^\/api\/fabrics\/presets\/([a-z0-9-]+)$/);
+  if (presetFabricMatch && request.method === 'POST') return ensurePresetFabric(response, user.id, presetFabricMatch[1]);
   const fabricMatch = url.pathname.match(/^\/api\/fabrics\/([^/]+)$/);
+  if (fabricMatch && request.method === 'GET') {
+    const fabric = getOne(`SELECT ${FABRIC_SELECT_COLS} FROM fabric_items WHERE id = ? AND user_id = ?`, [fabricMatch[1], user.id]);
+    return sendJson(response, fabric ? 200 : 404, fabric ? { fabric: fabricRow(fabric) } : { error: 'NOT_FOUND' });
+  }
   if (fabricMatch && request.method === 'PATCH') {
     return updateFabric(request, response, user.id, fabricMatch[1]);
   }
@@ -1448,13 +1493,67 @@ async function uploadProjectImage(input) {
 }
 
 function fabricRow(row) {
-  return row ? { ...row, widthMm: row.widthMm === null ? null : Number(row.widthMm), heightMm: row.heightMm === null ? null : Number(row.heightMm), quantity: Number(row.quantity) } : null;
+  if (!row) return null;
+  const widthMm = row.widthMm === null || row.widthMm === undefined ? null : Number(row.widthMm);
+  const heightMm = row.heightMm === null || row.heightMm === undefined ? null : Number(row.heightMm);
+  const quantity = Number(row.quantity ?? 0);
+  const stockMode = ['size', 'area', 'own'].includes(row.stockMode) ? row.stockMode : 'size';
+  let availableAreaMm2 = row.availableAreaMm2 === null || row.availableAreaMm2 === undefined ? null : Number(row.availableAreaMm2);
+  if (stockMode === 'own') {
+    availableAreaMm2 = null;
+  } else if (availableAreaMm2 === null && widthMm && heightMm) {
+    availableAreaMm2 = Math.max(0, Math.round(widthMm * heightMm * quantity));
+  }
+  return {
+    ...row,
+    category: row.category || null,
+    stockMode,
+    widthMm,
+    heightMm,
+    quantity,
+    availableAreaMm2,
+  };
+}
+
+const FABRIC_SELECT_COLS = `id, preset_id AS presetId, name, color, category, stock_mode AS stockMode, sample_width_mm AS sampleWidthMm, image,
+  width_mm AS widthMm, height_mm AS heightMm, quantity, available_area_mm2 AS availableAreaMm2,
+  note, created_at AS createdAt, updated_at AS updatedAt`;
+
+// Catalog pages contain metadata and signed image addresses, never embedded originals.
+function fabricImageSignature(id) {
+  return createHmac('sha256', String(process.env.AUTH_JWT_SECRET || AUTH_PASSWORD)).update('fabric-image:' + id).digest('hex');
+}
+function browseFabrics(response, userId, url) {
+  const page = Math.max(1, Math.min(100000, Number.parseInt(url.searchParams.get('page') || '1', 10) || 1));
+  const pageSize = Math.max(1, Math.min(48, Number.parseInt(url.searchParams.get('pageSize') || '16', 10) || 16));
+  const q = String(url.searchParams.get('q') || '').trim().slice(0, 200);
+  const where = "user_id = ? AND (? = '' OR instr(lower(name || ' ' || COALESCE(category, '') || ' ' || COALESCE(note, '')), lower(?)) > 0)";
+  const params = [userId, q, q];
+  const cols = `id, preset_id AS presetId, name, color, category, stock_mode AS stockMode, sample_width_mm AS sampleWidthMm,
+    CASE WHEN length(image) < 100 AND image GLOB '/fabric-presets/*.svg' THEN image ELSE NULL END AS presetImage, image IS NOT NULL AND image != '' AS hasImage, width_mm AS widthMm, height_mm AS heightMm, quantity,
+    available_area_mm2 AS availableAreaMm2, updated_at AS updatedAt`;
+  const rows = getAll(`SELECT ${cols} FROM fabric_items WHERE ${where} ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`, [...params, pageSize + 1, (page - 1) * pageSize]);
+  const ownedPresetIds = getAll('SELECT preset_id AS id FROM fabric_items WHERE user_id = ? AND preset_id IS NOT NULL', [userId]).map(row => row.id);
+  return sendJson(response, 200, { fabrics: rows.slice(0, pageSize).map(({ hasImage, presetImage, ...row }) => ({ ...fabricRow(row), image: presetImage || (hasImage ? `/api/fabrics/${row.id}/image?sig=${fabricImageSignature(row.id)}` : null) })), page, pageSize, hasMore: rows.length > pageSize, ownedPresetIds });
+}
+function serveFabricImage(response, id, url) {
+  const provided = String(url.searchParams.get('sig') || '');
+  const expected = fabricImageSignature(id);
+  if (!/^[a-f0-9]{64}$/.test(provided) || !timingSafeEqual(Buffer.from(provided), Buffer.from(expected))) return sendJson(response, 403, { error: 'FORBIDDEN' });
+  const row = getOne('SELECT image FROM fabric_items WHERE id = ?', [id]);
+  if (!row?.image) return sendJson(response, 404, { error: 'NOT_FOUND' });
+  if (/^\/fabric-presets\/[a-z0-9-]+\.svg$/.test(row.image)) {
+    response.writeHead(302, { Location: row.image }); return response.end();
+  }
+  const match = row.image.match(/^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=\s]+)$/);
+  if (!match) return sendJson(response, 404, { error: 'NOT_FOUND' });
+  response.writeHead(200, { 'Content-Type': match[1], 'Cache-Control': 'private, max-age=60', 'X-Content-Type-Options': 'nosniff' });
+  return response.end(Buffer.from(match[2], 'base64'));
 }
 
 function listFabrics(response, userId) {
   const fabrics = getAll(
-    `SELECT id, name, color, image, width_mm AS widthMm, height_mm AS heightMm, quantity, note,
-            created_at AS createdAt, updated_at AS updatedAt
+    `SELECT ${FABRIC_SELECT_COLS}
      FROM fabric_items WHERE user_id = ? ORDER BY updated_at DESC`,
     [userId],
   );
@@ -1464,17 +1563,54 @@ function listFabrics(response, userId) {
 function cleanFabricFields(body, base = {}) {
   const name = Object.hasOwn(body, 'name') ? String(body.name || '').trim() : (base.name || '');
   const color = Object.hasOwn(body, 'color') ? (String(body.color || '').trim() || null) : (base.color ?? null);
+  const category = Object.hasOwn(body, 'category') ? (String(body.category || '').trim() || null) : (base.category ?? null);
+  const rawMode = Object.hasOwn(body, 'stockMode') ? String(body.stockMode || '').trim() : (base.stockMode || 'size');
+  const stockMode = ['size', 'area', 'own'].includes(rawMode) ? rawMode : 'size';
   let image = Object.hasOwn(body, 'image') ? (String(body.image || '').trim() || null) : (base.image ?? null);
   if (image && image.length > 400000) image = null;
-  const num = (value, fallback) => {
+  const posNum = (value, fallback) => {
     const n = Number(value);
     return Number.isFinite(n) && n > 0 ? n : fallback;
   };
-  const widthMm = Object.hasOwn(body, 'widthMm') ? num(body.widthMm, null) : (base.widthMm ?? null);
-  const heightMm = Object.hasOwn(body, 'heightMm') ? num(body.heightMm, null) : (base.heightMm ?? null);
-  const quantity = Object.hasOwn(body, 'quantity') ? num(body.quantity, 1) : (base.quantity ?? 1);
+  const nonNegNum = (value, fallback) => {
+    if (value === null || value === '') return fallback;
+    const n = Number(value);
+    return Number.isFinite(n) && n >= 0 ? n : fallback;
+  };
+  const widthMm = stockMode === 'size'
+    ? (Object.hasOwn(body, 'widthMm') ? posNum(body.widthMm, null) : (base.widthMm ?? null))
+    : null;
+  const heightMm = stockMode === 'size'
+    ? (Object.hasOwn(body, 'heightMm') ? posNum(body.heightMm, null) : (base.heightMm ?? null))
+    : null;
+  const quantity = Object.hasOwn(body, 'quantity') ? nonNegNum(body.quantity, 1) : (base.quantity ?? 1);
+  let availableAreaMm2 = Object.hasOwn(body, 'availableAreaMm2')
+    ? nonNegNum(body.availableAreaMm2, null)
+    : (base.availableAreaMm2 ?? null);
+  if (stockMode === 'own') {
+    availableAreaMm2 = null;
+  } else if (stockMode === 'size' && widthMm && heightMm && !Object.hasOwn(body, 'availableAreaMm2') && (!base.id || ['stockMode', 'widthMm', 'heightMm', 'quantity'].some(key => Object.hasOwn(body, key) && body[key] !== base[key]))) {
+    availableAreaMm2 = Math.max(0, Math.round(widthMm * heightMm * quantity));
+  } else if (quantity === 0 && availableAreaMm2 === null) {
+    availableAreaMm2 = 0;
+  }
   const note = Object.hasOwn(body, 'note') ? (String(body.note || '').trim() || null) : (base.note ?? null);
-  return { name, color, image, widthMm, heightMm, quantity, note };
+  const sampleWidthMm = Object.hasOwn(body, 'sampleWidthMm') ? posNum(body.sampleWidthMm, null) : (base.sampleWidthMm ?? null);
+  return { name, color, category, stockMode, image, widthMm, heightMm, quantity, availableAreaMm2, note, sampleWidthMm };
+}
+
+async function ensurePresetFabric(response, userId, presetId) {
+  const preset = FABRIC_PRESETS.find((item) => item.id === presetId);
+  if (!preset) return sendJson(response, 404, { error: 'NOT_FOUND', message: '布料不存在' });
+  const existing = getOne(`SELECT ${FABRIC_SELECT_COLS} FROM fabric_items WHERE user_id = ? AND preset_id = ?`, [userId, presetId]);
+  if (existing) return sendJson(response, 200, { fabric: fabricRow(existing) });
+  const now = new Date().toISOString();
+  const id = randomUUID();
+  db.run(`INSERT INTO fabric_items (id, user_id, preset_id, name, color, category, stock_mode, image, sample_width_mm, quantity, available_area_mm2, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, 'own', ?, ?, 1, NULL, ?, ?)`,
+    [id, userId, presetId, preset.name, preset.color, preset.category, preset.image, preset.sampleWidthMm, now, now]);
+  await persist();
+  return sendJson(response, 201, { fabric: fabricRow(getOne(`SELECT ${FABRIC_SELECT_COLS} FROM fabric_items WHERE id = ? AND user_id = ?`, [id, userId])) });
 }
 
 async function createFabric(request, response, userId) {
@@ -1484,34 +1620,116 @@ async function createFabric(request, response, userId) {
   const now = new Date().toISOString();
   const id = randomUUID();
   db.run(
-    'INSERT INTO fabric_items (id, user_id, name, color, image, width_mm, height_mm, quantity, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [id, userId, fields.name, fields.color, fields.image, fields.widthMm, fields.heightMm, fields.quantity, fields.note, now, now],
+    'INSERT INTO fabric_items (id, user_id, name, color, category, stock_mode, image, width_mm, height_mm, quantity, available_area_mm2, note, created_at, updated_at, sample_width_mm) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [id, userId, fields.name, fields.color, fields.category, fields.stockMode, fields.image, fields.widthMm, fields.heightMm, fields.quantity, fields.availableAreaMm2, fields.note, now, now, fields.sampleWidthMm],
   );
   await persist();
-  sendJson(response, 201, { fabric: fabricRow(getOne('SELECT id, name, color, image, width_mm AS widthMm, height_mm AS heightMm, quantity, note, created_at AS createdAt, updated_at AS updatedAt FROM fabric_items WHERE id = ?', [id])) });
+  sendJson(response, 201, { fabric: fabricRow(getOne(`SELECT ${FABRIC_SELECT_COLS} FROM fabric_items WHERE id = ?`, [id])) });
 }
 
 async function updateFabric(request, response, userId, fabricId) {
-  const existing = getOne('SELECT id, name, color, image, width_mm AS widthMm, height_mm AS heightMm, quantity, note FROM fabric_items WHERE id = ? AND user_id = ?', [fabricId, userId]);
+  const existing = getOne(`SELECT ${FABRIC_SELECT_COLS} FROM fabric_items WHERE id = ? AND user_id = ?`, [fabricId, userId]);
   if (!existing) return sendJson(response, 404, { error: 'NOT_FOUND', message: '布料不存在' });
   const body = await readJson(request);
   const fields = cleanFabricFields(body, existing);
+  if (body.stockMode === 'size' && (!(fields.widthMm > 0) || !(fields.heightMm > 0) || !Number.isFinite(Number(body.quantity ?? fields.quantity)) || Number(body.quantity ?? fields.quantity) < 0)) return sendJson(response, 400, { error: 'INVALID_INPUT', message: '请填写有效的布料尺寸和数量' });
   if (!fields.name) return sendJson(response, 400, { error: 'INVALID_INPUT', message: '布料名称不能为空' });
   const now = new Date().toISOString();
   db.run(
-    'UPDATE fabric_items SET name = ?, color = ?, image = ?, width_mm = ?, height_mm = ?, quantity = ?, note = ?, updated_at = ? WHERE id = ? AND user_id = ?',
-    [fields.name, fields.color, fields.image, fields.widthMm, fields.heightMm, fields.quantity, fields.note, now, fabricId, userId],
+    'UPDATE fabric_items SET name = ?, color = ?, category = ?, stock_mode = ?, image = ?, width_mm = ?, height_mm = ?, quantity = ?, available_area_mm2 = ?, note = ?, updated_at = ?, sample_width_mm = ? WHERE id = ? AND user_id = ?',
+    [fields.name, fields.color, fields.category, fields.stockMode, fields.image, fields.widthMm, fields.heightMm, fields.quantity, fields.availableAreaMm2, fields.note, now, fields.sampleWidthMm, fabricId, userId],
   );
   await persist();
-  sendJson(response, 200, { fabric: fabricRow(getOne('SELECT id, name, color, image, width_mm AS widthMm, height_mm AS heightMm, quantity, note, created_at AS createdAt, updated_at AS updatedAt FROM fabric_items WHERE id = ?', [fabricId])) });
+  sendJson(response, 200, { fabric: fabricRow(getOne(`SELECT ${FABRIC_SELECT_COLS} FROM fabric_items WHERE id = ?`, [fabricId])) });
 }
 
 async function deleteFabric(response, userId, fabricId) {
   const existing = getOne('SELECT id FROM fabric_items WHERE id = ? AND user_id = ?', [fabricId, userId]);
   if (!existing) return sendJson(response, 404, { error: 'NOT_FOUND', message: '布料不存在' });
+  db.run('DELETE FROM fabric_transactions WHERE fabric_id = ? AND user_id = ?', [fabricId, userId]);
   db.run('DELETE FROM fabric_items WHERE id = ? AND user_id = ?', [fabricId, userId]);
   await persist();
   sendJson(response, 200, { ok: true });
+}
+
+function listFabricTransactions(response, userId) {
+  const rows = getAll(
+    `SELECT t.id, t.fabric_id AS fabricId, f.name AS fabricName, t.project_id AS projectId,
+            t.project_name AS projectName, t.operation_id AS operationId,
+            t.delta_area_mm2 AS deltaAreaMm2, t.balance_area_mm2 AS balanceAreaMm2,
+            t.note, t.created_at AS createdAt
+     FROM fabric_transactions t
+     LEFT JOIN fabric_items f ON f.id = t.fabric_id
+     WHERE t.user_id = ?
+     ORDER BY t.created_at DESC
+     LIMIT 50`,
+    [userId],
+  );
+  sendJson(response, 200, { transactions: rows });
+}
+
+async function consumeFabrics(request, response, userId) {
+  const body = await readJson(request);
+  const operationId = String(body.operationId || '').trim();
+  if (!operationId) return sendJson(response, 400, { error: 'INVALID_INPUT', message: '缺少操作流水号 operationId' });
+  const rawItems = Array.isArray(body.items) ? body.items : [];
+  if (rawItems.length === 0) return sendJson(response, 400, { error: 'INVALID_INPUT', message: '请选择要扣减的布料' });
+
+  const existingTx = getAll(
+    `SELECT id, fabric_id AS fabricId, delta_area_mm2 AS deltaAreaMm2, balance_area_mm2 AS balanceAreaMm2, created_at AS createdAt
+     FROM fabric_transactions WHERE user_id = ? AND operation_id = ?`,
+    [userId, operationId],
+  );
+  if (existingTx.length > 0) {
+    const fabrics = getAll(`SELECT ${FABRIC_SELECT_COLS} FROM fabric_items WHERE user_id = ? ORDER BY updated_at DESC`, [userId]).map(fabricRow);
+    return sendJson(response, 200, { ok: true, idempotent: true, fabrics, transactions: existingTx });
+  }
+
+  const projectId = String(body.projectId || '').trim() || null;
+  const projectName = String(body.projectName || '').trim() || '拼布作品';
+  const validated = [];
+  const seenFabrics = new Set();
+  for (const item of rawItems) {
+    const fabricId = String(item?.fabricId || '').trim();
+    if (seenFabrics.has(fabricId)) return sendJson(response, 400, { error: 'INVALID_INPUT', message: '同一布料请合并后扣减' });
+    seenFabrics.add(fabricId);
+    const actualAreaMm2 = Math.round(Number(item?.actualAreaMm2));
+    if (!fabricId || !Number.isFinite(actualAreaMm2) || actualAreaMm2 <= 0) {
+      return sendJson(response, 400, { error: 'INVALID_INPUT', message: '实际消耗面积必须大于 0' });
+    }
+    const row = getOne(`SELECT ${FABRIC_SELECT_COLS} FROM fabric_items WHERE id = ? AND user_id = ?`, [fabricId, userId]);
+    if (!row) return sendJson(response, 404, { error: 'NOT_FOUND', message: '部分布料不存在或无权操作' });
+    const f = fabricRow(row);
+    if (f.stockMode === 'own' || f.availableAreaMm2 === null) {
+      return sendJson(response, 400, { error: 'STOCK_UNKNOWN', message: `布料「${f.name}」尚未录入具体面积，请先补充库存信息` });
+    }
+    if (actualAreaMm2 > f.availableAreaMm2) {
+      return sendJson(response, 400, { error: 'INSUFFICIENT_STOCK', message: `布料「${f.name}」库存面积不足（可用 ${Math.round(f.availableAreaMm2 / 100)} cm²）` });
+    }
+    validated.push({ fabric: f, actualAreaMm2 });
+  }
+
+  const now = new Date().toISOString();
+  const createdTx = [];
+  await withTransaction(async () => {
+    for (const { fabric, actualAreaMm2 } of validated) {
+      const nextBalance = Math.max(0, fabric.availableAreaMm2 - actualAreaMm2);
+      const nextQuantity = nextBalance === 0 ? 0 : Math.max(1, fabric.quantity);
+      db.run(
+        'UPDATE fabric_items SET available_area_mm2 = ?, quantity = ?, updated_at = ? WHERE id = ? AND user_id = ?',
+        [nextBalance, nextQuantity, now, fabric.id, userId],
+      );
+      const txId = randomUUID();
+      db.run(
+        'INSERT INTO fabric_transactions (id, user_id, fabric_id, project_id, project_name, operation_id, delta_area_mm2, balance_area_mm2, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [txId, userId, fabric.id, projectId, projectName, operationId, -actualAreaMm2, nextBalance, `裁剪扣减 · ${projectName}`, now],
+      );
+      createdTx.push({ id: txId, fabricId: fabric.id, fabricName: fabric.name, deltaAreaMm2: -actualAreaMm2, balanceAreaMm2: nextBalance, createdAt: now });
+    }
+  });
+  await persist();
+  const fabrics = getAll(`SELECT ${FABRIC_SELECT_COLS} FROM fabric_items WHERE user_id = ? ORDER BY updated_at DESC`, [userId]).map(fabricRow);
+  sendJson(response, 200, { ok: true, idempotent: false, fabrics, transactions: createdTx });
 }
 
 function listProjects(response, userId, url) {

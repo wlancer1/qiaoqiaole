@@ -10,13 +10,13 @@ import { PatchworkPage } from './PatchworkPage';
 
 const mountedRenderers: ReactTestRenderer[] = [];
 
-function renderPatchworkPage() {
+function renderPatchworkPage(props: Parameters<typeof PatchworkPage>[0] = {}) {
   let renderer!: ReactTestRenderer;
   act(() => {
     renderer = create(
       <Provider store={createH5Store()}><MemoryRouter initialEntries={['/patchwork']}>
         <AppOverlayProvider>
-          <PatchworkPage />
+          <PatchworkPage {...props} />
         </AppOverlayProvider>
       </MemoryRouter></Provider>,
       {
@@ -50,7 +50,7 @@ afterEach(() => {
 });
 
 describe('PatchworkPage 底布与项目设置弹窗', () => {
-  it('opens, isolates content clicks/touches, supports cancel/backdrop/Escape close, and applies settings on confirm', () => {
+  it('opens, isolates content clicks/touches, supports cancel/backdrop/Escape close, and applies settings on confirm', async () => {
     const listeners = new Map<string, Set<(event: { key?: string; preventDefault: () => void }) => void>>();
     const classList = new Set<string>();
     const prevWindow = globalThis.window;
@@ -84,11 +84,14 @@ describe('PatchworkPage 底布与项目设置弹窗', () => {
     });
 
     try {
-      const renderer = renderPatchworkPage();
+      const renderer = renderPatchworkPage({
+        token: 'test-token',
+        requestApi: async () => ({ fabrics: [{ id: 'sage-warehouse', name: '鼠尾草绿', color: '#8ea68c', image: null, stockMode: 'own', availableAreaMm2: null, widthMm: null, heightMm: null, quantity: 1, note: null, updatedAt: '' }, { id: 'almond-warehouse', name: '杏仁黄', color: '#d9ad45', image: null, stockMode: 'own', availableAreaMm2: null, widthMm: null, heightMm: null, quantity: 1, note: null, updatedAt: '' }] }) as any,
+      });
 
       // Open via topbar size button
       act(() => {
-        findButton(renderer.root, '底布与项目设置').props.onClick();
+        findButton(renderer.root, '作品尺寸').props.onClick();
       });
 
       const dialog = renderer.root.findByProps({ role: 'dialog', 'aria-label': '底布与项目设置' });
@@ -143,7 +146,7 @@ describe('PatchworkPage 底布与项目设置弹窗', () => {
 
       // Reopen, edit fields & switches, pick base fabric via swatch tile, and confirm with 应用设置
       act(() => {
-        findButton(renderer.root, '底布与项目设置').props.onClick();
+        findButton(renderer.root, '作品尺寸').props.onClick();
       });
       const openDialog = renderer.root.findByProps({ role: 'dialog', 'aria-label': '底布与项目设置' });
       const selects = openDialog.findAllByType('select');
@@ -157,7 +160,7 @@ describe('PatchworkPage 底布与项目设置弹窗', () => {
       const fabricTrigger = findButton(openDialog, '选择底布布料');
       expect(fabricTrigger.findByType('small').children.join('')).toContain('亚麻米白');
 
-      act(() => {
+      await act(async () => {
         nameInput.props.onChange({ target: { value: '春日拼布' } });
         widthInput.props.onChange({ target: { value: '32' } });
         heightInput.props.onChange({ target: { value: '26' } });
@@ -166,8 +169,8 @@ describe('PatchworkPage 底布与项目设置弹窗', () => {
       });
 
       const fabricSheet = renderer.root.findByProps({ role: 'dialog', 'aria-label': '选择布料' });
-      act(() => {
-        findButton(fabricSheet, '选择布料 鼠尾草绿').props.onClick();
+      await act(async () => {
+        await findButton(fabricSheet, '选择布料 鼠尾草绿').props.onClick();
       });
 
       const returnedDialog = renderer.root.findByProps({ role: 'dialog', 'aria-label': '底布与项目设置' });
@@ -185,13 +188,13 @@ describe('PatchworkPage 底布与项目设置弹窗', () => {
       const leftGroup = topbar.find((node) => node.type === 'div' && node.props.className === 'topbar-left');
       const centerGroup = topbar.find((node) => node.type === 'div' && node.props.className === 'topbar-center');
       const rightGroup = topbar.find((node) => node.type === 'div' && node.props.className === 'topbar-right');
-      expect(leftGroup.findAllByType('button').map((b) => b.props['aria-label'])).toEqual(['返回', '底布与项目设置', '作品尺寸']);
+      expect(leftGroup.findAllByType('button').map((b) => b.props['aria-label'])).toEqual(['返回', '作品尺寸']);
       expect(centerGroup.findAllByType('button').map((b) => b.props['aria-label'])).toEqual(['撤销', '重做']);
       expect(rightGroup.findAllByType('button').map((b) => b.props['aria-label'])).toEqual(['导出', '保存']);
 
       // Reopen to verify selected base material persisted
       act(() => {
-        findButton(renderer.root, '底布与项目设置').props.onClick();
+        findButton(renderer.root, '作品尺寸').props.onClick();
       });
       const verifyDialog = renderer.root.findByProps({ role: 'dialog', 'aria-label': '底布与项目设置' });
       expect(findButton(verifyDialog, '选择底布布料').findByType('small').children.join('')).toContain('鼠尾草绿');
@@ -226,6 +229,203 @@ describe('PatchworkPage 底布与项目设置弹窗', () => {
       });
       expect(findButton(exportDialog, '裁片清单').props['aria-selected']).toBe(true);
       expect(exportDialog.findAll((node) => node.type === 'div' && String(node.props.className || '').includes('pw-cutlist'))).toHaveLength(1);
+      act(() => {
+        findButton(exportDialog, '关闭面板').props.onClick();
+      });
+
+      // Place a shape on canvas, open 布片属性, and pick piece fabric via shared FabricPicker
+      act(() => {
+        findButton(renderer.root, '添加').props.onClick();
+      });
+      const addDialog = renderer.root.findByProps({ role: 'dialog', 'aria-label': '添加形状' });
+      act(() => {
+        findButton(addDialog, '基础形状').props.onClick();
+      });
+      // 直接点形状卡片便落到画布，不再有“下一步/放置到画布”。
+      expect(addDialog.findAllByType('button').some((button) => button.children.includes('下一步'))).toBe(false);
+      await act(async () => {
+        await findButton(addDialog, '添加形状 正方形').props.onClick();
+      });
+
+      act(() => {
+        findButton(renderer.root, '属性').props.onClick();
+      });
+      const propsDialog = renderer.root.findByProps({ role: 'dialog', 'aria-label': '布片属性' });
+      expect(propsDialog.props['aria-modal']).toBe(true);
+      expect(String(propsDialog.props.className)).toContain('propssheet');
+      expect(propsDialog.findAllByType('select')).toHaveLength(0);
+
+      const pieceFabricTrigger = findButton(propsDialog, '选择布片布料');
+      expect(pieceFabricTrigger.findByType('small').children.join('')).toContain('樱花粉');
+
+      act(() => {
+        pieceFabricTrigger.props.onClick();
+      });
+      const pieceFabricSheet = renderer.root.findByProps({ role: 'dialog', 'aria-label': '选择布料' });
+      act(() => {
+        findButton(pieceFabricSheet, '选择布料 杏仁黄').props.onClick();
+      });
+
+      const returnedPropsDialog = renderer.root.findByProps({ role: 'dialog', 'aria-label': '布片属性' });
+      expect(findButton(returnedPropsDialog, '选择布片布料').findByType('small').children.join('')).toContain('杏仁黄');
+
+      const pieceNameInput = returnedPropsDialog.find((node) => node.type === 'input' && node.props.type === 'text');
+      act(() => {
+        pieceNameInput.props.onFocus();
+        pieceNameInput.props.onChange({ target: { value: '中心方块' } });
+      });
+      act(() => {
+        findButton(returnedPropsDialog, '完成').props.onClick();
+      });
+      expect(renderer.root.findAllByProps({ role: 'dialog' })).toHaveLength(0);
+    } finally {
+      while (mountedRenderers.length > 0) {
+        const renderer = mountedRenderers.pop();
+        if (renderer) act(() => renderer.unmount());
+      }
+      Object.defineProperty(globalThis, 'window', { configurable: true, value: prevWindow });
+      Object.defineProperty(globalThis, 'document', { configurable: true, value: prevDocument });
+    }
+  });
+
+  it('supports 用料与配布 tab, smart warehouse fabric replacement for unlinked fabrics, and cutting stock deduction', async () => {
+    const prevWindow = globalThis.window;
+    const prevDocument = globalThis.document;
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: {
+        ...prevWindow,
+        devicePixelRatio: 1,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      },
+    });
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      value: {
+        body: {
+          classList: {
+            add: vi.fn(),
+            remove: vi.fn(),
+            contains: () => false,
+          },
+        },
+      },
+    });
+    const mockFabrics = [
+      {
+        id: 'wh-rose',
+        name: '仓库玫瑰粉棉布',
+        color: '#ef9db4',
+        category: '棉布',
+        stockMode: 'size',
+        image: null,
+        widthMm: 500,
+        heightMm: 400,
+        quantity: 1,
+        availableAreaMm2: 200_000,
+        note: null,
+        updatedAt: '2026-10-19T12:00:00.000Z',
+      },
+    ];
+    const requestApi = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/fabrics' && (!init?.method || init.method === 'GET')) {
+        return { fabrics: mockFabrics };
+      }
+      if (url === '/fabrics/consume' && init?.method === 'POST') {
+        return {
+          fabrics: [{ ...mockFabrics[0], availableAreaMm2: 185_000 }],
+          applied: [{ fabricId: 'wh-rose', actualAreaMm2: 15_000 }],
+        };
+      }
+      return {};
+    });
+
+    try {
+      let renderer!: ReactTestRenderer;
+      await act(async () => {
+        renderer = create(
+          <Provider store={createH5Store()}>
+            <MemoryRouter initialEntries={['/patchwork']}>
+              <AppOverlayProvider>
+                <PatchworkPage
+                  token="tok-1"
+                  requireLogin={async (next) => { next('tok-1'); return true; }}
+                  requestApi={requestApi as any}
+                />
+              </AppOverlayProvider>
+            </MemoryRouter>
+          </Provider>,
+          {
+            createNodeMock(element) {
+              if (element.type === 'canvas') {
+                return {
+                  getBoundingClientRect: () => ({ left: 0, top: 0, width: 360, height: 480 }),
+                  getContext: () => null,
+                };
+              }
+              return null;
+            },
+          },
+        );
+      });
+      mountedRenderers.push(renderer);
+
+      // Add a square piece on canvas (uses default active material M1 樱花粉)
+      act(() => {
+        findButton(renderer.root, '添加').props.onClick();
+      });
+      const addDialog = renderer.root.findByProps({ role: 'dialog', 'aria-label': '添加形状' });
+      act(() => {
+        findButton(addDialog, '基础形状').props.onClick();
+      });
+      await act(async () => {
+        await findButton(addDialog, '添加形状 正方形').props.onClick();
+      });
+
+      // Open 图纸导出 -> switch to 用料与配布
+      await act(async () => {
+        findButton(renderer.root, '导出').props.onClick();
+      });
+      const exportDialog = renderer.root.findByProps({ role: 'dialog', 'aria-label': '图纸导出' });
+      await act(async () => {
+        findButton(exportDialog, '用料与配布').props.onClick();
+      });
+
+      expect(exportDialog.findByProps({ 'aria-label': '用料核算与智能配布' })).toBeTruthy();
+
+      // Click 换成我的布 on 樱花粉
+      await act(async () => {
+        findButton(exportDialog, '换成我的布 樱花粉').props.onClick();
+      });
+
+      // Pick recommended warehouse fabric 仓库玫瑰粉棉布
+      await act(async () => {
+        findButton(exportDialog, '选用 仓库玫瑰粉棉布 替换').props.onClick();
+      });
+
+      // Now the material is replaced with 仓库玫瑰粉棉布 and linked to inventory, so 已裁剪，扣减仓库库存 appears
+      const consumeTrigger = findButton(exportDialog, '已裁剪，扣减仓库库存');
+      expect(consumeTrigger).toBeTruthy();
+
+      await act(async () => {
+        consumeTrigger.props.onClick();
+      });
+      const confirmRegion = exportDialog.findByProps({ 'aria-label': '确认裁片扣减库存' });
+      expect(confirmRegion).toBeTruthy();
+
+      await act(async () => {
+        findButton(confirmRegion, '确认已裁剪并扣减库存').props.onClick();
+      });
+
+      const consumeCall = requestApi.mock.calls.find(call => call[0] === '/fabrics/consume')!;
+      expect(JSON.parse(consumeCall[1]!.body as string).items[0]).toHaveProperty('actualAreaMm2');
+      expect(requestApi).toHaveBeenCalledWith(
+        '/fabrics/consume',
+        expect.objectContaining({ method: 'POST' }),
+        'tok-1',
+      );
     } finally {
       while (mountedRenderers.length > 0) {
         const renderer = mountedRenderers.pop();
@@ -250,5 +450,6 @@ describe('PatchworkPage 底布与项目设置弹窗', () => {
     expect(css).toContain('.pw-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))');
     expect(css).toContain('.pw-export-preview-stage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center');
     expect(css).toContain('.patchwork-import .pw-preview');
+    expect(css).toContain('.pw-props-actions .pw-widebtn');
   });
 });

@@ -1,0 +1,169 @@
+/* Shared creation uses the warehouse's existing home-create sheet and fabric-form styles. */
+.home-create-panel.fabric-create-panel{
+ display:flex;flex-direction:column;gap:.3175rem;
+ width:100%;
+ max-height:min(88dvh,25.3968rem);overflow:hidden;
+ padding:.6349rem .5714rem max(.5714rem,env(safe-area-inset-bottom));
+ border-radius:var(--sheet-radius,.6984rem) var(--sheet-radius,.6984rem) 0 0;
+}
+.fabric-create-panel>.fabric-create-header{flex-shrink:0}
+.fabric-create-panel>.fabric-create-body{
+ flex:1;min-height:0;min-inline-size:0;overflow-y:auto;overscroll-behavior:contain;
+ margin:0;padding:0;border:0;border-radius:0;box-shadow:none;background:transparent;
+}
+.fabric-create-panel .fabric-create-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.3175rem}
+.fabric-create-panel .fabric-form-preview img,
+.fabric-create-panel .fabric-form-preview .fabric-swatch{border-radius:.3175rem}
+.fabric-create-photo-btns{display:flex;flex-wrap:wrap;gap:.254rem}
+.fabric-create-hint{font-size:.3492rem;line-height:1.5;color:var(--muted);margin:0}
+.fabric-create-panel .fabric-create-local{display:flex;align-items:center;gap:.1905rem;font-size:.3492rem;color:var(--muted)}
+.fabric-create-panel .fabric-create-local input{width:auto;height:auto;accent-color:var(--flow-brand,#146cff)}
+.fabric-create-panel>.fabric-create-submit{flex-shrink:0;margin:0;padding-top:.1905rem}
+.fabric-create-panel>.fabric-create-submit button.primary{width:100%;height:1.3968rem}
+.fabric-create-panel button:disabled{opacity:.55}
+.fabric-create-error{flex-shrink:0;font-size:.381rem;line-height:1.5;color:#c0453e;margin:0;max-height:3rem;overflow:auto}
+.fabric-create-panel :focus-visible{outline:.0952rem solid rgba(20,108,255,.22);outline-offset:.0635rem}
+/* The existing authentication level must remain above inventory forms. */
+.h5-app-overlays [data-overlay-slot="login"] .home-create-modal{z-index:900}
+
+/* iOS Safari: span the full dynamic viewport so the sheet sits flush with the visible bottom. */
+.home-create-modal:has(.fabric-create-panel){height:100dvh}
+
+/* Crop workspace: image, calibration and persistent actions. */
+.fabric-crop-content{display:flex;flex-direction:column;min-height:0;overflow:hidden;flex:1;gap:.3175rem}
+.fabric-crop-scroll{min-height:0;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:.3175rem}
+.fabric-crop-space{
+ position:relative;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+}
+.fabric-crop-zoom-toolbar{
+ position:absolute;right:.3175rem;top:.3175rem;z-index:6;
+ display:flex;align-items:center;gap:.127rem;
+ padding:.0952rem .1587rem;border-radius:.3175rem;
+ background:rgba(15,23,42,.78);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+ box-shadow:0 2px 8px rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.12);
+}
+.fabric-crop-zoom-toolbar button{
+ display:inline-flex;align-items:center;justify-content:center;
+ width:.9524rem;height:.9524rem;padding:0;
+ border:0;border-radius:.1905rem;background:transparent;color:#fff;
+ font-size:.3492rem;touch-action:manipulation;
+}
+.fabric-crop-zoom-toolbar button:disabled{opacity:.35;pointer-events:none}
+.fabric-crop-zoom-pct{
+ min-width:1.15rem;font-size:.3175rem;font-weight:600;color:#fff;
+ text-align:center;user-select:none;
+}
+.fabric-crop-stage{position:relative;flex-shrink:0;max-height:42dvh;overflow:hidden;touch-action:none;user-select:none;background:#1e2229}
+.fabric-crop-canvas{position:absolute;inset:0;touch-action:none}
+.fabric-crop-canvas>img{position:absolute;display:block;object-fit:contain;pointer-events:none}
+.fabric-crop-selection{
+ position:absolute;box-sizing:border-box;
+ border:1.5px solid #fff;
+ box-shadow:0 0 0 100vmax rgba(15,23,42,.56);
+ background:
+  linear-gradient(90deg,transparent 33%,rgba(255,255,255,.45) 33%,rgba(255,255,255,.45) 33.6%,transparent 33.6%,transparent 66%,rgba(255,255,255,.45) 66%,rgba(255,255,255,.45) 66.6%,transparent 66.6%),
+  linear-gradient(transparent 33%,rgba(255,255,255,.45) 33%,rgba(255,255,255,.45) 33.6%,transparent 33.6%,transparent 66%,rgba(255,255,255,.45) 66%,rgba(255,255,255,.45) 66.6%,transparent 66.6%);
+ cursor:move;
+}
+.fabric-crop-live-badge{
+ position:absolute;left:50%;bottom:.1905rem;transform:translateX(-50%);
+ padding:.0635rem .254rem;border-radius:.254rem;
+ background:rgba(15,23,42,.76);color:#fff;
+ font-size:.3175rem;font-weight:600;white-space:nowrap;pointer-events:none;
+}
+.fabric-crop-handle{
+ position:absolute;width:.5079rem;height:.5079rem;padding:0;
+ border:2px solid #fff;border-radius:.127rem;
+ background:var(--flow-brand,#146cff);
+ box-shadow:0 1px 4px rgba(0,0,0,.32);
+ touch-action:none;
+}
+.fabric-crop-handle.nw{left:-.1905rem;top:-.1905rem;cursor:nwse-resize}
+.fabric-crop-handle.ne{right:-.1905rem;top:-.1905rem;cursor:nesw-resize}
+.fabric-crop-handle.sw{left:-.1905rem;bottom:-.1905rem;cursor:nesw-resize}
+.fabric-crop-handle.se{right:-.1905rem;bottom:-.1905rem;cursor:nwse-resize}
+
+.fabric-crop-actions{
+ display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;
+ gap:.254rem;font-size:.3492rem;color:var(--muted);
+}
+.fabric-crop-ratios{display:flex;flex-wrap:wrap;gap:.1905rem}
+.fabric-crop-ratios button{
+ min-height:.8889rem;padding:0 .2857rem;
+ border:1px solid var(--line,#deded9);border-radius:.3175rem;
+ background:#fff;color:var(--ink,#171819);
+ font-size:.3492rem;font-weight:500;
+}
+.fabric-crop-ratios button.active{
+ border-color:var(--flow-brand,#146cff);
+ background:rgba(20,108,255,.1);
+ color:var(--flow-brand,#146cff);
+ font-weight:600;
+}
+
+.fabric-crop-calibration{
+ padding:.4444rem;background:var(--flow-bg,#f4f7fc);
+ border:1px solid rgba(20,108,255,.12);
+ border-radius:.4444rem;display:grid;gap:.3175rem;
+}
+.fabric-crop-calibration-head{
+ display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.254rem;
+}
+.fabric-crop-calibration-head>div:first-child{display:flex;align-items:baseline;gap:.1905rem}
+.fabric-crop-calibration-head strong{font-size:.4127rem;font-weight:600;color:var(--ink)}
+.fabric-crop-unit-note{font-size:.3175rem;color:var(--muted)}
+
+.fabric-crop-mode-switch{
+ display:inline-flex;padding:.0635rem;border-radius:.3175rem;
+ background:rgba(15,23,42,.06);gap:.0635rem;
+}
+.fabric-crop-mode-switch button{
+ min-height:.8254rem;padding:0 .254rem;border:0;border-radius:.254rem;
+ background:transparent;color:var(--muted);font-size:.3175rem;font-weight:500;
+}
+.fabric-crop-mode-switch button.active{
+ background:#fff;color:var(--flow-brand,#146cff);font-weight:600;
+ box-shadow:0 1px 3px rgba(15,23,42,.08);
+}
+
+.fabric-crop-presets{display:flex;flex-wrap:wrap;gap:.1905rem}
+.fabric-crop-presets button{
+ min-height:.8254rem;padding:0 .254rem;
+ border:1px solid var(--line,#deded9);border-radius:999px;
+ background:#fff;color:var(--muted);font-size:.3175rem;
+}
+.fabric-crop-presets button.active{
+ border-color:var(--flow-brand,#146cff);
+ background:rgba(20,108,255,.1);
+ color:var(--flow-brand,#146cff);
+ font-weight:600;
+}
+
+.fabric-crop-dimensions{
+ display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
+ align-items:end;gap:.254rem;
+}
+.fabric-crop-dimensions label{
+ display:grid;gap:.1905rem;font-size:.3492rem;color:var(--muted);min-width:0;
+}
+.fabric-crop-dimensions input{
+ box-sizing:border-box;width:100%;min-width:0;height:1.3968rem;
+ padding:0 .3175rem;border:1px solid var(--line);border-radius:.3175rem;
+ background:#fff;color:var(--ink);font:inherit;font-size:.4444rem;
+}
+.fabric-crop-dimensions input::placeholder{font-size:.3492rem;color:var(--muted)}
+.fabric-crop-times{line-height:1.3968rem;font-size:.4444rem;color:var(--muted)}
+.fabric-crop-scale{margin:0;font-size:.3492rem;line-height:1.45;color:var(--flow-brand,#146cff);font-weight:500}
+.fabric-crop-content>.fabric-create-footer{
+ flex-shrink:0;display:grid;grid-template-columns:1fr 1fr;gap:.3175rem;
+ border-top:1px solid var(--line);padding-top:.3175rem;
+}
+.fabric-crop-content>.fabric-create-footer button{
+ height:1.3968rem;border:1px solid var(--line);border-radius:.4444rem;
+ background:#fff;color:var(--ink);font-size:.4444rem;
+}
+.fabric-crop-content>.fabric-create-footer button.primary{
+ background:var(--flow-brand,#146cff);border:0;color:#fff;font-weight:600;
+}
+
+.fabric-record-stock{margin:.254rem .3175rem;padding:.1905rem .3175rem;background:#f1f6ff;color:var(--flow-brand,#146cff);border-radius:.3175rem;font-size:.3492rem}

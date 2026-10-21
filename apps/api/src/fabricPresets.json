@@ -1,0 +1,130 @@
+[
+  {
+    "id": "ivory",
+    "name": "奶油米白",
+    "color": "#eee5d5",
+    "category": "棉布",
+    "image": "/fabric-presets/ivory.svg",
+    "sampleWidthMm": 64
+  },
+  {
+    "id": "rose",
+    "name": "柔雾玫瑰",
+    "color": "#d6a0a0",
+    "category": "棉布",
+    "image": "/fabric-presets/rose.svg",
+    "sampleWidthMm": 64
+  },
+  {
+    "id": "sage",
+    "name": "鼠尾草绿",
+    "color": "#a4b29c",
+    "category": "棉布",
+    "image": "/fabric-presets/sage.svg",
+    "sampleWidthMm": 64
+  },
+  {
+    "id": "blue",
+    "name": "雾霾蓝",
+    "color": "#9cabbc",
+    "category": "棉布",
+    "image": "/fabric-presets/blue.svg",
+    "sampleWidthMm": 64
+  },
+  {
+    "id": "rose-check",
+    "name": "玫瑰小格",
+    "color": "#d6a0a0",
+    "category": "格纹",
+    "image": "/fabric-presets/rose-check.svg",
+    "sampleWidthMm": 64
+  },
+  {
+    "id": "sage-check",
+    "name": "绿意小格",
+    "color": "#a4b29c",
+    "category": "格纹",
+    "image": "/fabric-presets/sage-check.svg",
+    "sampleWidthMm": 64
+  },
+  {
+    "id": "blue-check",
+    "name": "蓝白格纹",
+    "color": "#9cabbc",
+    "category": "格纹",
+    "image": "/fabric-presets/blue-check.svg",
+    "sampleWidthMm": 64
+  },
+  {
+    "id": "honey-check",
+    "name": "蜂蜜格纹",
+    "color": "#d9bc81",
+    "category": "格纹",
+    "image": "/fabric-presets/honey-check.svg",
+    "sampleWidthMm": 64
+  },
+  {
+    "id": "rose-stripe",
+    "name": "奶油粉条纹",
+    "color": "#d6a0a0",
+    "category": "条纹",
+    "image": "/fabric-presets/rose-stripe.svg",
+    "sampleWidthMm": 64
+  },
+  {
+    "id": "blue-stripe",
+    "name": "海盐蓝条纹",
+    "color": "#9cabbc",
+    "category": "条纹",
+    "image": "/fabric-presets/blue-stripe.svg",
+    "sampleWidthMm": 64
+  },
+  {
+    "id": "sage-dot",
+    "name": "绿底米白波点",
+    "color": "#a4b29c",
+    "category": "波点",
+    "image": "/fabric-presets/sage-dot.svg",
+    "sampleWidthMm": 64
+  },
+  {
+    "id": "rose-dot",
+    "name": "玫瑰波点",
+    "color": "#d6a0a0",
+    "category": "波点",
+    "image": "/fabric-presets/rose-dot.svg",
+    "sampleWidthMm": 64
+  },
+  {
+    "id": "blue-dot",
+    "name": "雾蓝波点",
+    "color": "#9cabbc",
+    "category": "波点",
+    "image": "/fabric-presets/blue-dot.svg",
+    "sampleWidthMm": 64
+  },
+  {
+    "id": "rose-flower",
+    "name": "奶油小雏菊",
+    "color": "#e9d9cc",
+    "category": "碎花",
+    "image": "/fabric-presets/rose-flower.svg",
+    "sampleWidthMm": 64
+  },
+  {
+    "id": "sage-flower",
+    "name": "田园小碎花",
+    "color": "#c7d1bc",
+    "category": "碎花",
+    "image": "/fabric-presets/sage-flower.svg",
+    "sampleWidthMm": 64
+  },
+  {
+    "id": "blue-flower",
+    "name": "晴空小碎花",
+    "color": "#bfcedd",
+    "category": "碎花",
+    "image": "/fabric-presets/blue-flower.svg",
+    "sampleWidthMm": 64
+  }
+]

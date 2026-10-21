@@ -1,3 +1,5 @@
+import { findBuiltinFabric, unifiedFabrics, presetAsset, matchesMaterialFabric, registerUsedPresetFabrics } from '../fabrics/fabricCatalog';
+import { FabricStockDialog, recordFabricStock } from '../fabrics/FabricStockDialog';
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
@@ -23,8 +25,22 @@ import { newPatchworkId } from './ids';
 import type { SegmentMode, SegmentResult } from './segmentation';
 import { useShapeLibrary } from './useShapeLibrary';
 import { AddShapePanel } from './AddShapePanel';
-import { FabricPicker, MatSwatch } from './FabricPicker';
+import { useAppSelector } from '../store/hooks';
+import { MatSwatch } from './FabricPicker';
+import { ConnectedFabricPicker as FabricPicker } from '../fabrics/ConnectedFabricPicker';
+import { PatchworkCreateDialog, type PatchworkCreateConfig } from './PatchworkCreateDialog';
+import { FabricCreateDialog } from '../fabrics/FabricCreateDialog';
+import { createWarehouseFabric, type FabricCreateResult } from '../fabrics/fabricCreate';
+import { createEditorWarehouseFabric } from './editorFabricPersistence';
 import { placeShapePieces, toShapeTemplate, type ShapeChoice, type ShapePlacement } from './shapeLibrary';
+import {
+  computeProjectMaterialRequirements,
+  extractDominantColorFromRgba,
+  fabricSpecLabel,
+  formatCm2,
+  recommendReplacementFabrics,
+  type FabricItem,
+} from './fabricInventory';
 import './patchwork.css';
 import './fabric-panel.css';
 
@@ -50,7 +66,7 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 
 type IndexEntry = { id: string; name: string; updatedAt: number; widthMm: number; heightMm: number; technique: Technique; cloudId?: string };
 type CloudWork = { id: string; name: string; updatedAt: string; rows: number; cols: number };
-type FabricItemLite = { id: string; name: string; color: string | null; image: string | null; widthMm: number | null; heightMm: number | null; quantity: number };
+type FabricItemLite = FabricItem;
 const blobToDataUrl = (blob: Blob): Promise<string> => new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result)); r.onerror = () => reject(r.error instanceof Error ? r.error : new Error('read failed')); r.readAsDataURL(blob); });
 function readIndex(): IndexEntry[] { try { return JSON.parse(localStorage.getItem(INDEX_KEY) || '[]') as IndexEntry[]; } catch { return []; } }
 function writeIndex(list: IndexEntry[]) { try { localStorage.setItem(INDEX_KEY, JSON.stringify(list.slice(0, 60))); } catch { /* 存储满时忽略索引 */ } }
@@ -147,6 +163,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
   const navigate = useNavigate();
   const { openConfirm } = useAppOverlay();
   // 与拼豆一致：保存作品、打开作品前先过登录门；未登录弹登录，成功后带着 token 继续原操作。
+  const catalogAccountId = useAppSelector(state => state.auth.status === 'authenticated' ? state.auth.user?.id : undefined);
   const tokenRef = useRef<string>(token || '');
   useEffect(() => { tokenRef.current = token || ''; }, [token]);
   const projectRef = useRef<PatchworkProject | null>(null);
@@ -170,7 +187,15 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
   const analysisRef = useRef<Analysis | null>(null);
   const textureOrig = useRef<PatchworkDocument | null>(null);
 
-  const [project, setProject] = useState<PatchworkProject>(() => makeProject());
+  const [project, setProject] = useState<PatchworkProject>(() => {
+    const st = location.state as { fresh?: boolean; widthMm?: number; heightMm?: number; baseFabricId?: string } | null;
+    const p0 = makeProject();
+    if (st?.fresh && st.widthMm && st.heightMm) {
+      p0.widthMm = st.widthMm; p0.heightMm = st.heightMm;
+      p0.base = { materialId: '', locked: true, includeInCutList: false };
+    }
+    return p0;
+  });
   projectRef.current = project;
   const [loaded, setLoaded] = useState(false);
   const [past, setPast] = useState<PatchworkDocument[]>([]);
@@ -213,7 +238,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
   const [indexList, setIndexList] = useState<IndexEntry[]>([]);
   const [cloudList, setCloudList] = useState<CloudWork[]>([]);
   const [fabricPick, setFabricPick] = useState<FabricItemLite[] | null>(null);
-  const [fabricPickerTarget, setFabricPickerTarget] = useState<'base' | 'editor'>('editor');
+  const [fabricPickerTarget, setFabricPickerTarget] = useState<'base' | 'props' | 'editor'>('editor');
   const [cloudId, setCloudIdState] = useState<string | null>(null);
   const cloudIdRef = useRef<string | null>(null);
   const setCloudId = (id: string | null) => { cloudIdRef.current = id; setCloudIdState(id); };
@@ -228,14 +253,103 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
   const [baseForm, setBaseForm] = useState<{ name: string; technique: Technique; w: number; h: number; materialId: string; include: boolean; locked: boolean; scaleDesign: boolean } | null>(null);
   const [paper, setPaper] = useState<'A4' | 'Letter'>('A4');
   const [includeHidden, setIncludeHidden] = useState(true);
-  const [expTab, setExpTab] = useState<'list' | 'preview'>('list');
+  const [expTab, setExpTab] = useState<'list' | 'materials' | 'preview'>('list');
   const [expUrl, setExpUrl] = useState('');
+  const [warehouseFabrics, setWarehouseFabrics] = useState<FabricItem[]>([]);
+  const [stockFabric, setStockFabric] = useState<FabricItem | null>(null);
+  const [wasteRatio, setWasteRatio] = useState<number>(0.15);
+  const [replaceTargetMatId, setReplaceTargetMatId] = useState<string | null>(null);
+  const [replaceScope, setReplaceScope] = useState<'all' | 'selected'>('all');
+  const [showConsumeConfirm, setShowConsumeConfirm] = useState(false);
+  const [consumeDraftCm2, setConsumeDraftCm2] = useState<Record<string, string>>({});
+  const [consumingStock, setConsumingStock] = useState(false);
+  const consumingStockRef = useRef(false);
+  const consumeOperationRef = useRef('');
+  const replaceUploadRef = useRef<{ sourceMatId: string; scope: 'all' | 'selected' } | null>(null);
   const [fabEdit, setFabEdit] = useState(false);
+  const [createCfg, setCreateCfg] = useState<{ source: 'entry' | 'panel' } | null>(() => { const st = location.state as { fresh?: boolean; widthMm?: number } | null; return st?.fresh && !st.widthMm ? { source: 'entry' } : null; });
   const [fabQuery, setFabQuery] = useState('');
   const [matDetailId, setMatDetailId] = useState<string | null>(null);
+  const [creatingFabric, setCreatingFabric] = useState(false);
   const [matDraft, setMatDraft] = useState<MatDraft | null>(null);
   const [matDeleting, setMatDeleting] = useState(false);
   const [matReplaceId, setMatReplaceId] = useState('');
+  const [newFabricAreaCm2, setNewFabricAreaCm2] = useState('');
+  const [newFabricProjectOnly, setNewFabricProjectOnly] = useState(false);
+  const [savingFabric, setSavingFabric] = useState(false);
+  const savingFabricRef = useRef(false);
+  const fabricSaveScopeRef = useRef(0);
+  const inventoryVersionRef = useRef(0);
+  useEffect(() => {
+    ++fabricSaveScopeRef.current;
+    ++inventoryVersionRef.current;
+    setWarehouseFabrics([]);
+    setStockFabric(null);
+    setShowConsumeConfirm(false);
+    setConsumeDraftCm2({});
+    setConsumingStock(false);
+  }, [token]);
+  useEffect(() => {
+    ++fabricSaveScopeRef.current;
+    return () => { ++fabricSaveScopeRef.current; };
+  }, [location.key, location.pathname, location.search, project.id]);
+
+  const pendingBaseFabricRef = useRef<string | null>((location.state as { baseFabricId?: string } | null)?.baseFabricId || null);
+  const attachBaseFabric = async (doc: PatchworkProject, f: FabricItemLite) => {
+    const catalogAsset = presetAsset(f);
+    let assetId: string | undefined = catalogAsset?.assetId;
+    if (f.image && !catalogAsset) {
+      try { const blob = await (await fetch(f.image)).blob(); assetId = await putAsset(blob); } catch { /* 图片失败时退化为纯色布料 */ }
+    }
+    const seq = nextMatSeq(doc.materials);
+    const sampleW = f.sampleWidthMm && f.sampleWidthMm > 0 ? f.sampleWidthMm : f.widthMm && f.widthMm > 0 ? f.widthMm : undefined;
+    const createdMat: Material = {
+      id: `M${seq}`,
+      name: f.name,
+      color: f.color || '#d9c8a9',
+      category: f.category || undefined,
+      inventoryFabricId: f.id,
+      presetId: f.presetId || undefined,
+      ...(catalogAsset ? { assetPath: catalogAsset.assetPath } : {}),
+      ...(assetId ? { assetId, calibrated: Boolean(sampleW), sampleWidthMm: sampleW } : {}),
+    };
+    doc.materials.push(createdMat);
+    doc.base = { materialId: createdMat.id, locked: true, includeInCutList: true };
+  };
+  useEffect(() => {
+    const fid = pendingBaseFabricRef.current;
+    if (!fid) return;
+    pendingBaseFabricRef.current = null;
+    void (async () => {
+      const preset = findBuiltinFabric(fid);
+      if (preset) {
+        const cur = projectRef.current;
+        if (!cur || cur.base.materialId) return;
+        const next = { ...cur, materials: [...cur.materials], base: { ...cur.base } };
+        await attachBaseFabric(next, preset);
+        if (projectRef.current?.id === cur.id) setProject(next);
+        return;
+      }
+      // 仓库列表没有挂载时自动加载，这里自包含地拉一次；先等 token 就绪
+      for (let i = 0; i < 20 && !tokenRef.current; i++) await new Promise((r) => setTimeout(r, 250));
+      const t = tokenRef.current;
+      if (!t || !requestApi) return;
+      let f: FabricItem | undefined;
+      try {
+        const payload = await requestApi<{ fabric: FabricItem }>(`/fabrics/${encodeURIComponent(fid)}`, {}, t);
+        f = payload.fabric;
+      } catch { return; }
+      if (!f) return;
+      const cur = projectRef.current;
+      if (!cur || cur.base.materialId) return;
+      const next: PatchworkProject = { ...cur, materials: [...cur.materials], base: { ...cur.base } };
+      await attachBaseFabric(next, f);
+      setProject(next);
+      savedJson.current = JSON.stringify(docOf(next));
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [fabTarget, setFabTarget] = useState<string | null>(null);
   const fabReturnRef = useRef(false);
 
@@ -243,15 +357,42 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
     setBaseForm({ name: project.name, technique: project.technique, w: project.widthMm, h: project.heightMm, materialId: project.base.materialId, include: project.base.includeInCutList, locked: project.base.locked, scaleDesign: false });
     setPanel('base');
   };
-  const openFabricPicker = (target: 'base' | 'editor') => {
+  const loadWarehouseFabrics = async (t = tokenRef.current, showList = false) => {
+    if (!requestApi || !t) return;
+    const scope = fabricSaveScopeRef.current;
+    const version = inventoryVersionRef.current;
+    try {
+      const payload = await requestApi<{ fabrics: FabricItem[] }>('/fabrics', {}, t);
+      if (scope !== fabricSaveScopeRef.current || version !== inventoryVersionRef.current || t !== tokenRef.current) return;
+      if (Array.isArray(payload.fabrics)) {
+        setWarehouseFabrics(payload.fabrics);
+        if (showList) setFabricPick(payload.fabrics);
+      }
+    } catch {
+      if (scope === fabricSaveScopeRef.current && t === tokenRef.current && showList) toast('布料仓库读取失败，请稍后重试');
+    }
+  };
+  const openFabricPicker = (target: 'base' | 'props' | 'editor') => {
     setFabricPickerTarget(target);
     setFabEdit(false);
     setFabQuery('');
+    if (!catalogAccountId && tokenRef.current) void loadWarehouseFabrics(tokenRef.current, false);
     setMatDetailId(null);
     setMatDraft(null);
     setFabricPick(null);
     setPanel('fabrics');
+
   };
+  useEffect(() => {
+    if (panel === 'export' && tokenRef.current) {
+      void loadWarehouseFabrics(tokenRef.current, false);
+    }
+    if (panel !== 'export') {
+      setReplaceTargetMatId(null);
+      setShowConsumeConfirm(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [panel]);
 
   useEffect(() => {
     if (panel !== 'export' || expTab !== 'preview') return undefined;
@@ -278,19 +419,20 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
   }, [panel]);
 
   useEffect(() => {
-    if (!panel || typeof window === 'undefined' || typeof window.addEventListener !== 'function') return undefined;
+    if (creatingFabric || !panel || typeof window === 'undefined' || typeof window.addEventListener !== 'function') return undefined;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       event.preventDefault();
       if (panel === 'import') cancelAnalysis();
       else if (panel === 'fabriccrop') cancelFabCrop();
-      else if (panel === 'fabrics') closeFabrics();
+      else if (panel === 'fabrics') { if (matDetailId) closeMatDetail(); else closeFabrics(); }
+      else if (panel === 'props') closeProps();
       else setPanel(null);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [panel]);
+  }, [panel, creatingFabric]);
 
   const toast = (text: string) => setMessage(text);
   useEffect(() => { if (!message) return; const t = setTimeout(() => setMessage(''), 3600); return () => clearTimeout(t); }, [message]);
@@ -706,15 +848,6 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
     });
   };
   // 直接点击底部布料：有选中布片就立即填充；否则只切换画笔/填布工具当前布料。
-  const selectMaterial = (materialId: string) => {
-    setActiveMaterialId(materialId);
-    const targets = selectedPieces.filter((p) => !p.locked && p.materialId !== materialId);
-    if (!targets.length) return;
-    const ids = new Set(targets.map((p) => p.id));
-    commit((doc) => {
-      doc.pieces.forEach((p) => { if (ids.has(p.id)) p.materialId = materialId; });
-    });
-  };
   const rotateSelected = (deg: number) => transformSelected((p) => ({ ...p, points: transformPoints(p.points, 'rotate', deg) }));
   const mirrorSelected = (axis: 'mirrorX' | 'mirrorY') => transformSelected((p) => ({ ...p, points: transformPoints(p.points, axis) }));
   const duplicateSelected = () => {
@@ -869,26 +1002,155 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
     });
   });
   const addFabricMaterial = async (f: FabricItemLite) => {
-    let assetId: string | undefined;
-    if (f.image) {
+    const scope = fabricSaveScopeRef.current;
+    const existing = project.materials.find((m) => matchesMaterialFabric(m, f));
+    if (existing) {
+      pickMaterial(existing.id);
+      toast(`已选用布料「${f.name}」`);
+      return;
+    }
+    const catalogAsset = presetAsset(f);
+    let assetId: string | undefined = catalogAsset?.assetId;
+    if (f.image && !catalogAsset) {
       try { const blob = await (await fetch(f.image)).blob(); assetId = await putAsset(blob); } catch { /* 图片失败时退化为纯色布料 */ }
     }
+    if (scope !== fabricSaveScopeRef.current) return;
     const holder: { mat: Material | null } = { mat: null };
+    const pid = fabricPickerTarget === 'props' && single ? single.id : null;
     commit((doc) => {
+      const already = doc.materials.find(m => matchesMaterialFabric(m, f));
+      if (already) { holder.mat = already; if (pid) { const piece = doc.pieces.find(p => p.id === pid); if (piece) piece.materialId = already.id; } return; }
       // 编号按提交时的最新材料表计算，避免慢网络下连点两次生成同号材料
       const seq = nextMatSeq(doc.materials);
-      holder.mat = {
+      const sampleW = f.sampleWidthMm && f.sampleWidthMm > 0 ? f.sampleWidthMm : f.widthMm && f.widthMm > 0 ? f.widthMm : undefined;
+      const createdMat: Material = {
         id: `M${seq}`,
         name: f.name,
         color: f.color || '#d9c8a9',
-        ...(assetId ? { assetId, calibrated: Boolean(f.widthMm), sampleWidthMm: f.widthMm || undefined } : {}),
+        category: f.category || undefined,
+        inventoryFabricId: f.id,
+        presetId: f.presetId || undefined,
+        ...(catalogAsset ? { assetPath: catalogAsset.assetPath } : {}),
+        ...(assetId ? { assetId, calibrated: Boolean(sampleW), sampleWidthMm: sampleW } : {}),
       };
-      doc.materials.push(holder.mat);
+      holder.mat = createdMat;
+      doc.materials.push(createdMat);
+      if (pid) {
+        const pc = doc.pieces.find((x) => x.id === pid);
+        if (pc) pc.materialId = createdMat.id;
+      }
     });
     if (!holder.mat) return;
-    setActiveMaterialId(holder.mat.id);
+    const pickedId = holder.mat.id;
+    if (fabricPickerTarget === 'base') setBaseForm((cur) => cur ? { ...cur, materialId: pickedId } : cur);
+    else setActiveMaterialId(pickedId);
     setFabricPick(null);
-    toast(`已添加布料「${f.name}」`);
+    closeFabrics();
+    toast(`已选用布料「${f.name}」`);
+  };
+  const replaceWithWarehouseFabric = async (sourceMaterialId: string, f: FabricItemLite, scope: 'all' | 'selected') => {
+    const catalogAsset = presetAsset(f);
+    let assetId: string | undefined = catalogAsset?.assetId;
+    const existing = project.materials.find((m) => matchesMaterialFabric(m, f));
+    if (!existing && f.image && !catalogAsset) {
+      try { const blob = await (await fetch(f.image)).blob(); assetId = await putAsset(blob); } catch { /* 退化为纯色 */ }
+    }
+    let replacedId = existing?.id || '';
+    commit((doc) => {
+      const existingMat = doc.materials.find((m) => matchesMaterialFabric(m, f));
+      const targetMat: Material = existingMat ?? (() => {
+        const seq = nextMatSeq(doc.materials);
+        const sampleW = f.sampleWidthMm && f.sampleWidthMm > 0 ? f.sampleWidthMm : f.widthMm && f.widthMm > 0 ? f.widthMm : undefined;
+        const created: Material = {
+          id: `M${seq}`,
+          name: f.name,
+          color: f.color || '#d9c8a9',
+          category: f.category || undefined,
+          inventoryFabricId: f.id,
+        presetId: f.presetId || undefined,
+        ...(catalogAsset ? { assetPath: catalogAsset.assetPath } : {}),
+          ...(assetId ? { assetId, calibrated: Boolean(sampleW), sampleWidthMm: sampleW } : {}),
+        };
+        doc.materials.push(created);
+        return created;
+      })();
+      replacedId = targetMat.id;
+      if (scope === 'selected' && selectedIds.length > 0) {
+        doc.pieces.forEach((pc) => {
+          if (selectedIds.includes(pc.id)) pc.materialId = targetMat.id;
+        });
+      } else {
+        doc.pieces.forEach((pc) => {
+          if (pc.materialId === sourceMaterialId) pc.materialId = targetMat.id;
+        });
+        if (doc.base.materialId === sourceMaterialId) doc.base.materialId = targetMat.id;
+      }
+    });
+    if (replacedId && activeMaterialId === sourceMaterialId) setActiveMaterialId(replacedId);
+    setReplaceTargetMatId(null);
+    toast(scope === 'selected' && selectedIds.length > 0 ? `已将选中布片替换为「${f.name}」` : `已将同款布料全部替换为「${f.name}」`);
+  };
+  const openConsumeConfirm = () => {
+    const reqs = computeProjectMaterialRequirements(project, warehouseFabrics, { includeHidden, wasteRatio });
+    const draft: Record<string, string> = {};
+    for (const r of reqs) {
+      if (r.inventoryFabric && r.availableAreaMm2 !== null) {
+        const id = r.inventoryFabric.id;
+        draft[id] = String((Number(draft[id]) || 0) + r.requiredAreaMm2 / 100);
+      }
+    }
+    if (Object.keys(draft).length === 0) {
+      toast('请先将图纸布料绑定或替换为仓库中的布料');
+      return;
+    }
+    consumeOperationRef.current = uid();
+    setConsumeDraftCm2(draft);
+    setShowConsumeConfirm(true);
+  };
+  const submitConsumeStock = () => {
+    if (consumingStockRef.current) return;
+    const items = Object.entries(consumeDraftCm2)
+      .map(([fabricId, cm2Str]) => ({ fabricId, actualAreaMm2: Math.round((Number(cm2Str) || 0) * 100) }))
+      .filter((item) => Number.isSafeInteger(item.actualAreaMm2) && item.actualAreaMm2 > 0);
+    if (items.length === 0) {
+      toast('请填写大于 0 的实际裁布面积');
+      return;
+    }
+    withToken((authToken) => {
+      if (!requestApi || !authToken) {
+        toast('登录后才能扣减仓库库存');
+        return;
+      }
+      if (consumingStockRef.current) return;
+      consumingStockRef.current = true;
+      setConsumingStock(true);
+      const scope = fabricSaveScopeRef.current;
+      const isCurrent = () => scope === fabricSaveScopeRef.current && authToken === tokenRef.current;
+      void (async () => {
+        try {
+          const payload = await requestApi<{ fabrics: FabricItem[] }>('/fabrics/consume', {
+            method: 'POST',
+            body: JSON.stringify({
+              operationId: consumeOperationRef.current || (consumeOperationRef.current = uid()),
+              projectId: cloudIdRef.current || project.id,
+              projectName: project.name,
+              items,
+            }),
+          }, authToken);
+          if (!isCurrent()) return;
+          ++inventoryVersionRef.current;
+          if (Array.isArray(payload.fabrics)) setWarehouseFabrics(payload.fabrics);
+          consumeOperationRef.current = '';
+          setShowConsumeConfirm(false);
+          toast('已按实际裁片面积扣减布料库存');
+        } catch (err) {
+          if (isCurrent()) toast(err instanceof Error ? err.message : '库存扣减失败，请稍后重试');
+        } finally {
+          consumingStockRef.current = false;
+          if (isCurrent()) setConsumingStock(false);
+        }
+      })();
+    });
   };
   const refreshCloudList = async (t: string) => {
     if (!requestApi || !t) return;
@@ -904,6 +1166,9 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
     try { await doSaveInner(authToken); } finally { savingRef.current = false; }
   };
   const doSaveInner = async (authToken = '') => {
+    const saveScope = fabricSaveScopeRef.current;
+    const isSaveCurrent = () => saveScope === fabricSaveScopeRef.current && projectRef.current?.id === project.id && (!authToken || authToken === tokenRef.current);
+    let savedCloudId = cloudIdRef.current;
     const name = (saveName || project.name || '未命名拼布').trim();
     let coverBlob: Blob | null = null;
     let coverAssetId = project.coverAssetId;
@@ -924,6 +1189,27 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
     let cloudOk = false;
     if (requestApi && authToken) {
       try {
+        const personalPresets = await registerUsedPresetFabrics(saved, requestApi, authToken);
+        if (personalPresets.length) {
+          saved.materials = saved.materials.map(m => {
+            const f = personalPresets.find(f => f.presetId === m.presetId);
+            return f ? { ...m, inventoryFabricId: f.id } : m;
+          });
+          saveDraft(saved, saved.id);
+          if (saveScope === fabricSaveScopeRef.current && authToken === tokenRef.current) {
+            ++inventoryVersionRef.current;
+            setWarehouseFabrics(cur => [...personalPresets, ...cur.filter(f => !personalPresets.some(p => p.id === f.id))]);
+            const cur = projectRef.current;
+            if (cur && cur.id === saved.id) {
+              const merged = { ...cur, materials: cur.materials.map(m => {
+                const f = personalPresets.find(f => f.presetId === m.presetId);
+                return f ? { ...m, inventoryFabricId: f.id } : m;
+              }) };
+              if (cur === liveApplied) liveApplied = merged;
+              setProject(merged);
+            }
+          }
+        }
         // 布料图片云同步：把图纸引用到的本机布图上传云端、路径写回图纸，
         // 换任何设备打开时都能按路径把布图下载回来，不再只剩底色。
         const pathMap = new Map<string, string>();
@@ -955,6 +1241,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
           });
           saveDraft(saved, saved.id);
           // 云端路径只合并进当前文档，不覆盖保存期间用户的新编辑
+          if (isSaveCurrent()) {
           const cur = projectRef.current || saved;
           const merged: PatchworkProject = {
             ...cur,
@@ -964,6 +1251,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
           setProject(merged);
           liveApplied = merged;
           saveDraft(merged, merged.id);
+          }
         }
         let thumbnailImagePath: string | undefined;
         if (coverBlob) {
@@ -972,29 +1260,33 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
           thumbnailImagePath = up.thumbnailImagePath;
         }
         const payload = { kind: 'patchwork', name, rows: Math.max(1, Math.round(saved.heightMm)), cols: Math.max(1, Math.round(saved.widthMm)), content: JSON.stringify(docOf(saved)), ...(thumbnailImagePath ? { thumbnailImagePath } : {}) };
-        const existingCloudId = cloudIdRef.current;
+        const existingCloudId = savedCloudId;
         try {
           if (existingCloudId) {
             await requestApi(`/projects/${encodeURIComponent(existingCloudId)}`, { method: 'PUT', body: JSON.stringify(payload) }, authToken);
           } else {
             const created = await requestApi<{ project: { id: string } }>('/projects', { method: 'POST', body: JSON.stringify(payload) }, authToken);
-            setCloudId(created.project.id);
+            savedCloudId = created.project.id;
+            if (isSaveCurrent()) setCloudId(created.project.id);
           }
         } catch (err) {
           // 只有云端记录确实不存在（404）才允许新建；其他失败一律按保存失败处理，
           // 绝不能兜底新建——那正是同图纸反复保存生成一堆重复作品的来源。
           if (existingCloudId && (err as { status?: number })?.status === 404) {
             const created = await requestApi<{ project: { id: string } }>('/projects', { method: 'POST', body: JSON.stringify(payload) }, authToken);
-            setCloudId(created.project.id);
+            savedCloudId = created.project.id;
+            if (isSaveCurrent()) setCloudId(created.project.id);
           } else throw err;
         }
         cloudOk = true;
       } catch { cloudOk = false; }
     }
-    if (liveApplied && projectRef.current === liveApplied) savedJson.current = JSON.stringify(docOf(liveApplied));
-    const entry: IndexEntry = { id: saved.id, name, updatedAt: Date.now(), widthMm: saved.widthMm, heightMm: saved.heightMm, technique: saved.technique, cloudId: cloudIdRef.current || undefined };
+    if (isSaveCurrent() && liveApplied && projectRef.current === liveApplied) savedJson.current = JSON.stringify(docOf(liveApplied));
+    const entry: IndexEntry = { id: saved.id, name, updatedAt: Date.now(), widthMm: saved.widthMm, heightMm: saved.heightMm, technique: saved.technique, cloudId: savedCloudId || undefined };
     const list = [entry, ...readIndex().filter((x) => x.id !== saved.id)];
-    writeIndex(list); setIndexList(list);
+    writeIndex(list);
+    if (!isSaveCurrent()) return;
+    setIndexList(list);
     setPanel(null);
     toast(cloudOk ? '已保存到我的作品' : '已保存到本机作品');
     if (cloudOk) void refreshCloudList(authToken);
@@ -1035,15 +1327,30 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
       toast('已打开作品');
     } catch { toast('打开失败，请稍后重试'); }
   };
-  const newProject = () => {
+  const newProject = () => { setPanel(null); setCreateCfg({ source: 'panel' }); };
+  const confirmCreate = (cfg: PatchworkCreateConfig) => {
+    void (async () => {
     const fresh = makeProject();
+    fresh.widthMm = cfg.widthMm;
+    fresh.heightMm = cfg.heightMm;
+    fresh.base = { materialId: '', locked: true, includeInCutList: false };
+    if (cfg.baseFabricId) {
+      let f = unifiedFabrics(warehouseFabrics).find((x) => x.id === cfg.baseFabricId);
+      if (!f && requestApi && tokenRef.current) {
+        try { f = (await requestApi<{fabric:FabricItem}>(`/fabrics/${encodeURIComponent(cfg.baseFabricId)}`, {}, tokenRef.current)).fabric; } catch { toast('底布读取失败，请重试'); return; }
+      }
+      if (f) await attachBaseFabric(fresh, f);
+    }
     setProject(fresh);
     setPast([]); setFuture([]); setSelectedIds([]); setNodeMode(false); setCandidates(null);
     savedJson.current = JSON.stringify(docOf(fresh));
     writeActive(fresh.id);
     setCloudId(null);
     setPanel(null);
+    setCreateCfg(null);
+    })();
   };
+  const cancelCreate = () => { const source = createCfg?.source; setCreateCfg(null); if (source === 'entry') navigate('/'); };
   const deleteProject = (id: string) => {
     try { localStorage.removeItem(`qiaoqiaole:patchwork:${id}`); } catch { /* 忽略 */ }
     const list = readIndex().filter((x) => x.id !== id);
@@ -1064,13 +1371,34 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
 
   /* ---------- 布料选择与编辑（新版） ---------- */
   const usageOf = (id: string) => project.pieces.filter((pc) => pc.materialId === id).length + (project.base.materialId === id ? 1 : 0);
-  const closeFabrics = () => { setPanel(fabricPickerTarget === 'base' ? 'base' : null); setMatDetailId(null); setMatDraft(null); setMatDeleting(false); setFabricPick(null); };
-  const closeMatDetail = () => { setMatDetailId(null); setMatDraft(null); setMatDeleting(false); };
+  const closeFabrics = () => {
+    if (savingFabricRef.current) return;
+    setPanel(fabricPickerTarget === 'base' ? 'base' : fabricPickerTarget === 'props' ? 'props' : null);
+    setMatDetailId(null);
+    setMatDraft(null);
+    setMatDeleting(false);
+    setFabricPick(null);
+  };
+  const closeMatDetail = () => { if (savingFabricRef.current) return; setMatDetailId(null); setMatDraft(null); setMatDeleting(false); };
   const pickMaterial = (id: string) => {
     if (fabricPickerTarget === 'base') {
       setBaseForm((cur) => cur ? { ...cur, materialId: id } : cur);
+    } else if (fabricPickerTarget === 'props') {
+      if (single && single.materialId !== id) {
+        const pid = single.id;
+        commit((doc) => {
+          const t = doc.pieces.find((x) => x.id === pid);
+          if (t) t.materialId = id;
+        });
+      }
+      setActiveMaterialId(id);
     } else {
       setActiveMaterialId(id);
+      const targets = selectedPieces.filter((p) => !p.locked && p.materialId !== id);
+      if (targets.length) {
+        const ids = new Set(targets.map((p) => p.id));
+        commit((doc) => { doc.pieces.forEach((p) => { if (ids.has(p.id)) p.materialId = id; }); });
+      }
     }
     closeFabrics();
   };
@@ -1091,51 +1419,116 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
   };
   const launchReplaceImage = () => { if (!matDetailId) return; setFabTarget(matDetailId); fabReturnRef.current = true; fabricFileRef.current?.click(); };
   const createMaterialDraft = () => {
-    setFabEdit(true); setFabQuery(''); setFabricPick(null);
-    const id = `M${nextMatSeq(project.materials)}`;
-    openMatDetail(id, { id, name: '新布料', color: '#d9ad45' });
+    if (!savingFabricRef.current) setCreatingFabric(true);
   };
-  const saveMatDetail = async () => {
+  const saveNewFabric = async ({ payload, projectOnly, texturePattern }: FabricCreateResult) => {
+    const scope = fabricSaveScopeRef.current;
+    let authToken = tokenRef.current;
+    if (!projectOnly && !authToken && requireLogin) {
+      await requireLogin((t) => { authToken = t; tokenRef.current = t; });
+    }
+    if (scope !== fabricSaveScopeRef.current) return;
+    if (!projectOnly && (!requestApi || !authToken)) throw new Error('请先登录后保存到布料仓库');
+    let assetId: string | undefined;
+    if (payload.image) assetId = await putAsset(await (await fetch(payload.image)).blob());
+    if (scope !== fabricSaveScopeRef.current) return;
+    const fabric = projectOnly ? null : await createWarehouseFabric(requestApi, authToken, payload);
+    if (scope !== fabricSaveScopeRef.current || (!projectOnly && tokenRef.current !== authToken)) return;
+    if (fabric) {
+      ++inventoryVersionRef.current;
+      setWarehouseFabrics((cur) => [fabric, ...cur.filter((f) => f.id !== fabric.id)]);
+    }
+    const holder: { id?: string } = {};
+    const pid = fabricPickerTarget === 'props' && single ? single.id : null;
+    commit((doc) => {
+      const id = `M${nextMatSeq(doc.materials)}`;
+      holder.id = id;
+      doc.materials.push({
+        id, name: payload.name, color: payload.color, category: payload.category,
+        assetId, sampleWidthMm: payload.sampleWidthMm || undefined,
+        calibrated: Boolean(payload.sampleWidthMm), texturePattern,
+        ...(fabric ? { inventoryFabricId: fabric.id } : { projectOnly: true }),
+      });
+      if (pid) { const pc = doc.pieces.find((p) => p.id === pid); if (pc) pc.materialId = id; }
+    });
+    if (fabricPickerTarget === 'base') setBaseForm((cur) => cur ? { ...cur, materialId: holder.id! } : cur);
+    else setActiveMaterialId(holder.id!);
+    setCreatingFabric(false);
+    closeFabrics();
+    toast(fabric ? '已保存到布料仓库并选用' : '已添加到本作品');
+  };
+  const saveMatDetail = async (authToken = tokenRef.current) => {
+    if (savingFabricRef.current) return;
     const d = matDraft;
     if (!d || !matDetailId) { closeMatDetail(); return; }
     const existing = project.materials.find((x) => x.id === matDetailId);
     const m: Material = existing || { id: matDetailId, name: '新布料', color: d.color };
     if (d.kind === 'image' && !d.assetId) { toast('请先上传布料图片'); return; }
-    let assetId = m.assetId;
-    let assetPath = m.assetPath;
-    let sampleWidthMm = m.sampleWidthMm;
-    let calibrated = m.calibrated;
-    let texturePattern = m.texturePattern;
-    if (d.kind === 'color') {
-      if (d.pattern === 'none') {
-        if (assetId && m.texturePattern) void deleteAsset(assetId);
-        assetId = undefined; assetPath = undefined; sampleWidthMm = undefined; calibrated = undefined; texturePattern = undefined;
-      } else if (m.texturePattern !== d.pattern || m.color !== d.color || !m.assetId) {
-        const blob = await renderPatternTile(d.pattern, d.color);
-        const newAsset = await putAsset(blob);
-        if (assetId && m.texturePattern) void deleteAsset(assetId);
-        assetId = newAsset; assetPath = undefined; sampleWidthMm = 64; calibrated = true; texturePattern = d.pattern;
+    savingFabricRef.current = true;
+    setSavingFabric(true);
+    const scope = fabricSaveScopeRef.current;
+    const isCurrent = () => scope === fabricSaveScopeRef.current && (newFabricProjectOnly || Boolean(existing) || tokenRef.current === authToken);
+    try {
+      let assetId = m.assetId;
+      let assetPath = m.assetPath;
+      let sampleWidthMm = m.sampleWidthMm;
+      let calibrated = m.calibrated;
+      let texturePattern = m.texturePattern;
+      if (d.kind === 'color') {
+        if (d.pattern === 'none') {
+          if (assetId && m.texturePattern) void deleteAsset(assetId);
+          assetId = undefined; assetPath = undefined; sampleWidthMm = undefined; calibrated = undefined; texturePattern = undefined;
+        } else if (m.texturePattern !== d.pattern || m.color !== d.color || !m.assetId) {
+          const blob = await renderPatternTile(d.pattern, d.color);
+          const newAsset = await putAsset(blob);
+          if (assetId && m.texturePattern) void deleteAsset(assetId);
+          assetId = newAsset; assetPath = undefined; sampleWidthMm = 64; calibrated = true; texturePattern = d.pattern;
+        }
+      } else {
+        if (m.texturePattern && m.assetId && m.assetId !== d.assetId) void deleteAsset(m.assetId);
+        assetId = d.assetId;
+        assetPath = d.assetId === m.assetId ? m.assetPath : undefined;
+        sampleWidthMm = d.sampleWidthMm && d.sampleWidthMm > 0 ? d.sampleWidthMm : undefined;
+        calibrated = sampleWidthMm ? true : undefined;
+        texturePattern = undefined;
       }
-    } else {
-      if (m.texturePattern && m.assetId && m.assetId !== d.assetId) void deleteAsset(m.assetId);
-      assetId = d.assetId;
-      assetPath = d.assetId === m.assetId ? m.assetPath : undefined;
-      sampleWidthMm = d.sampleWidthMm && d.sampleWidthMm > 0 ? d.sampleWidthMm : undefined;
-      calibrated = sampleWidthMm ? true : undefined;
-      texturePattern = undefined;
+      const name = d.name.trim() || m.name;
+      let inventoryFabricId = m.inventoryFabricId;
+      if (!existing && !newFabricProjectOnly) {
+        const blob = assetId ? await getAsset(assetId) : null;
+        if (assetId && !blob) throw new Error('布料图片读取失败，请重新上传');
+        const image = blob ? await blobToDataUrl(blob) : null;
+        if (!isCurrent()) return;
+        const fabric = await createEditorWarehouseFabric(requestApi, authToken, { name, color: d.color, image, sampleWidthMm, areaCm2: newFabricAreaCm2 });
+        if (!isCurrent()) return;
+        inventoryFabricId = fabric.id;
+        ++inventoryVersionRef.current;
+        setWarehouseFabrics((cur) => [fabric, ...cur.filter((f) => f.id !== fabric.id)]);
+      }
+      if (!isCurrent()) return;
+      const pid = !existing && fabricPickerTarget === 'props' && single ? single.id : null;
+      commit((doc) => {
+        const t = doc.materials.find((x) => x.id === m.id);
+        if (!t) doc.materials.push({ id: m.id, name, color: d.color, assetId, assetPath, sampleWidthMm, calibrated, texturePattern, inventoryFabricId, projectOnly: newFabricProjectOnly });
+        if (t) { t.name = name; t.color = d.color; t.assetId = assetId; t.assetPath = assetPath; t.sampleWidthMm = sampleWidthMm; t.calibrated = calibrated; t.texturePattern = texturePattern; }
+        if (pid) {
+          const pc = doc.pieces.find((x) => x.id === pid);
+          if (pc) pc.materialId = m.id;
+        }
+      });
+      if (!existing) {
+        if (fabricPickerTarget === 'base') setBaseForm((cur) => cur ? { ...cur, materialId: m.id } : cur);
+        else setActiveMaterialId(m.id);
+      }
+      savingFabricRef.current = false;
+      if (existing) closeMatDetail(); else closeFabrics();
+      toast(existing ? '作品布料已保存' : newFabricProjectOnly ? '已添加到本作品' : '已保存到布料仓库并选用');
+    } catch (error) {
+      if (isCurrent()) toast(!existing && !newFabricProjectOnly ? '未保存到布料仓库，请重试：' + (error instanceof Error ? error.message : '保存失败') : '布料保存失败，请重试');
+    } finally {
+      savingFabricRef.current = false;
+      if (scope === fabricSaveScopeRef.current) setSavingFabric(false);
     }
-    const name = d.name.trim() || m.name;
-    commit((doc) => {
-      const t = doc.materials.find((x) => x.id === m.id);
-      if (!t) doc.materials.push({ id: m.id, name, color: d.color, assetId, assetPath, sampleWidthMm, calibrated, texturePattern });
-      if (t) { t.name = name; t.color = d.color; t.assetId = assetId; t.assetPath = assetPath; t.sampleWidthMm = sampleWidthMm; t.calibrated = calibrated; t.texturePattern = texturePattern; }
-    });
-    if (!existing) {
-      if (fabricPickerTarget === 'base') setBaseForm((cur) => cur ? { ...cur, materialId: m.id } : cur);
-      else setActiveMaterialId(m.id);
-    }
-    closeMatDetail();
-    toast(existing ? '布料已保存' : '布料已新增');
   };
   const startDeleteMat = () => {
     const m = project.materials.find((x) => x.id === matDetailId);
@@ -1187,7 +1580,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
     fabReturnRef.current = false;
     setPanel(back ? 'fabrics' : null);
   };
-  const cancelFabCrop = () => exitFabCrop();
+  const cancelFabCrop = () => { if (!savingFabricRef.current) exitFabCrop(); };
   const fabPoint = (e: React.PointerEvent) => {
     const rect = fabStageRef.current!.getBoundingClientRect();
     return { fx: Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)), fy: Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height)) };
@@ -1196,11 +1589,8 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
     const target = e.target as HTMLElement;
     const handle = target.dataset.cropHandle;
     const { fx, fy } = fabPoint(e);
-    let mode = 'new';
-    if (handle) mode = handle;
-    else if (target.closest('.pw-crop-rect')) mode = 'move';
-    if (mode === 'move' && fabRect.w >= 0.999 && fabRect.h >= 0.999) mode = 'new';
-    fabDragRef.current = { mode, startX: fx, startY: fy, orig: mode === 'new' ? { x: fx, y: fy, w: 0, h: 0 } : { ...fabRect } };
+    const mode = handle || 'move';
+    fabDragRef.current = { mode, startX: fx, startY: fy, orig: { ...fabRect } };
     fabStageRef.current?.setPointerCapture(e.pointerId);
     e.preventDefault();
   };
@@ -1218,41 +1608,108 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
     else if (drag.mode === 'sw') setFabRect(clampCropRect({ ...o, x: o.x + dx, w: o.w - dx, h: o.h + dy }));
   };
   const onFabUp = () => { fabDragRef.current = null; };
-  const confirmFabCrop = async () => {
+  const confirmFabCrop = async (authToken = tokenRef.current) => {
+    if (savingFabricRef.current) return;
     const img = fabImgRef.current;
     if (!img || !fabSource) return;
     if (!(fabW > 0)) { toast('请先填写选区的实际宽度'); return; }
-    const sx = fabRect.x * img.naturalWidth, sy = fabRect.y * img.naturalHeight;
-    const sw = Math.max(8, fabRect.w * img.naturalWidth), sh = Math.max(8, fabRect.h * img.naturalHeight);
-    const scale = Math.min(1, 1024 / Math.max(sw, sh));
-    const cv = document.createElement('canvas');
-    cv.width = Math.max(8, Math.round(sw * scale)); cv.height = Math.max(8, Math.round(sh * scale));
-    const ctx = cv.getContext('2d'); if (!ctx) { toast('图片处理失败'); return; }
-    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, cv.width, cv.height);
-    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
-    const blob = await new Promise<Blob | null>((r) => cv.toBlob(r, 'image/jpeg', 0.88));
-    if (!blob) { toast('图片处理失败'); return; }
-    const assetId = await putAsset(blob);
-    const wMm = Math.max(5, Math.round(fabW));
-    if (fabTarget) {
-      // 详情页「更换图片」：新图先写回正在编辑的草稿，保存详情后才正式生效
-      setMatDraft((d) => (d ? { ...d, kind: 'image', assetId, sampleWidthMm: wMm } : d));
+    savingFabricRef.current = true;
+    setSavingFabric(true);
+    const scope = fabricSaveScopeRef.current;
+    const isCurrent = () => scope === fabricSaveScopeRef.current && (Boolean(fabTarget) || newFabricProjectOnly || tokenRef.current === authToken);
+    try {
+      const sx = fabRect.x * img.naturalWidth, sy = fabRect.y * img.naturalHeight;
+      const sw = Math.max(8, fabRect.w * img.naturalWidth), sh = Math.max(8, fabRect.h * img.naturalHeight);
+      const scale = Math.min(1, 1024 / Math.max(sw, sh));
+      const cv = document.createElement('canvas');
+      cv.width = Math.max(8, Math.round(sw * scale)); cv.height = Math.max(8, Math.round(sh * scale));
+      const ctx = cv.getContext('2d'); if (!ctx) { toast('图片处理失败'); return; }
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, cv.width, cv.height);
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
+      let dominantColor = '#d9c8a9';
+      try {
+        const imgData = ctx.getImageData(0, 0, cv.width, cv.height);
+        if (imgData?.data) dominantColor = extractDominantColorFromRgba(imgData.data);
+      } catch { /* ignore */ }
+      const blob = await new Promise<Blob | null>((r) => cv.toBlob(r, 'image/jpeg', 0.88));
+      if (!blob) { toast('图片处理失败'); return; }
+      const assetId = await putAsset(blob);
+      if (!isCurrent()) return;
+      const wMm = Math.max(5, Math.round(fabW));
+      if (fabTarget) {
+        // 详情页「更换图片」：新图先写回正在编辑的草稿，保存详情后才正式生效
+        setMatDraft((d) => (d ? { ...d, kind: 'image', color: dominantColor, assetId, sampleWidthMm: wMm } : d));
+        exitFabCrop();
+        toast('图片已更换，记得点保存');
+        return;
+      }
+      let createdInventoryId: string | undefined;
+      if (!newFabricProjectOnly) {
+        const image = await blobToDataUrl(blob);
+        if (!isCurrent()) return;
+        const fabric = await createEditorWarehouseFabric(requestApi, authToken, {
+          name: fabName.trim() || '新拍布料', color: dominantColor, image,
+          sampleWidthMm: wMm, areaCm2: newFabricAreaCm2,
+        });
+        if (!isCurrent()) return;
+        createdInventoryId = fabric.id;
+        ++inventoryVersionRef.current;
+        setWarehouseFabrics((cur) => [fabric, ...cur.filter((f) => f.id !== fabric.id)]);
+      }
+      if (!isCurrent()) return;
+      const replaceCtx = replaceUploadRef.current;
+      replaceUploadRef.current = null;
+      const holder: { mat: Material | null } = { mat: null };
+      const pid = fabricPickerTarget === 'props' && single ? single.id : null;
+      commit((doc) => {
+        const seq = nextMatSeq(doc.materials);
+        const createdMat: Material = {
+          id: `M${seq}`,
+          name: fabName.trim() || `上传布料 ${seq}`,
+          color: dominantColor,
+          assetId,
+          sampleWidthMm: wMm,
+          calibrated: true,
+          ...(createdInventoryId ? { inventoryFabricId: createdInventoryId } : { projectOnly: true }),
+        };
+        holder.mat = createdMat;
+        doc.materials.push(createdMat);
+        if (replaceCtx) {
+          if (replaceCtx.scope === 'selected' && selectedIds.length > 0) {
+            doc.pieces.forEach((pc) => { if (selectedIds.includes(pc.id)) pc.materialId = createdMat.id; });
+          } else {
+            doc.pieces.forEach((pc) => { if (pc.materialId === replaceCtx.sourceMatId) pc.materialId = createdMat.id; });
+            if (doc.base.materialId === replaceCtx.sourceMatId) doc.base.materialId = createdMat.id;
+          }
+        } else if (pid) {
+          const pc = doc.pieces.find((x) => x.id === pid);
+          if (pc) pc.materialId = createdMat.id;
+        }
+      });
+      if (!holder.mat) return;
+      const mat = holder.mat;
+      if (replaceCtx) {
+        setActiveMaterialId(mat.id);
+        setReplaceTargetMatId(null);
+        setFabSource((cur) => { if (cur) URL.revokeObjectURL(cur.url); return null; });
+        fabImgRef.current = null;
+        setFabTarget(null);
+        fabReturnRef.current = false;
+        setPanel('export');
+        setExpTab('materials');
+        toast(`已上传并替换为「${mat.name}」`);
+        return;
+      }
+      if (fabricPickerTarget === 'base') setBaseForm((cur) => cur ? { ...cur, materialId: mat.id } : cur);
+      else setActiveMaterialId(mat.id);
       exitFabCrop();
-      toast('图片已更换，记得点保存');
-      return;
+      toast(createdInventoryId ? '已保存到布料仓库并选用，纹理比例已校准' : '已添加到本作品，纹理比例已校准');
+    } catch (error) {
+      if (isCurrent()) toast('未保存到布料仓库，请重试：' + (error instanceof Error ? error.message : '保存失败'));
+    } finally {
+      savingFabricRef.current = false;
+      if (scope === fabricSaveScopeRef.current) setSavingFabric(false);
     }
-    const holder: { mat: Material | null } = { mat: null };
-    commit((doc) => {
-      const seq = nextMatSeq(doc.materials);
-      holder.mat = { id: `M${seq}`, name: fabName.trim() || `上传布料 ${seq}`, color: '#d9c8a9', assetId, sampleWidthMm: wMm, calibrated: true };
-      doc.materials.push(holder.mat);
-    });
-    if (!holder.mat) return;
-    const mat = holder.mat;
-    if (fabricPickerTarget === 'base') setBaseForm((cur) => cur ? { ...cur, materialId: mat.id } : cur);
-    else setActiveMaterialId(mat.id);
-    exitFabCrop();
-    toast(`已添加布料「${mat.name}」，选区实际宽度 ${wMm}mm 已校准`);
   };
 
   /* ---------- 图片导入 ---------- */
@@ -1551,6 +2008,21 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
     }
     commitFrom(orig);
   };
+  const nameCommit = () => {
+    const o = nameOrig.current;
+    nameOrig.current = null;
+    if (o && single && (o.pieces as Piece[]).find((p) => p.id === single.id)?.name !== single.name) {
+      commitFrom(o);
+    }
+  };
+  const flushPropsEdits = () => {
+    nameCommit();
+    geoCommit();
+  };
+  const closeProps = () => {
+    flushPropsEdits();
+    setPanel(null);
+  };
   const flushTextureEdit = () => {
     if (textureOrig.current) {
       const o = textureOrig.current;
@@ -1564,14 +2036,18 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
   const list = panel === 'export' ? cutList(project, includeHidden) : [];
   const activeMaterial = project.materials.find((m) => m.id === activeMaterialId);
 
-  const openShapeImport = () => { importToShapesRef.current = true; importModeRef.current = 'partition'; setPanel('import'); };
+  // 导入入口直接打开系统文件选择器；选完图片后才进入裁剪/线稿预览。
+  const openShapeImport = () => {
+    importToShapesRef.current = true;
+    importModeRef.current = 'partition';
+    if (fileRef.current) { fileRef.current.value = ''; fileRef.current.click(); }
+  };
 
   return (
     <main className="patchwork-page">
       <header className="patchwork-top canvas-topbar">
         <div className="topbar-left">
           <button type="button" className="top-icon-btn" aria-label="返回" onClick={leave}><ArrowLeft aria-hidden="true" /></button>
-          <button type="button" className="top-icon-btn" aria-label="底布与项目设置" onClick={openBaseSettings}><Settings aria-hidden="true" /></button>
           <button type="button" className="patchwork-sizebtn" aria-label="作品尺寸" onClick={openBaseSettings}>{fmtCm(project.widthMm)} × {fmtCm(project.heightMm)} cm<ChevronDown aria-hidden="true" /></button>
         </div>
         <div className="topbar-center">
@@ -1678,7 +2154,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
         {project.materials.filter((m) => usageOf(m.id) > 0 || m.id === activeMaterialId).map((m) => (
           <button key={m.id} className={`pw-material-item${activeMaterialId === m.id ? ' selected' : ''}`} aria-pressed={activeMaterialId === m.id}
             aria-label={`布料 ${m.id} ${m.name}`} title={`${m.id} · ${m.name}${m.assetId && !m.calibrated ? '（未校准，仅效果参考）' : ''}`}
-            onClick={() => selectMaterial(m.id)}
+            onClick={() => openFabricPicker('editor')}
             onContextMenu={(e) => { e.preventDefault(); setFabEdit(true); openMatDetail(m.id); setPanel('fabrics'); }}>
             <MatSwatch m={m} />
           </button>
@@ -1686,12 +2162,24 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
         </div>
       </footer>
 
+      {stockFabric && <FabricStockDialog key={stockFabric.id} fabric={stockFabric} onClose={() => setStockFabric(null)} onSave={async stock => {
+        const t = tokenRef.current;
+        if (!t) throw new Error('请先登录后录入库存');
+        const scope = fabricSaveScopeRef.current;
+        const saved = await recordFabricStock(requestApi, t, stockFabric, stock);
+        if (scope !== fabricSaveScopeRef.current || t !== tokenRef.current) return;
+        ++inventoryVersionRef.current;
+        setWarehouseFabrics(cur => [saved, ...cur.filter(f => f.id !== saved.id)]);
+        commit(doc => { doc.materials.forEach(m => { if (matchesMaterialFabric(m, saved)) m.inventoryFabricId = saved.id; }); });
+      }} />}
+      {creatingFabric && <FabricCreateDialog allowProjectOnly onClose={() => setCreatingFabric(false)} onSave={saveNewFabric} />}
       {message && <button className="patchwork-toast" role="status" onClick={() => setMessage('')}>{message} ×</button>}
 
       <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void onImportFile(f); }} />
       <input ref={fabricFileRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => {
         const f = e.target.files?.[0]; e.target.value = '';
         if (!f) return;
+        if (!fabTarget) { setNewFabricAreaCm2(''); setNewFabricProjectOnly(false); }
         void (async () => {
           // 先解码进「布料上传」弹窗：框选区域 + 设定区域实际大小后再生成布料（对应需求 F05 的裁剪+定标）。
           const url = URL.createObjectURL(f);
@@ -1709,24 +2197,26 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
         })();
       }} />
 
+      {createCfg && <PatchworkCreateDialog warehouseFabrics={warehouseFabrics} onCancel={cancelCreate} onConfirm={confirmCreate} />}
+
       {panel && (
         <div
           className={`patchwork-overlay ${(panel === 'fill' || panel === 'import') ? 'nonmodal' : ''}${(panel === 'import' && (importSource || candidates)) || (panel === 'fabriccrop' && fabSource) ? ' import-overlay' : ''}`}
-          onClick={() => { if (panel === 'import') cancelAnalysis(); else if (panel === 'fabriccrop') cancelFabCrop(); else if (panel === 'fabrics') closeFabrics(); else setPanel(null); }}
+          onClick={() => { if (panel === 'import') cancelAnalysis(); else if (panel === 'fabriccrop') cancelFabCrop(); else if (panel === 'fabrics') closeFabrics(); else if (panel === 'props') closeProps(); else setPanel(null); }}
           onTouchStart={(e) => e.stopPropagation()}
         >
           <section
             role="dialog"
             aria-modal={panel !== 'fill'}
             aria-label={{ base: '底布与项目设置', add: '添加形状', fill: '填布', layers: '图层', fabrics: '选择布料', export: '图纸导出', import: '导入图片', save: '保存拼布', open: '我的拼布作品', props: '布片属性', leave: '离开编辑器', fabriccrop: '布料上传' }[panel]}
-            className={`patchwork-panel${(panel === 'import' && (importSource || candidates)) || (panel === 'fabriccrop' && fabSource) ? ' importfull' : ''}${panel === 'fabrics' ? ' fabricsheet' : ''}${panel === 'add' ? ' addsheet' : ''}${panel === 'base' ? ' basesheet' : ''}${panel === 'export' ? ' exportsheet' : ''}`}
+            className={`patchwork-panel${(panel === 'import' && (importSource || candidates)) || (panel === 'fabriccrop' && fabSource) ? ' importfull' : ''}${panel === 'fabrics' ? ' fabricsheet' : ''}${panel === 'add' ? ' addsheet' : ''}${panel === 'base' ? ' basesheet' : ''}${panel === 'props' ? ' propssheet' : ''}${panel === 'export' ? ' exportsheet' : ''}`}
             onClick={(e) => e.stopPropagation()}
             onTouchStart={(e) => e.stopPropagation()}
           >
             {panel !== 'fabrics' && (
               <header>
                 <strong>{{ base: '底布与项目设置', add: '添加形状', fill: '填布', layers: '图层', fabrics: '选择布料', export: '图纸导出', import: '导入图片', save: '保存拼布', open: '我的拼布作品', props: '布片属性', leave: '离开编辑器', fabriccrop: '布料上传' }[panel]}</strong>
-                <button type="button" aria-label="关闭面板" onClick={() => panel === 'import' ? cancelAnalysis() : panel === 'fabriccrop' ? cancelFabCrop() : setPanel(null)}><X /></button>
+                <button type="button" aria-label="关闭面板" onClick={() => panel === 'import' ? cancelAnalysis() : panel === 'fabriccrop' ? cancelFabCrop() : panel === 'props' ? closeProps() : setPanel(null)}><X /></button>
               </header>
             )}
 
@@ -1804,7 +2294,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
                 <div className="pw-crop">
                   <div className="pw-crop-areawrap pw-fab-areawrap">
                     <span className="pw-crop-tip">拖动框选纹理区域 · 拖四角缩放</span>
-                    <div className="pw-crop-stage" ref={fabStageRef} style={{ aspectRatio: `${fabSource.w} / ${fabSource.h}`, width: `min(100%, calc((100dvh - 11.4rem) * ${(fabSource.w / fabSource.h).toFixed(4)}))` }} onPointerDown={onFabDown} onPointerMove={onFabMove} onPointerUp={onFabUp} onPointerCancel={onFabUp}>
+                    <div className="pw-crop-stage" ref={fabStageRef} style={{ aspectRatio: `${fabSource.w} / ${fabSource.h}`, width: `min(100%, calc((100dvh - ${fabTarget ? '11.4rem' : '15.6rem'}) * ${(fabSource.w / fabSource.h).toFixed(4)}))` }} onPointerDown={onFabDown} onPointerMove={onFabMove} onPointerUp={onFabUp} onPointerCancel={onFabUp}>
                       <img src={fabSource.url} alt="待上传布料照片，框选纹理区域" draggable={false} />
                       <div className="pw-crop-rect" style={{ left: `${fabRect.x * 100}%`, top: `${fabRect.y * 100}%`, width: `${fabRect.w * 100}%`, height: `${fabRect.h * 100}%` }}>
                         <span className="pw-crop-grid" />
@@ -1816,30 +2306,26 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
                     </div>
                   </div>
                   <div className="pw-fab-bar">
-                    <label>实际宽<input type="number" min={5} max={5000} value={Math.round(fabW) || ''} onChange={(e) => setFabW(Math.max(0, Number(e.target.value) || 0))} /><span>mm · 高约 {Math.round(fabW / fabAspect)} mm</span></label>
-                    <button className="pw-fab-full" onClick={() => setFabRect({ x: 0, y: 0, w: 1, h: 1 })}>全图</button>
+                    <label>实际宽<input type="number" min={5} max={5000} value={Math.round(fabW) || ''} disabled={savingFabric} onChange={(e) => setFabW(Math.max(0, Number(e.target.value) || 0))} /><span>mm · 高约 {Math.round(fabW / fabAspect)} mm</span></label>
+                    <button className="pw-fab-full" disabled={savingFabric} onClick={() => setFabRect({ x: 0, y: 0, w: 1, h: 1 })}>全图</button>
                   </div>
+                  {!fabTarget && <div className="pw-fab-upload-stock">
+                    <label className="pw-fab-field">实际库存面积（cm²，选填）<input type="number" min="0.01" step="any" aria-label="实际库存面积" value={newFabricAreaCm2} disabled={savingFabric || newFabricProjectOnly} onChange={(e) => setNewFabricAreaCm2(e.target.value)} placeholder="不填则记为数量待核实" /></label>
+                    <label className="pw-fab-local-option"><input type="checkbox" aria-label="仅用于本作品" checked={newFabricProjectOnly} disabled={savingFabric} onChange={(e) => setNewFabricProjectOnly(e.target.checked)} />仅用于本作品（不加入布料仓库）</label>
+                  </div>}
                   <div className="patchwork-import-footer">
-                    <button onClick={cancelFabCrop}>取消</button>
-                    <button className="primary" onClick={() => void confirmFabCrop()}><Check />{fabTarget ? '使用这张图' : '添加布料'}</button>
+                    <button disabled={savingFabric} onClick={cancelFabCrop}>取消</button>
+                    <button className="primary" disabled={savingFabric} onClick={() => {
+                      if (fabTarget || newFabricProjectOnly) void confirmFabCrop();
+                      else withToken((t) => { void confirmFabCrop(t); });
+                    }}><Check />{savingFabric ? '保存中…' : fabTarget ? '使用这张图' : '添加布料'}</button>
                   </div>
                 </div>
               </div>
             )}
 
-            {panel === 'import' && (
+            {panel === 'import' && (importSource || candidates) && (
               <div className="patchwork-form patchwork-import">
-                {!importSource && !candidates && (
-                  <>
-                    <p className="pw-shape-import-steps">{importToShapesRef.current ? '导入图片 → 提取轮廓 → 保存到我的形状。保存后可重复选择、调整尺寸并放置。' : '上传插画、黑白线稿或照片，框选区域后生成可编辑布片。'}</p>
-                    <div className="patchwork-import-actions">
-                      <button className="primary" onClick={() => { importModeRef.current = 'partition'; fileRef.current?.click(); }}>
-                        <Upload />选择图片生成线稿
-                      </button>
-                      <button onClick={() => { importModeRef.current = 'reference'; fileRef.current?.click(); }}>仅作为参考图</button>
-                    </div>
-                  </>
-                )}
                 {(importSource || candidates) && (
                   <div className="patchwork-import-actions pw-import-topbar">
                     <button onClick={() => { importModeRef.current = 'partition'; fileRef.current?.click(); }}>
@@ -1946,7 +2432,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
 
             {panel === 'add' && (
               <AddShapePanel library={shapeLibrary} templates={templates} onTemplatesChange={updateShapeTemplates} onImport={openShapeImport}
-                onPlace={placeSelectedShape} onCancel={() => setPanel(null)} color={activeMaterial?.color}
+                onPlace={placeSelectedShape} onCancel={() => setPanel(null)}
                 defaultSeam={project.technique === 'turned' ? 5 : 0} />
             )}
 
@@ -1958,7 +2444,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
                   <button className={fillScope === 'all' ? 'on' : ''} onClick={() => setFillScope('all')}>全部布片</button>
                 </div>
                 <button className={`patchwork-chip ${fillPick ? 'on' : ''}`} onClick={() => setFillPick((v) => !v)}>吸取：点画布上的布片取它的布料</button>
-                <p className="patchwork-hint">当前布料：{activeMaterialId}。选中布片后点底部布料会立即替换；这里的范围设置仅作用于填布工具点击画布时。</p>
+                <p className="patchwork-hint">当前布料：{activeMaterialId}。点底部色板打开布料选择器，选中布片时在选择器里点布料即替换；这里的范围设置仅作用于填布工具点击画布时。</p>
                 {single && !single.locked && (
                   <>
                     <h4>纹理变换 · {single.name}（只改布纹，不改轮廓）</h4>
@@ -2023,14 +2509,57 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
             )}
 
             {panel === 'fabrics' && (
-              matDetailId && matDraft ? (
+              <>
+                <FabricPicker
+                  materials={project.materials.filter(m => m.inventoryFabricId || m.presetId || m.projectOnly || m.assetId || m.id === project.base.materialId || project.pieces.some(piece => piece.materialId === m.id))}
+                  selectedId={
+                    fabricPickerTarget === 'base'
+                      ? (baseForm ? baseForm.materialId : project.base.materialId)
+                      : fabricPickerTarget === 'props'
+                        ? (single?.materialId || activeMaterialId)
+                        : activeMaterialId
+                  }
+                  editMode={fabEdit}
+                  query={fabQuery}
+                  onQueryChange={setFabQuery}
+                  onSelect={pickMaterial}
+                  onEditMaterial={openMatDetail}
+                  onEditModeChange={setFabEdit}
+                  onCreate={createMaterialDraft}
+                  onClose={closeFabrics}
+                  allowNone={fabricPickerTarget === 'base'}
+                  warehouseFabrics={warehouseFabrics}
+                  onSelectWarehouseFabric={(f) => void addFabricMaterial(f)}
+                  onEditWarehouseFabric={f => withToken(() => setStockFabric(f))}
+                  warehouseContent={fabricPick ? (
+                    <div className="patchwork-works">
+                      <button className="pw-fab-backlink" onClick={() => setFabricPick(null)}><ArrowLeft />返回布料列表</button>
+                      {fabricPick.length === 0 && <p className="patchwork-hint">布料仓库还是空的。去底部「我的 → 布料仓库」先把囤的布登记进来。</p>}
+                      {fabricPick.map((f) => (
+                        <div className="patchwork-workrow" key={f.id}>
+                          <button className="patchwork-workrow-main" onClick={() => void addFabricMaterial(f)}>
+                            <strong>{f.name}</strong>
+                            <small>{fabricSpecLabel(f)}</small>
+                          </button>
+                          {f.image ? <img className="patchwork-fabric-thumb" src={f.image} alt="" /> : <span className="patchwork-chip-color" style={{ background: f.color || '#d9c8a9' }} />}
+                        </div>
+                      ))}
+                    </div>
+                  ) : undefined}
+                />
+                {matDetailId && matDraft && (
+                <div className="pw-fab-modal" role="presentation" onClick={closeMatDetail} onTouchStart={(e) => e.stopPropagation()}>
+                  <div className="pw-fab-modal-panel" role="dialog" aria-modal="true" aria-label={project.materials.some((m) => m.id === matDetailId) ? '编辑布料' : '新增布料'} onClick={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
                 <div className="pw-fab-detail" key={matDetailId}>
                   <header className="pw-fab-dhead">
-                    <button className="pw-fab-back" onClick={closeMatDetail}><ArrowLeft />取消</button>
+                    <button className="pw-fab-back" disabled={savingFabric} onClick={closeMatDetail}><ArrowLeft />取消</button>
                     <strong>{project.materials.some((m) => m.id === matDetailId) ? '编辑布料' : '新增布料'}</strong>
-                    <button className="pw-fab-save" onClick={() => void saveMatDetail()}>保存</button>
+                    <button className="pw-fab-save" disabled={savingFabric} onClick={() => {
+                      if (project.materials.some((m) => m.id === matDetailId) || newFabricProjectOnly) return saveMatDetail();
+                      withToken((t) => { void saveMatDetail(t); });
+                    }}>{savingFabric ? '保存中…' : '保存'}</button>
                   </header>
-                  <div className="pw-fab-detail-body">
+                  <fieldset className="pw-fab-detail-body pw-fab-save-fields" disabled={savingFabric}>
                   <div className="pw-fab-preview">
                     {matDraft.kind === 'image'
                       ? (matDraft.assetId
@@ -2072,7 +2601,21 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
                   {matDraft.kind === 'image' && (
                     <label className="pw-fab-field">图案实际宽度 (mm，校准纹理比例)<input type="number" min={0} value={matDraft.sampleWidthMm ?? ''} onChange={(e) => setMatDraft({ ...matDraft, sampleWidthMm: Number(e.target.value) || undefined })} placeholder="如 150" /></label>
                   )}
-                  <p className="pw-fab-usage">{project.materials.some((m) => m.id === matDetailId) ? `当前项目使用 ${usageOf(matDetailId)} 处，保存后同步更新这些图形。` : '保存后加入布料列表，取消不会创建布料。'}</p>
+                  {!project.materials.some((m) => m.id === matDetailId) && (
+                    <>
+                      <label className="pw-fab-field">实际库存面积（cm²，选填）
+                        <input type="number" min="0.01" step="any" aria-label="实际库存面积" value={newFabricAreaCm2} disabled={newFabricProjectOnly} onChange={(e) => setNewFabricAreaCm2(e.target.value)} placeholder="不填则记为数量待核实" />
+                      </label>
+                      <label className="pw-fab-local-option"><input type="checkbox" aria-label="仅用于本作品" checked={newFabricProjectOnly} onChange={(e) => setNewFabricProjectOnly(e.target.checked)} />仅用于本作品（不加入布料仓库）</label>
+                      <p className="pw-fab-usage">默认保存到「我的 → 布料仓库」。纹理校准宽度不作为库存尺寸。</p>
+                    </>
+                  )}
+                  {(() => {
+                    const material = project.materials.find(m => m.id === matDetailId);
+                    const fabric = material && unifiedFabrics(warehouseFabrics).find(f => matchesMaterialFabric(material, f));
+                    return fabric ? <button type="button" className="fabric-record-stock" onClick={() => withToken(() => setStockFabric(fabric))}>录入库存</button> : null;
+                  })()}
+                  <p className="pw-fab-usage">{project.materials.some((m) => m.id === matDetailId) ? `当前项目使用 ${usageOf(matDetailId)} 处，保存后同步更新这些图形。` : newFabricProjectOnly ? '保存后仅用于本作品，取消不会创建布料。' : '保存到仓库成功后，自动选用于当前作品。'}</p>
                   {matDeleting ? (
                     <div className="pw-fab-replacepick">
                       <span>这块布正被使用，先选择替代布料（{usageOf(matDetailId)} 处引用会改用它）：</span>
@@ -2091,43 +2634,19 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
                   ) : (
                     project.materials.some((m) => m.id === matDetailId) && <button className="pw-fab-delete" onClick={startDeleteMat}><Trash2 />删除布料</button>
                   )}
+                  </fieldset>
+                </div>
                   </div>
                 </div>
-              ) : (
-                <FabricPicker
-                  materials={project.materials}
-                  selectedId={fabricPickerTarget === 'base' ? (baseForm?.materialId || project.base.materialId) : activeMaterialId}
-                  editMode={fabEdit}
-                  query={fabQuery}
-                  onQueryChange={setFabQuery}
-                  onSelect={pickMaterial}
-                  onEditMaterial={openMatDetail}
-                  onEditModeChange={setFabEdit}
-                  onCreate={createMaterialDraft}
-                  onClose={closeFabrics}
-                  warehouseContent={fabricPick ? (
-                    <div className="patchwork-works">
-                      <button className="pw-fab-backlink" onClick={() => setFabricPick(null)}><ArrowLeft />返回布料列表</button>
-                      {fabricPick.length === 0 && <p className="patchwork-hint">布料仓库还是空的。去底部「我的 → 仓库 → 布料仓库」先把囤的布登记进来。</p>}
-                      {fabricPick.map((f) => (
-                        <div className="patchwork-workrow" key={f.id}>
-                          <button className="patchwork-workrow-main" onClick={() => void addFabricMaterial(f)}>
-                            <strong>{f.name}</strong>
-                            <small>{f.widthMm && f.heightMm ? `${f.widthMm}×${f.heightMm} mm · ` : ''}库存 {f.quantity}</small>
-                          </button>
-                          {f.image ? <img className="patchwork-fabric-thumb" src={f.image} alt="" /> : <span className="patchwork-chip-color" style={{ background: f.color || '#d9c8a9' }} />}
-                        </div>
-                      ))}
-                    </div>
-                  ) : undefined}
-                />
-              )
+                )}
+              </>
             )}
 
             {panel === 'export' && (
               <div className="patchwork-form pw-export-form">
-                <div className="pw-tabs" role="tablist" aria-label="导出视图切换">
+                <div className="pw-tabs pw-tabs-3" role="tablist" aria-label="导出视图切换">
                   <button type="button" role="tab" aria-selected={expTab === 'list'} className={expTab === 'list' ? 'on' : ''} onClick={() => setExpTab('list')}>裁片清单</button>
+                  <button type="button" role="tab" aria-selected={expTab === 'materials'} className={expTab === 'materials' ? 'on' : ''} onClick={() => setExpTab('materials')}>用料与配布</button>
                   <button type="button" role="tab" aria-selected={expTab === 'preview'} className={expTab === 'preview' ? 'on' : ''} onClick={() => setExpTab('preview')}>打印预览</button>
                 </div>
                 {expTab === 'preview' ? (
@@ -2137,7 +2656,207 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
                     </div>
                     <p className="patchwork-hint pw-export-note">预览为效果图；真正打印请导出 PDF 并以 100% 打印、用 50×50mm 校准框核对。</p>
                   </div>
-                ) : (
+                ) : expTab === 'materials' ? (() => {
+                  const reqs = computeProjectMaterialRequirements(project, warehouseFabrics, { includeHidden, wasteRatio });
+                  const totalRequiredMm2 = reqs.reduce((sum, r) => sum + r.requiredAreaMm2, 0);
+                  const pendingCount = reqs.filter((r) => r.status !== 'sufficient').length;
+                  const linkedCount = reqs.filter((r) => Boolean(r.inventoryFabric)).length;
+                  return (
+                    <div className="pw-export-body pw-materials-body" aria-label="用料核算与智能配布">
+                      <div className="pw-mat-summary-bar">
+                        <div>
+                          <strong>预计备料总面积：{formatCm2(totalRequiredMm2)} cm²</strong>
+                          <small>
+                            {pendingCount === 0
+                              ? `共 ${reqs.length} 款布料，仓库余量全部充足`
+                              : `${pendingCount} 款布料待配布或余量不足 · 原作花色已完整保留，不强制买同款`}
+                          </small>
+                        </div>
+                        <div className="pw-waste-seg" role="group" aria-label="损耗预留比例">
+                          {([0, 0.1, 0.15] as const).map((ratio) => (
+                            <button
+                              key={ratio}
+                              type="button"
+                              className={wasteRatio === ratio ? 'on' : ''}
+                              onClick={() => setWasteRatio(ratio)}
+                            >
+                              损耗 {Math.round(ratio * 100)}%
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {showConsumeConfirm ? (
+                        <div className="pw-consume-card" role="region" aria-label="确认裁片扣减库存">
+                          <div className="pw-consume-head">
+                            <strong>核对实际裁布消耗 (cm²)</strong>
+                            <button type="button" onClick={() => setShowConsumeConfirm(false)}>返回列表</button>
+                          </div>
+                          <p className="patchwork-hint">仅在您实际动剪刀裁布后确认扣减；导出 PDF 或预览图纸不会自动扣库存。</p>
+                          <div className="pw-consume-list">
+                            {reqs.filter((r) => Boolean(r.inventoryFabric)).map((r) => {
+                              const inv = r.inventoryFabric!;
+                              return (
+                                <label key={inv.id} className="pw-consume-row">
+                                  <span className="pw-consume-info">
+                                    <strong>{inv.name}</strong>
+                                    <small>预计 {formatCm2(r.requiredAreaMm2)} cm² · {fabricSpecLabel(inv)}</small>
+                                  </span>
+                                  <span className="pw-consume-input-wrap">
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      step="1"
+                                      aria-label={`扣减 ${inv.name} 面积 (cm²)`}
+                                      value={consumeDraftCm2[inv.id] ?? ''}
+                                      onChange={(e) => setConsumeDraftCm2((cur) => ({ ...cur, [inv.id]: e.target.value }))}
+                                    />
+                                    <em>cm²</em>
+                                  </span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                          <div className="patchwork-actions">
+                            <button type="button" onClick={() => setShowConsumeConfirm(false)}>取消</button>
+                            <button type="button" className="primary" disabled={consumingStock} onClick={submitConsumeStock}>
+                              {consumingStock ? '扣减中…' : '确认已裁剪并扣减库存'}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="pw-mat-req-list">
+                          {reqs.map((req) => {
+                            const isReplacing = replaceTargetMatId === req.material.id;
+                            const badgeMap: Record<typeof req.status, { text: string; cls: string }> = {
+                              sufficient: { text: '面积够用，排布待核实', cls: 'is-ok' },
+                              unlinked: { text: req.material.presetId ? '未录入库存' : '原作花色 · 待配布', cls: 'is-unlinked' },
+                              insufficient: { text: `差 ${formatCm2(req.shortageAreaMm2)} cm²`, cls: 'is-warn' },
+                              missing: { text: '缺料 / 已用完', cls: 'is-out' },
+                              unverified: { text: '未录入库存', cls: 'is-own' },
+                            };
+                            const badge = badgeMap[req.status];
+                            const recs = isReplacing
+                              ? recommendReplacementFabrics(req.material, req.requiredAreaMm2, warehouseFabrics)
+                              : [];
+                            return (
+                              <div key={req.material.id} className={`pw-mat-req-card ${badge.cls}`}>
+                                <div className="pw-mat-req-main">
+                                  <MatSwatch m={req.material} />
+                                  <div className="pw-mat-req-copy">
+                                    <div className="pw-mat-req-title">
+                                      <strong>{req.material.name}</strong>
+                                      <span className={`pw-mat-status-pill ${badge.cls}`}>{badge.text}</span>
+                                    </div>
+                                    <small>
+                                      {req.pieceCount > 0 ? `${req.pieceCount} 片裁片` : ''}{req.includesBase ? (req.pieceCount > 0 ? ' + 底布' : '底布') : ''} · 净 {formatCm2(req.netAreaMm2)} + 缝份 {formatCm2(req.seamAreaMm2)} + 损耗 {formatCm2(req.wasteAreaMm2)} = <strong>预计 {formatCm2(req.requiredAreaMm2)} cm²</strong>
+                                    </small>
+                                    {req.inventoryFabric ? (
+                                      <small className="pw-mat-inv-meta">已绑仓库：{req.inventoryFabric.name}（{fabricSpecLabel(req.inventoryFabric)}）</small>
+                                    ) : null}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="pw-mat-replace-btn"
+                                    aria-label={`换成我的布 ${req.material.name}`}
+                                    onClick={() => {
+                                      const next = isReplacing ? null : req.material.id;
+                                      setReplaceTargetMatId(next);
+                                      if (next && tokenRef.current && warehouseFabrics.length === 0) {
+                                        void loadWarehouseFabrics(tokenRef.current, false);
+                                      }
+                                    }}
+                                  >
+                                    {isReplacing ? '收起' : req.status === 'sufficient' ? '更换配布' : '换成我的布'}
+                                  </button>
+                                </div>
+
+                                {isReplacing && (
+                                  <div className="pw-smart-replace-box" role="region" aria-label={`替换 ${req.material.name} 的候选布料`}>
+                                    <div className="pw-replace-scope-row" role="radiogroup" aria-label="替换范围">
+                                      <button
+                                        type="button"
+                                        className={replaceScope === 'all' ? 'on' : ''}
+                                        onClick={() => setReplaceScope('all')}
+                                      >
+                                        替换全部同款布片（推荐）
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className={replaceScope === 'selected' ? 'on' : ''}
+                                        disabled={selectedIds.length === 0}
+                                        onClick={() => setReplaceScope('selected')}
+                                      >
+                                        仅当前选中布片 ({selectedIds.length})
+                                      </button>
+                                    </div>
+
+                                    {recs.length === 0 ? (
+                                      <p className="patchwork-hint">
+                                        {tokenRef.current
+                                          ? '你的布料仓库暂无可用布料，可直接拍照上传手头现有的布。'
+                                          : '登录后可按库存余量与相近色系智能推荐仓库中的布料，也可直接拍照上传手头新布。'}
+                                      </p>
+                                    ) : (
+                                      <div className="pw-rec-list">
+                                        {recs.slice(0, 6).map((cand) => (
+                                          <div key={cand.fabric.id} className="pw-rec-item">
+                                            {cand.fabric.image
+                                              ? <img className="pw-rec-thumb" src={cand.fabric.image} alt="" />
+                                              : <span className="pw-rec-thumb" style={{ background: cand.fabric.color || '#d9c8a9' }} />}
+                                            <div className="pw-rec-copy">
+                                              <div className="pw-rec-tags">
+                                                <strong>{cand.fabric.name}</strong>
+                                                <em className={cand.isEnough ? 'ok' : 'warn'}>{cand.stockTag}</em>
+                                                <em>{cand.colorTag}</em>
+                                              </div>
+                                              <small>{fabricSpecLabel(cand.fabric)}</small>
+                                            </div>
+                                            <button
+                                              type="button"
+                                              className="pw-rec-pick-btn"
+                                              aria-label={`选用 ${cand.fabric.name} 替换`}
+                                              onClick={() => void replaceWithWarehouseFabric(req.material.id, cand.fabric, replaceScope)}
+                                            >
+                                              选用替换
+                                            </button>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+
+                                    <div className="pw-replace-upload-row">
+                                      <button
+                                        type="button"
+                                        className="pw-replace-upload-btn"
+                                        onClick={() => {
+                                          replaceUploadRef.current = { sourceMatId: req.material.id, scope: replaceScope };
+                                          fabricFileRef.current?.click();
+                                        }}
+                                      >
+                                        <Upload aria-hidden="true" />+ 拍照上传手头新布并替换（自动入库）
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                          {reqs.length === 0 && <p className="patchwork-hint">画布上还没有布片，添加布片后会自动核算每款布料的用料面积。</p>}
+                        </div>
+                      )}
+
+                      {!showConsumeConfirm && linkedCount > 0 && (
+                        <div className="pw-consume-trigger-bar">
+                          <span>已绑定 {linkedCount} 款仓库布料</span>
+                          <button type="button" className="pw-consume-open-btn" onClick={openConsumeConfirm}>
+                            <Scissors aria-hidden="true" />已裁剪，扣减仓库库存
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })() : (
                   <div className="pw-export-body">
                     {issues.length > 0
                       ? <div className="patchwork-issues">{issues.map((t, i) => <div key={i}>· {t}</div>)}</div>
@@ -2209,24 +2928,71 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
               </div>
             )}
             {panel === 'props' && single && geo && (
-              <div className="patchwork-form pw-props">
-                <div className="pw-grid">
-                  <label className="pw-span2">名称<input value={single.name}
-                    onFocus={() => { if (!nameOrig.current) nameOrig.current = cloneDocument(docOf(project)); }}
-                    onChange={(e) => { const v = e.target.value; const pid = single.id; setProject((cur) => ({ ...cur, pieces: cur.pieces.map((p) => (p.id === pid ? { ...p, name: v } : p)) })); }}
-                    onBlur={() => { const o = nameOrig.current; nameOrig.current = null; if (o && (o.pieces as Piece[]).find((p) => p.id === single.id)?.name !== single.name) commitFrom(o); }} /></label>
-                  <label className="pw-span2">布料<select value={single.materialId} onChange={(e) => { geoCommit(); const mid = e.target.value; commit((doc) => { const t = doc.pieces.find((x) => x.id === single.id); if (t) t.materialId = mid; }); }}>
-                    {project.materials.map((m) => <option key={m.id} value={m.id}>{m.id} · {m.name}</option>)}
-                  </select></label>
-                  <label>X (mm)<input type="number" step="0.5" value={geo.x} onChange={(e) => geoChange({ x: Number(e.target.value) || 0 })} onBlur={geoCommit} /></label>
-                  <label>Y (mm)<input type="number" step="0.5" value={geo.y} onChange={(e) => geoChange({ y: Number(e.target.value) || 0 })} onBlur={geoCommit} /></label>
-                  <label>宽 (mm)<input type="number" step="0.5" min={1} value={geo.w} onChange={(e) => geoChange({ w: Number(e.target.value) || 0 })} onBlur={geoCommit} /></label>
-                  <label>高 (mm)<input type="number" step="0.5" min={1} value={geo.h} onChange={(e) => geoChange({ h: Number(e.target.value) || 0 })} onBlur={geoCommit} /></label>
-                  <label>再旋转 (°)<input type="number" step="1" value={geo.angle} onChange={(e) => geoChange({ angle: Number(e.target.value) || 0 })} onBlur={geoCommit} /></label>
-                  <label>缝份 (mm)<input type="number" step="0.5" min={0} value={geo.seam} onChange={(e) => geoChange({ seam: Number(e.target.value) || 0 })} onBlur={geoCommit} /></label>
+              <div className="patchwork-form pw-base-form pw-props">
+                <div className="pw-grid pw-base-grid">
+                  <label className="pw-span2">
+                    <span>名称</span>
+                    <input
+                      type="text"
+                      value={single.name}
+                      placeholder="未命名布片"
+                      onFocus={() => { if (!nameOrig.current) nameOrig.current = cloneDocument(docOf(project)); }}
+                      onChange={(e) => { const v = e.target.value; const pid = single.id; setProject((cur) => ({ ...cur, pieces: cur.pieces.map((p) => (p.id === pid ? { ...p, name: v } : p)) })); }}
+                      onBlur={nameCommit}
+                    />
+                  </label>
+                  <div className="pw-span2 pw-base-mat-section">
+                    <button
+                      type="button"
+                      className="pw-base-fabric-trigger"
+                      aria-label="选择布片布料"
+                      onClick={() => { flushPropsEdits(); openFabricPicker('props'); }}
+                    >
+                      <span className="pw-base-fabric-thumb">
+                        {(() => {
+                          const material = project.materials.find((m) => m.id === single.materialId);
+                          return material ? <MatSwatch m={material} /> : <Palette />;
+                        })()}
+                      </span>
+                      <span className="pw-base-fabric-copy">
+                        <strong>布料</strong>
+                        <small>{project.materials.find((m) => m.id === single.materialId)?.name || '请选择布料'}</small>
+                      </span>
+                      <ChevronRight aria-hidden="true" />
+                    </button>
+                  </div>
+                  <label>
+                    <span>X (mm)</span>
+                    <input type="number" step="0.5" value={geo.x} onChange={(e) => geoChange({ x: Number(e.target.value) || 0 })} onBlur={geoCommit} />
+                  </label>
+                  <label>
+                    <span>Y (mm)</span>
+                    <input type="number" step="0.5" value={geo.y} onChange={(e) => geoChange({ y: Number(e.target.value) || 0 })} onBlur={geoCommit} />
+                  </label>
+                  <label>
+                    <span>宽 (mm)</span>
+                    <input type="number" step="0.5" min={1} value={geo.w} onChange={(e) => geoChange({ w: Number(e.target.value) || 0 })} onBlur={geoCommit} />
+                  </label>
+                  <label>
+                    <span>高 (mm)</span>
+                    <input type="number" step="0.5" min={1} value={geo.h} onChange={(e) => geoChange({ h: Number(e.target.value) || 0 })} onBlur={geoCommit} />
+                  </label>
+                  <label>
+                    <span>再旋转 (°)</span>
+                    <input type="number" step="1" value={geo.angle} onChange={(e) => geoChange({ angle: Number(e.target.value) || 0 })} onBlur={geoCommit} />
+                  </label>
+                  <label>
+                    <span>缝份 (mm)</span>
+                    <input type="number" step="0.5" min={0} value={geo.seam} onChange={(e) => geoChange({ seam: Number(e.target.value) || 0 })} onBlur={geoCommit} />
+                  </label>
                 </div>
-                <p className="patchwork-hint">改完即生效，数字以毫米为准、就是实际裁布尺寸；每个字段记一条撤销。</p>
-                <button type="button" className="pw-widebtn" onClick={saveAsTemplate}>存为我的形状</button>
+                <p className="patchwork-hint pw-props-hint">改完即生效，数字以毫米为准、就是实际裁布尺寸；每个字段记一条撤销。</p>
+                <div className="patchwork-actions pw-base-actions pw-props-actions">
+                  <button type="button" className="pw-widebtn" onClick={() => { flushPropsEdits(); void saveAsTemplate(); }}>
+                    <Shapes aria-hidden="true" />存为我的形状
+                  </button>
+                  <button type="button" className="primary" onClick={closeProps}>完成</button>
+                </div>
               </div>
             )}
             {panel === 'save' && (

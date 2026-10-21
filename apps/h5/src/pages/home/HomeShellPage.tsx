@@ -12,6 +12,7 @@ import { passwordValidationMessage } from '../../utils/passwordValidation';
 import { useBodyScrollLock } from '../../app/overlays/useBodyScrollLock';
 import { CompositionSafeInput } from '../../shared/CompositionSafeInput';
 import { Link } from 'react-router-dom';
+import { PatchworkCreateDialog } from '../../patchwork/PatchworkCreateDialog';
 
 type HomeShellPageProps = Record<string, any> & { actionSheet?: ReactNode };
 
@@ -164,11 +165,11 @@ export function HomeShellPage(props: HomeShellPageProps) {
     openLogin, showUploadModal, closeUploadModal, showXhsInput, setShowXhsInput, xhsLink, setXhsLink,
     xhsExtractedImages, isExtractingXhs, isImportingLocalImage, chooseLocalDrawing, extractXiaohongshuImage, importXhsImage, showXhsImagePicker, closeXhsImagePicker,
     xhsPreviewSrc, showCreateCanvasModal, setShowCreateCanvasModal,
-    openBlankCanvasCreation, openPatchwork,
+    openBlankCanvasCreation, openPatchwork, showPatchworkCreateModal, setShowPatchworkCreateModal, patchworkWarehouseFabrics,
     cfgCols, setCfgCols, cfgRows, setCfgRows, normalizeGridSize, parseGridSizeInput, createBlankCanvas, requireLogin,
     setStatus, patternListCards, homeTemplateCards, openCommunityPost, openAuthorProfile, stockedColorCount, totalWarehouseStock,
     communityHasMore = false, isCommunityLoadingMore = false, loadMoreHomeTemplates,
-    activeWarehouse, mardColors, openWarehouse, setActiveTab, communitySort, setCommunitySort,
+    activeWarehouse, mardColors, openWarehouse, openFabricWarehouse, setActiveTab, communitySort, setCommunitySort,
     logoutPhone, notifications, notificationUnreadCount, loadNotifications, openNotification,
     profileAvatarUrl, receivedLikesCount = 0, followingCount = 0, followersCount = 0, showProfileEditModal, openProfileEdit, profileEditModal, confirmDialog, requestConfirm, openMyWorks, openFollowing, openFollowers,
   } = props;
@@ -192,7 +193,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
                   <p>让创作更简单</p>
                 </div>
               </div>
-              <HomeUploadHero onUpload={() => openUpload('bead')} onPatchwork={openPatchwork} />
+              <HomeUploadHero onUpload={() => openUpload('bead')} onPatchwork={() => setShowPatchworkCreateModal(true)} />
             </header>
 
             <section className="home-recent-projects" aria-labelledby="home-recent-title">
@@ -323,6 +324,9 @@ export function HomeShellPage(props: HomeShellPageProps) {
               </div>
             </div>
           ) : null}
+          {showPatchworkCreateModal && (
+            <PatchworkCreateDialog warehouseFabrics={patchworkWarehouseFabrics} onCancel={() => setShowPatchworkCreateModal(false)} onConfirm={(cfg) => { setShowPatchworkCreateModal(false); openPatchwork(cfg); }} />
+          )}
           {showUploadModal ? (
             <div className="home-create-modal" role="dialog" aria-label="上传图纸" aria-busy={isImportingLocalImage}>
               <div className="home-create-panel upload-drawing-panel">
@@ -474,6 +478,20 @@ export function HomeShellPage(props: HomeShellPageProps) {
             </span>
             <span className="profile-chevron" aria-hidden="true">›</span>
           </button>
+          {openFabricWarehouse ? (
+            <button className="profile-warehouse-card profile-fabric-warehouse-card" type="button" onClick={openFabricWarehouse}>
+              <span className="profile-warehouse-icon"><Icon name="shape" /></span>
+              <span className="profile-warehouse-copy">
+                <strong>布料仓库</strong>
+                <small>{isLoggedIn ? '管理囤布花色、尺寸与余量，拼布时智能配布' : '登录后查看与管理布料仓库'}</small>
+                <span className="profile-warehouse-meta">
+                  <small>拍照入库 · 自动算料</small>
+                  <small>缺布同色系替换</small>
+                </span>
+              </span>
+              <span className="profile-chevron" aria-hidden="true">›</span>
+            </button>
+          ) : null}
           <section className="profile-menu-card" aria-label="个人中心菜单">
             <button className="profile-row" type="button" aria-label="打开设置" onClick={() => requireLogin(() => setStatus('设置功能即将开放。'))}><span className="profile-row-icon"><Icon name="settings" /></span><span><strong>设置</strong><small>账号、安全与偏好</small></span><em>›</em></button>
           </section>

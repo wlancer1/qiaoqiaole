@@ -19,6 +19,7 @@ export const H5_ROUTE_PATHS = {
   projectBeading: '/projects/:projectId/beading',
   warehouses: '/warehouses',
   warehouseDetail: '/warehouses/:warehouseId',
+  fabrics: '/fabrics',
   split: '/split',
   splitCrop: '/split/crop',
   splitPreview: '/split/preview',
@@ -42,6 +43,7 @@ const routeState: Array<{ pattern: RegExp; state: H5RouteState }> = [
   { pattern: /^\/projects\/?$/, state: { screen: 'my-works', activeTab: 'profile' } },
   { pattern: /^\/warehouses\/[^/]+\/?$/, state: { screen: 'warehouse-detail', activeTab: 'profile' } },
   { pattern: /^\/warehouses\/?$/, state: { screen: 'warehouse', activeTab: 'profile' } },
+  { pattern: /^\/fabrics\/?$/, state: { screen: 'fabrics', activeTab: 'profile' } },
   { pattern: /^\/split\/crop\/?$/, state: { screen: 'split-crop', activeTab: 'home' } },
   { pattern: /^\/split\/preview\/?$/, state: { screen: 'split-preview', activeTab: 'home' } },
   { pattern: /^\/split\/?$/, state: { screen: 'split', activeTab: 'home' } },
@@ -67,6 +69,7 @@ export function appPathForScreen(screen: AppScreen, activeTab: HomeTab = 'home')
   if (screen === 'my-works') return '/projects';
   if (screen === 'warehouse') return '/warehouses';
   if (screen === 'warehouse-detail') return '/warehouses';
+  if (screen === 'fabrics') return '/fabrics';
   if (screen === 'split-crop') return '/split/crop';
   if (screen === 'split-preview') return '/split/preview';
   if (screen === 'split') return '/split';

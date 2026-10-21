@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { MARD_221_COLORS } from '@qiaoqiaole/core';
 import { WarehouseListPage } from '../../pages/warehouse/WarehouseListPage';
-import { FabricWarehousePage, WarehouseSectionSwitch } from '../../pages/warehouse/FabricWarehousePage';
 import { WarehousePage } from '../../pages/warehouse/WarehousePage';
 import { PageLoadBoundary, PageSkeleton } from '../../loading/H5LoadingStates';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
@@ -37,7 +36,6 @@ export function WarehouseFeatureContent({ requireLogin, onCommands }: {
   const { openConfirm, setOverlaySlot } = useAppOverlay();
   const route = useMemo(() => parseWarehouseRoute(location.pathname), [location.pathname]);
   const scope = `${location.key}:${location.pathname}:${location.search}`;
-  const [section, setSection] = useState<'beads' | 'fabrics'>('beads');
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
   const [warehousesLoading, setWarehousesLoading] = useState(false);
@@ -156,10 +154,7 @@ export function WarehouseFeatureContent({ requireLogin, onCommands }: {
   useEffect(() => () => setOverlaySlot('warehouse', null), [setOverlaySlot]);
   if (!route) return null;
   if (route.kind === 'list') {
-    if (section === 'fabrics') {
-      return <FabricWarehousePage token={token} onBack={() => navigate('/profile')} onSwitchSection={() => setSection('beads')} request={request} withLogin={withLogin} />;
-    }
-    return <PageLoadBoundary loading={warehousesLoading} loadingLabel="正在加载仓库列表" loadingDescription="正在读取你的仓库和库存"><><WarehouseSectionSwitch section="beads" onChange={setSection} /><WarehouseListPage status="" warehouses={warehouses} activeWarehouseId={activeWarehouseId} openWarehouseDetail={(id: string) => withLogin((nextToken) => { activeIdRef.current = id; dispatch(activeWarehouseChanged(id)); setSelectedCodes([]); navigate(`/warehouses/${encodeURIComponent(id)}`); void loadInventory(id, nextToken); })} openCreate={() => setShowCreate(true)} requestConfirm={(requestConfirm: any) => openConfirm(requestConfirm)} deleteWarehouse={remove} onBack={() => navigate('/profile')} /></></PageLoadBoundary>;
+    return <PageLoadBoundary loading={warehousesLoading} loadingLabel="正在加载仓库列表" loadingDescription="正在读取你的仓库和库存"><WarehouseListPage status="" warehouses={warehouses} activeWarehouseId={activeWarehouseId} openWarehouseDetail={(id: string) => withLogin((nextToken) => { activeIdRef.current = id; dispatch(activeWarehouseChanged(id)); setSelectedCodes([]); navigate(`/warehouses/${encodeURIComponent(id)}`); void loadInventory(id, nextToken); })} openCreate={() => setShowCreate(true)} requestConfirm={(requestConfirm: any) => openConfirm(requestConfirm)} deleteWarehouse={remove} onBack={() => navigate('/profile')} /></PageLoadBoundary>;
   }
   if (route.warehouseId !== activeWarehouseId) return <PageSkeleton kind="warehouse" label="正在加载仓库" />;
   return <WarehousePage status="" onBack={() => navigate('/warehouses')} activeWarehouse={active} stockedColorCount={stocked} totalWarehouseStock={total} missingColorCount={MARD_221_COLORS.length - stocked} warehouseLetters={WAREHOUSE_LETTERS} warehouseSearch={search} setWarehouseSearch={setSearch} warehouseLetter={letter} setWarehouseLetter={setLetter} selectedWarehouseCodes={selectedCodes} setSelectedWarehouseCodes={setSelectedCodes} selectedWarehouseCount={selectedCodes.length} selectVisibleWarehouseColors={() => setSelectedCodes((current) => Array.from(new Set([...current, ...colors.map((color) => color.code)])))} invertVisibleWarehouseColors={() => setSelectedCodes((current) => { const visible = new Set(colors.map((color) => color.code)); return MARD_221_COLORS.filter((color) => visible.has(color.code) ? !current.includes(color.code) : current.includes(color.code)).map((color) => color.code); })} warehouseColors={colors} beadStock={beadStock} toggleWarehouseCode={(code: string) => setSelectedCodes((current) => current.includes(code) ? current.filter((item) => item !== code) : [...current, code])} warehouseUnit={unit} setWarehouseUnit={setUnit} warehouseAmount={amount} setWarehouseAmount={setAmount} applyWarehouseChange={apply} beadsPerGram={BEADS_PER_GRAM} />;

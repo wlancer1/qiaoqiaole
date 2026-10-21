@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320" viewBox="0 0 320 320">
+<defs>
+<pattern id="fabric" patternUnits="userSpaceOnUse" width="80" height="80"><rect width="80" height="80" fill="#e9dcc4"/>
+ <path d="M0 8H80M0 22H80M0 36H80M0 50H80M0 64H80M0 78H80" stroke="#e0d0b4" stroke-width="1.4"/>
+ <path d="M8 0V80M22 0V80M36 0V80M50 0V80M64 0V80M78 0V80" stroke="#f9f4e9" stroke-width="1.3" opacity=".9"/>
+ <g fill="#c8bda9" opacity=".2"><circle cx="3" cy="7" r="2"/><circle cx="34" cy="59" r="2"/><circle cx="73" cy="44" r="1.7"/></g>
+</pattern>
+<filter id="noise"><feTurbulence type="fractalNoise" baseFrequency=".72" numOctaves="2" stitchTiles="stitch"/></filter>
+</defs>
+<rect width="320" height="320" fill="url(#fabric)"/>
+<rect width="320" height="320" filter="url(#noise)" opacity=".035" style="mix-blend-mode:multiply"/>
+</svg>

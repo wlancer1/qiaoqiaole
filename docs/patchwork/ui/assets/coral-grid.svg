@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320" viewBox="0 0 320 320">
+<defs>
+<pattern id="fabric" patternUnits="userSpaceOnUse" width="80" height="80"><rect width="80" height="80" fill="#ecc2af"/>
+ <rect x="0" width="80" height="80" fill="#f0d2c3"/>
+ <path d="M0 24H80M0 54H80" stroke="#da9d91" stroke-width="6" opacity=".52"/>
+ <path d="M24 0V80M54 0V80" stroke="#c98a7e" stroke-width="6" opacity=".4"/>
+ <path d="M0 8H80M0 39H80M8 0V80M39 0V80" stroke="#fff5e5" stroke-width="1.8" opacity=".86"/>
+</pattern>
+<filter id="noise"><feTurbulence type="fractalNoise" baseFrequency=".72" numOctaves="2" stitchTiles="stitch"/></filter>
+</defs>
+<rect width="320" height="320" fill="url(#fabric)"/>
+<rect width="320" height="320" filter="url(#noise)" opacity=".035" style="mix-blend-mode:multiply"/>
+</svg>

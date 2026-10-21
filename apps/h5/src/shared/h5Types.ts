@@ -1,6 +1,6 @@
 import type { BackgroundRemovalCache, Cell } from '@qiaoqiaole/core';
 
-export type AppScreen = 'home' | 'profile' | 'split' | 'split-crop' | 'split-preview' | 'canvas' | 'beading' | 'patchwork' | 'warehouse' | 'warehouse-detail' | 'pattern-detail' | 'author-profile' | 'my-works' | 'following' | 'followers';
+export type AppScreen = 'home' | 'profile' | 'split' | 'split-crop' | 'split-preview' | 'canvas' | 'beading' | 'patchwork' | 'warehouse' | 'warehouse-detail' | 'fabrics' | 'pattern-detail' | 'author-profile' | 'my-works' | 'following' | 'followers';
 export type CanvasTool = 'brush' | 'eraser' | 'fill' | 'eyedropper' | 'pan';
 export type WorkMode = 'bead' | 'peg';
 export type SplitMode = 'quick' | 'align';

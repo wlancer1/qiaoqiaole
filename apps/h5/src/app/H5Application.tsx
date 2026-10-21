@@ -24,6 +24,7 @@ import { SplitFeatureContent } from '../features/split/SplitFeatureContent';
 import { SplitFeatureProvider, type SplitFeatureCommands } from '../features/split/SplitFeatureProvider';
 import { EditorFeatureContent, type EditorFeatureCommands } from '../features/editor/EditorFeatureContent';
 import { WarehouseFeatureContent, type WarehouseFeatureCommands } from '../features/warehouse/WarehouseFeatureContent';
+import { FabricWarehousePage } from '../pages/warehouse/FabricWarehousePage';
 import { BeadingFeatureContent, type BeadingFeatureCommands } from '../features/beading/BeadingFeatureContent';
 import { PhoneLoginModal, ProfileEditModal } from '../pages/home/HomeShellPage';
 import { refreshHomeData, shouldRefreshHomeData } from '../pages/home/homeRefresh';
@@ -141,6 +142,7 @@ function H5Application() {
   const splitCommandsRef = useRef<SplitFeatureCommands | null>(null);
   const myWorksBackTargetRef = useRef<'home' | 'profile'>('profile');
   const [showCreateCanvasModal, setShowCreateCanvasModal] = useState(false);
+  const [showPatchworkCreateModal, setShowPatchworkCreateModal] = useState(false);
   const [cfgRows, setCfgRows] = useState<number | ''>(32);
   const [cfgCols, setCfgCols] = useState<number | ''>(32);
   const warehouseCommandsRef = useRef<WarehouseFeatureCommands | null>(null);
@@ -375,6 +377,11 @@ function H5Application() {
       navigate('/warehouses');
     });
   };
+  const openFabricWarehouse = () => {
+    requireLogin(() => {
+      navigate('/fabrics');
+    });
+  };
 
   const openCreateCanvasModal = () => setShowCreateCanvasModal(true);
   const openBlankCanvasCreation = () => openCreateCanvasModal();
@@ -497,12 +504,12 @@ function H5Application() {
     isAuthenticating={false} isLoginModalOpen={false} openLogin={openLogin} closeLogin={authDialog.close}
     usedColors={[]} colorCodeOf={colorCodeOf} quickTools={quickTools}
     showCreateCanvasModal={showCreateCanvasModal} setShowCreateCanvasModal={setShowCreateCanvasModal} openCreateCanvasModal={openCreateCanvasModal}
-    openBlankCanvasCreation={openBlankCanvasCreation} openPatchwork={() => navigate('/patchwork', { state: { fresh: true } })}
+    openBlankCanvasCreation={openBlankCanvasCreation} showPatchworkCreateModal={showPatchworkCreateModal} setShowPatchworkCreateModal={setShowPatchworkCreateModal} openPatchwork={(cfg?: { widthMm: number; heightMm: number; baseFabricId: string }) => navigate('/patchwork', { state: { fresh: true, ...(cfg || {}) } })}
     cfgCols={cfgCols} setCfgCols={setCfgCols} cfgRows={cfgRows} setCfgRows={setCfgRows}
     normalizeGridSize={normalizeGridSize} parseGridSizeInput={parseGridSizeInput} createBlankCanvas={createBlankCanvas} requireLogin={requireLogin}
     setStatus={setStatus}
     warehouses={warehouses} stockedColorCount={stockedColorCount} totalWarehouseStock={totalWarehouseStock}
-    activeWarehouse={activeWarehouse} mardColors={MARD_221_COLORS} openWarehouse={openWarehouse}
+    activeWarehouse={activeWarehouse} mardColors={MARD_221_COLORS} openWarehouse={openWarehouse} openFabricWarehouse={openFabricWarehouse}
     setActiveTab={setActiveTab}
     openFollowing={() => navigate('/following')}
     openFollowers={() => navigate('/followers')}
@@ -559,6 +566,18 @@ function H5Application() {
     canvas: editorPage,
     beading: null,
     patchwork: withAppOverlays(<PatchworkPage requireLogin={requireLogin} requestApi={requestApi} token={authToken} />),
+    fabrics: withAppOverlays(<FabricWarehousePage
+      token={authToken}
+      onBack={() => navigate('/profile')}
+      request={(path, init, nextToken) => requestApi(path, init, nextToken)}
+      withLogin={(work) => {
+        if (authToken) {
+          work(authToken);
+          return Promise.resolve(true);
+        }
+        return Promise.resolve(requireLogin(work)).then(Boolean);
+      }}
+    />),
     warehouse: null,
     'warehouse-detail': null,
     split: splitPage(),

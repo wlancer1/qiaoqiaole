@@ -3,9 +3,33 @@ import { newPatchworkId } from './ids';
 /** 拼布的所有几何数据以毫米为单位，和拼豆格子完全独立。 */
 export type Point = { x: number; y: number };
 export type Technique = 'raw' | 'turned' | 'pieced';
-export type Shape = 'rect' | 'circle' | 'triangle' | 'diamond' | 'hexagon' | 'petal' | 'leaf' | 'star';
+export type Shape =
+  | 'rect' | 'circle' | 'triangle' | 'diamond' | 'hexagon' | 'petal' | 'leaf' | 'star'
+  | 'rounded-rect' | 'right-triangle' | 'trapezoid' | 'parallelogram'
+  | 'pentagon' | 'octagon' | 'half-hexagon' | 'kite'
+  | 'semicircle' | 'quarter-circle' | 'sector' | 'arch'
+  | 'arrow' | 'chevron' | 'house' | 'cross'
+  | 'heart' | 'flower' | 'teardrop' | 'crescent'
+  | 'oval' | 'cloud' | 'butterfly' | 'bow-tie' | 'tulip' | 'maple-leaf'
+  | 'shell' | 'wave' | 'fish' | 'shield' | 'bookmark' | 'four-leaf'
+  | 'scalene-triangle' | 'right-trapezoid' | 'heptagon' | 'decagon' | 'dodecagon'
+  | 'l-shape' | 't-shape' | 'half-ring' | 'quarter-ring';
 export type TextureTransform = { scale: number; rotation: number; offsetX: number; offsetY: number };
-export type Material = { id: string; name: string; color: string; assetId?: string; assetPath?: string; sampleWidthMm?: number; calibrated?: boolean; texturePattern?: 'linen' | 'check' | 'stripe' | 'dot' };
+export type Material = {
+  /** Explicit virtual material, excluded from real inventory. */
+  projectOnly?: boolean;
+  id: string;
+  name: string;
+  color: string;
+  category?: string;
+  inventoryFabricId?: string;
+  presetId?: string;
+  assetId?: string;
+  assetPath?: string;
+  sampleWidthMm?: number;
+  calibrated?: boolean;
+  texturePattern?: 'linen' | 'check' | 'stripe' | 'dot';
+};
 export type Piece = { id: string; name: string; points: Point[]; materialId: string; locked: boolean; visible: boolean; groupId?: string; seamMm: number; texture: TextureTransform };
 export type Guide = { id: string; points: Point[]; visible: boolean };
 export type Reference = { assetId: string; assetPath?: string; opacity: number; x: number; y: number; width: number; height: number };
@@ -89,6 +113,119 @@ export function makeShape(shape: Shape, width: number, height: number, cx: numbe
   if (shape === 'triangle') return scale([[.5,0],[1,1],[0,1]]);
   if (shape === 'diamond') return scale([[.5,0],[1,.5],[.5,1],[0,.5]]);
   if (shape === 'hexagon') return scale([[.25,0],[.75,0],[1,.5],[.75,1],[.25,1],[0,.5]]);
+
+  // 单片裁片：返回可编辑的闭合多边形，避免用多片叠合/带孔图形制造无效裁剪轮廓。
+  // 曲线用足够密的直线段近似，边界归一化后 width/height 始终对应实际外接框。
+  const normalized = (coords: number[][]): Point[] => {
+    const xs = coords.map((pt) => pt[0]), ys = coords.map((pt) => pt[1]);
+    const minX = Math.min(...xs), minY = Math.min(...ys);
+    const spanX = Math.max(...xs) - minX, spanY = Math.max(...ys) - minY;
+    return scale(coords.map(([px, py]) => [(px - minX) / spanX, (py - minY) / spanY]));
+  };
+  const arc = (steps: number, point: (t: number) => number[]): number[][] =>
+    Array.from({ length: steps + 1 }, (_, i) => point(i / steps));
+  const regular = (sides: number) => normalized(Array.from({ length: sides }, (_, i) => {
+    const rad = -Math.PI / 2 + i * Math.PI * 2 / sides;
+    return [Math.cos(rad), Math.sin(rad)];
+  }));
+
+  if (shape === 'rounded-rect') return scale(([
+    [.78, .22, -Math.PI / 2], [.78, .78, 0], [.22, .78, Math.PI / 2], [.22, .22, Math.PI],
+  ] as Array<[number, number, number]>).flatMap(([px, py, angle]) =>
+    arc(7, (t) => [px + .22 * Math.cos(angle + t * Math.PI / 2), py + .22 * Math.sin(angle + t * Math.PI / 2)]
+  )));
+  if (shape === 'right-triangle') return scale([[0,0],[1,1],[0,1]]);
+  if (shape === 'trapezoid') return scale([[.26,0],[.74,0],[1,1],[0,1]]);
+  if (shape === 'parallelogram') return scale([[.28,0],[1,0],[.72,1],[0,1]]);
+  if (shape === 'kite') return scale([[.5,0],[1,.37],[.5,1],[0,.37]]);
+  if (shape === 'half-hexagon') return scale([[0,0],[.72,0],[1,.5],[.72,1],[0,1]]);
+  if (shape === 'scalene-triangle') return scale([[.25,0],[1,1],[0,1]]);
+  if (shape === 'right-trapezoid') return scale([[0,0],[.6,0],[1,1],[0,1]]);
+  if (shape === 'heptagon') return regular(7);
+  if (shape === 'decagon') return regular(10);
+  if (shape === 'dodecagon') return regular(12);
+  if (shape === 'l-shape') return scale([[0,0],[.35,0],[.35,.65],[1,.65],[1,1],[0,1]]);
+  if (shape === 't-shape') return scale([[0,0],[1,0],[1,.35],[.675,.35],[.675,1],[.325,1],[.325,.35],[0,.35]]);
+  // 开口圆环沿外弧前进、内弧返回，形成无孔且不自交的单片裁片。
+  if (shape === 'half-ring' || shape === 'quarter-ring') {
+    const sweep = shape === 'half-ring' ? Math.PI : Math.PI / 2;
+    return normalized([
+      ...arc(36, (t) => [Math.cos(t * sweep), -Math.sin(t * sweep)]),
+      ...arc(36, (t) => [.55 * Math.cos((1 - t) * sweep), -.55 * Math.sin((1 - t) * sweep)]),
+    ]);
+  }
+  if (shape === 'pentagon') return regular(5);
+  if (shape === 'octagon') return regular(8);
+  if (shape === 'oval') return normalized(arc(63, (t) => [Math.cos(t * Math.PI * 2), Math.sin(t * Math.PI * 2)]).slice(0, -1));
+  if (shape === 'semicircle') return normalized([
+    ...arc(36, (t) => [Math.cos(Math.PI * (1 - t)), -Math.sin(Math.PI * t)]),
+  ]);
+  if (shape === 'quarter-circle') return normalized([
+    [0, 0], ...arc(24, (t) => [Math.cos(t * Math.PI / 2), Math.sin(t * Math.PI / 2)]),
+  ]);
+  if (shape === 'sector') return normalized([
+    [0, 0], ...arc(32, (t) => [Math.cos(-.85 * Math.PI + t * .7 * Math.PI), Math.sin(-.85 * Math.PI + t * .7 * Math.PI)]),
+  ]);
+  if (shape === 'arch') return normalized([
+    [0,1], [1,1], [1,.5], ...arc(36, (t) => [.5 + .5 * Math.cos(Math.PI * t), .5 - .5 * Math.sin(Math.PI * t)]).slice(1),
+  ]);
+  if (shape === 'arrow') return scale([[0,.32],[.56,.32],[.56,0],[1,.5],[.56,1],[.56,.68],[0,.68]]);
+  if (shape === 'chevron') return scale([[0,0],[.53,.5],[0,1],[.38,1],[1,.5],[.38,0]]);
+  if (shape === 'house') return scale([[0,.42],[.5,0],[1,.42],[1,1],[0,1]]);
+  if (shape === 'cross') return scale([[.33,0],[.67,0],[.67,.33],[1,.33],[1,.67],[.67,.67],[.67,1],[.33,1],[.33,.67],[0,.67],[0,.33],[.33,.33]]);
+  if (shape === 'heart') return normalized(Array.from({ length: 96 }, (_, i) => {
+    const t = i * 2 * Math.PI / 96;
+    return [16 * Math.pow(Math.sin(t), 3), -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t))];
+  }));
+  if (shape === 'flower') return normalized(Array.from({ length: 96 }, (_, i) => {
+    const t = i * 2 * Math.PI / 96, r = .32 + .17 * Math.cos(6 * t);
+    return [Math.cos(t) * r, Math.sin(t) * r];
+  }));
+  if (shape === 'four-leaf') return normalized(Array.from({ length: 96 }, (_, i) => {
+    const t = i * 2 * Math.PI / 96, r = .19 + .29 * Math.abs(Math.cos(2 * t));
+    return [Math.cos(t) * r, Math.sin(t) * r];
+  }));
+  if (shape === 'teardrop') {
+    const ts = Array.from({ length: 49 }, (_, i) => i / 48);
+    const profile = (t: number) => Math.pow(Math.sin(Math.PI * t), .72) * (1.25 - .5 * t);
+    return normalized([...ts.map((t) => [profile(t), t]), ...ts.slice(1, -1).reverse().map((t) => [-profile(t), t])]);
+  }
+  if (shape === 'crescent') return normalized([
+    ...arc(48, (t) => [Math.cos(-Math.PI / 2 - t * Math.PI), Math.sin(-Math.PI / 2 - t * Math.PI)]),
+    ...arc(47, (t) => [.55 + .32 * Math.sin(Math.PI * t), 1 - 2 * t]).slice(1, -1),
+  ]);
+  if (shape === 'cloud') return normalized([
+    [0,.63], ...arc(56, (t) => [t, .35 - .22 * Math.abs(Math.sin(3 * Math.PI * t))]),
+    [1,.63], [.88,.85], [.12,.85],
+  ]);
+  if (shape === 'wave') return normalized([
+    ...arc(48, (t) => [t, .24 + .14 * Math.cos(4 * Math.PI * t)]),
+    [1,1], [0,1],
+  ]);
+  if (shape === 'butterfly') return scale([
+    [.5,.12],[.3,.04],[0,.12],[.07,.42],[0,.69],[.2,.92],[.5,.65],
+    [.8,.92],[1,.69],[.93,.42],[1,.12],[.7,.04],
+  ]);
+  if (shape === 'bow-tie') return scale([[0,.1],[.48,.38],[.52,.38],[1,.1],[1,.9],[.52,.62],[.48,.62],[0,.9]]);
+  if (shape === 'tulip') return scale([
+    [.5,0],[.69,.20],[.92,.11],[.89,.5],[.76,.68],[.58,.74],[.55,1],[.45,1],
+    [.42,.74],[.24,.68],[.11,.5],[.08,.11],[.31,.2],
+  ]);
+  if (shape === 'maple-leaf') return scale([
+    [.5,0],[.62,.2],[.77,.10],[.76,.30],[.96,.29],[.82,.47],[1,.62],[.72,.65],
+    [.74,.82],[.56,.76],[.55,1],[.45,1],[.44,.76],[.26,.82],[.28,.65],[0,.62],
+    [.18,.47],[.04,.29],[.24,.30],[.23,.10],[.38,.20],
+  ]);
+  if (shape === 'shell') return normalized([
+    [.20,1],[.80,1], ...arc(48, (t) => [1 - t, .83 - .70 * Math.sin(Math.PI * t) + .042 * Math.sin(10 * Math.PI * t)]),
+  ]);
+  if (shape === 'fish') return scale([
+    [0,.5],[.22,.27],[.48,.12],[.77,.23],[1,.08],[.89,.50],
+    [1,.92],[.77,.77],[.48,.88],[.22,.73],
+  ]);
+  if (shape === 'shield') return scale([[.5,0],[1,.18],[.94,.72],[.5,1],[.06,.72],[0,.18]]);
+  if (shape === 'bookmark') return scale([[0,0],[1,0],[1,1],[.5,.72],[0,1]]);
+
   if (shape === 'petal' || shape === 'leaf') {
     // 纵向轮廓：花瓣上尖下圆（水滴），叶片两头尖、中间鼓（透镜）；旧公式画出来是沙漏/横向杏仁，已弃用
     const profile = (t: number) => (shape === 'leaf' ? Math.pow(Math.sin(Math.PI * t), 0.9) : Math.pow(Math.sin(Math.PI * Math.pow(t, 1.3)), 0.75));

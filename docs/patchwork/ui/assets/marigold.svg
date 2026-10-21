@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320" viewBox="0 0 320 320">
+<defs>
+<pattern id="fabric" patternUnits="userSpaceOnUse" width="80" height="80"><rect width="80" height="80" fill="#f3e7bd"/>
+ <g transform="translate(24 26)" fill="#fbfaf0"><ellipse rx="5" ry="12"/><ellipse rx="5" ry="12" transform="rotate(45)"/><ellipse rx="5" ry="12" transform="rotate(90)"/><ellipse rx="5" ry="12" transform="rotate(135)"/></g>
+ <circle cx="24" cy="26" r="6" fill="#d6a44d"/>
+ <path d="M24 31q-5 21 8 36" stroke="#889d68" stroke-width="2" fill="none"/>
+ <ellipse cx="29" cy="53" rx="4" ry="10" fill="#a1ab81" transform="rotate(45 29 53)"/>
+ <g transform="translate(67 68) scale(.58)" fill="#faf8e7"><ellipse rx="5" ry="12"/><ellipse rx="5" ry="12" transform="rotate(45)"/><ellipse rx="5" ry="12" transform="rotate(90)"/><ellipse rx="5" ry="12" transform="rotate(135)"/></g><circle cx="67" cy="68" r="3.7" fill="#d6a44d"/>
+</pattern>
+<filter id="noise"><feTurbulence type="fractalNoise" baseFrequency=".72" numOctaves="2" stitchTiles="stitch"/></filter>
+</defs>
+<rect width="320" height="320" fill="url(#fabric)"/>
+<rect width="320" height="320" filter="url(#noise)" opacity=".035" style="mix-blend-mode:multiply"/>
+</svg>

@@ -11,7 +11,7 @@
 .patchwork-materials .pw-material-item .pw-swatch{box-sizing:border-box;display:block;width:100%;height:100%;border-radius:.127rem;box-shadow:none}
 .pw-material-item:focus-visible,.patchwork-materials>.pw-fab-open:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
 @media(max-width:350px){.patchwork-materials{--fabric-control:1.2rem}}
-.patchwork-overlay .patchwork-panel.fabricsheet{box-sizing:border-box;width:min(calc(100% - .7619rem),var(--sheet-width,12.127rem));height:min(80dvh,22rem);max-height:88dvh;display:flex;flex-direction:column;overflow:hidden;padding:.254rem .4444rem calc(.4444rem + env(safe-area-inset-bottom));border-radius:var(--sheet-radius,.6984rem) var(--sheet-radius,.6984rem) 0 0}
+.patchwork-overlay .patchwork-panel.fabricsheet{box-sizing:border-box;width:min(calc(100% - .7619rem),var(--sheet-width,12.127rem));height:auto;max-height:min(88dvh,24rem);display:flex;flex-direction:column;overflow:hidden;padding:.254rem .4444rem calc(.4444rem + env(safe-area-inset-bottom));border-radius:var(--sheet-radius,.6984rem) var(--sheet-radius,.6984rem) 0 0}
 .fabricsheet::before{content:'';width:1.1429rem;height:.127rem;background:#d9dee8;border-radius:1rem;align-self:center;flex-shrink:0;margin-bottom:.381rem}
 .pw-fab-listwrap{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden}
 .pw-fab-head{display:flex;align-items:center;gap:.127rem;flex-shrink:0}
@@ -26,12 +26,13 @@
 .pw-fab-search input{flex:1;min-width:0;border:0;background:none;font:inherit;font-size:.4444rem;color:#20344c}
 .pw-fab-search:focus-within{box-shadow:inset 0 0 0 1px var(--blue)}
 .pw-fab-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-auto-rows:max-content;align-content:start;gap:.3175rem .1905rem;flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:.127rem .0635rem .254rem}
-.pw-fabric-tile{position:relative;display:flex;flex-direction:column;align-self:start;gap:.1905rem;min-width:0;margin:0;padding:0;border:0;background:none;box-shadow:none;text-align:center}
+.pw-fabric-tile{position:relative;display:flex;flex-direction:column;align-self:start;gap:.1905rem;min-width:0;overflow:hidden;margin:0;padding:0;border:0;background:none;box-shadow:none;text-align:center}
 .pw-fab-card-sw{position:relative;display:block;width:100%;aspect-ratio:1;border:2px solid transparent;padding:2px;box-sizing:border-box;border-radius:.381rem;box-shadow:none}
 .pw-fab-card-sw .pw-swatch{width:100%;height:100%;border-radius:.254rem;box-shadow:none}
 .pw-fabric-tile.on .pw-fab-card-sw{border-color:var(--blue)}
-.pw-fab-card-name{font-size:.3492rem;line-height:1.3;color:#33475e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pw-fab-card-name{font-size:.3492rem;line-height:1.3;color:#33475e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;align-self:stretch}
 .pw-fab-empty{grid-column:1/-1;color:#8193a5;text-align:center;padding:.6rem .2rem;font-size:.381rem}
+.pw-fab-none{display:flex;align-items:center;justify-content:center;background:#edf1f5;color:#90a4ba}.pw-fab-none svg{width:42%;height:42%}
 .pw-fab-badge{position:absolute;width:.635rem;height:.635rem;display:grid;place-items:center;border-radius:50%;z-index:1;pointer-events:none}
 .pw-fab-badge svg{width:.381rem;height:.381rem}
 .pw-fab-badge.check{right:.1905rem;bottom:.1905rem;background:var(--blue);color:white;box-shadow:0 0 0 2px white}
@@ -64,3 +65,21 @@
 .pw-fab-detail .pw-fab-textures em{font-size:.3492rem}
 .pw-fab-detail .pw-fab-usage{font-size:.3492rem;padding:.3175rem;margin-top:.381rem;border-radius:.254rem}
 .pw-fab-detail .pw-fab-delete{font-size:var(--fabric-label)}
+/* 新增/编辑布料：独立弹窗，浮在布料选择器之上 */
+.pw-fab-modal{position:fixed;inset:0;z-index:950;display:grid;place-items:center;padding:.762rem;background:rgba(21,31,49,.38)}
+.pw-fab-modal-panel{box-sizing:border-box;display:flex;flex-direction:column;width:min(100%,15.2381rem);max-height:min(88dvh,26rem);overflow:hidden;padding:.4444rem .381rem;border-radius:.9524rem;background:#fff;box-shadow:0 .762rem 2.5397rem rgba(27,61,101,.22)}
+.pw-fab-modal-panel .pw-fab-detail{flex:1;min-height:0}
+
+/* New fabric saves retain the compact existing form; stock quantity is independent of texture calibration. */
+.pw-fab-save-fields{margin:0;border:0;min-inline-size:0}
+.pw-fab-local-option{display:flex;align-items:center;gap:.1905rem;font-size:.3492rem;color:var(--muted);margin:.3175rem 0}
+.pw-fab-local-option input{accent-color:var(--blue)}
+.pw-fab-upload-stock{padding:0 .3175rem .254rem}
+
+.pw-fab-upload-stock{flex-shrink:0}
+.pw-fab-upload-stock .pw-fab-field{display:flex;flex-direction:column;gap:.1905rem;font-size:.381rem;color:var(--muted)}
+.pw-fab-upload-stock .pw-fab-field>input{height:1.32rem;padding:.1905rem .3175rem;border:1px solid #dbe5ee;border-radius:.254rem;font-size:16px;box-sizing:border-box}
+
+.pw-fab-scroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.pw-fab-scroll>.pw-fab-grid{overflow:visible;flex:none}
+.pw-fab-load-status{text-align:center;color:var(--muted);font-size:.3175rem;padding:.254rem;margin:0}

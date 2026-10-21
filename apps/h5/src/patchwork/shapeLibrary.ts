@@ -4,7 +4,8 @@ import { newPatchworkId } from './ids';
 export const SHAPE_TEMPLATES_KEY = 'qiaoqiaole:patchwork:templates';
 export type ShapeTemplate = { id: string; name: string; points: Point[]; favorite?: boolean; lastUsedAt?: number; remote?: boolean };
 export type ShapeCategory = 'mine' | 'base' | 'flora' | 'combo';
-export type ShapeChoice = { id: string; name: string; category: ShapeCategory; polygons: Point[][]; templateId?: string };
+export type BaseShapeGroup = 'geometry' | 'curve' | 'flora' | 'decor';
+export type ShapeChoice = { id: string; name: string; category: ShapeCategory; group?: BaseShapeGroup; polygons: Point[][]; templateId?: string };
 export type ShapePlacement = { width: number; height: number; seam: number; rotation: number };
 
 export function readShapeTemplates(): ShapeTemplate[] {
@@ -26,6 +27,74 @@ export function toShapeTemplate(name: string, points: Point[]): ShapeTemplate {
   return { id: newPatchworkId(), name, points: points.map((p) => ({ x: p.x - b.x, y: p.y - b.y })) };
 }
 
+/** 内置裁片只保存形状定义，不写进“我的形状”或用户服务端。 */
+export const BASE_SHAPE_GROUPS: Array<{ id: BaseShapeGroup; label: string }> = [
+  { id: 'geometry', label: '几何裁片' },
+  { id: 'curve', label: '圆弧曲线' },
+  { id: 'flora', label: '花叶植物' },
+  { id: 'decor', label: '装饰造型' },
+];
+type BuiltinShape = { id: string; name: string; shape: Shape; group: BaseShapeGroup; width?: number; height?: number };
+const BASE_SHAPES: BuiltinShape[] = [
+  // 常用几何裁片
+  { id: 'rect', name: '正方形', shape: 'rect', group: 'geometry' },
+  { id: 'rectangle', name: '长方形', shape: 'rect', group: 'geometry', width: 140, height: 80 },
+  { id: 'triangle', name: '三角形', shape: 'triangle', group: 'geometry' },
+  { id: 'right-triangle', name: '直角三角形', shape: 'right-triangle', group: 'geometry' },
+  { id: 'trapezoid', name: '梯形', shape: 'trapezoid', group: 'geometry' },
+  { id: 'parallelogram', name: '平行四边形', shape: 'parallelogram', group: 'geometry' },
+  { id: 'diamond', name: '菱形', shape: 'diamond', group: 'geometry' },
+  { id: 'kite', name: '风筝形', shape: 'kite', group: 'geometry' },
+  { id: 'pentagon', name: '五边形', shape: 'pentagon', group: 'geometry' },
+  { id: 'hexagon', name: '六边形', shape: 'hexagon', group: 'geometry' },
+  { id: 'half-hexagon', name: '半六边形', shape: 'half-hexagon', group: 'geometry' },
+  { id: 'octagon', name: '八边形', shape: 'octagon', group: 'geometry' },
+  { id: 'cross', name: '十字形', shape: 'cross', group: 'geometry' },
+  { id: 'house', name: '屋顶形', shape: 'house', group: 'geometry' },
+  { id: 'shield', name: '盾牌形', shape: 'shield', group: 'geometry' },
+  { id: 'bookmark', name: '旗帜形', shape: 'bookmark', group: 'geometry' },
+  { id: 'equilateral-triangle', name: '等边三角形', shape: 'triangle', group: 'geometry', width: 100, height: 50 * Math.sqrt(3) },
+  { id: 'scalene-triangle', name: '不等边三角形', shape: 'scalene-triangle', group: 'geometry', width: 120, height: 90 },
+  { id: 'right-trapezoid', name: '直角梯形', shape: 'right-trapezoid', group: 'geometry' },
+  { id: 'slim-diamond', name: '细长菱形', shape: 'diamond', group: 'geometry', width: 60, height: 140 },
+  { id: 'strip', name: '长条形', shape: 'rect', group: 'geometry', width: 160, height: 40 },
+  { id: 'heptagon', name: '七边形', shape: 'heptagon', group: 'geometry' },
+  { id: 'decagon', name: '十边形', shape: 'decagon', group: 'geometry' },
+  { id: 'dodecagon', name: '十二边形', shape: 'dodecagon', group: 'geometry' },
+  { id: 'l-shape', name: 'L形', shape: 'l-shape', group: 'geometry' },
+  { id: 't-shape', name: 'T形', shape: 't-shape', group: 'geometry' },
+  // 弧线和拼布贝壳、扇形等
+  { id: 'circle', name: '圆形', shape: 'circle', group: 'curve' },
+  { id: 'oval', name: '椭圆形', shape: 'oval', group: 'curve', width: 140, height: 85 },
+  { id: 'rounded-rect', name: '圆角矩形', shape: 'rounded-rect', group: 'curve', width: 140, height: 90 },
+  { id: 'semicircle', name: '半圆形', shape: 'semicircle', group: 'curve', width: 140, height: 75 },
+  { id: 'quarter-circle', name: '四分之一圆', shape: 'quarter-circle', group: 'curve' },
+  { id: 'sector', name: '扇形', shape: 'sector', group: 'curve' },
+  { id: 'arch', name: '拱门形', shape: 'arch', group: 'curve' },
+  { id: 'crescent', name: '月牙形', shape: 'crescent', group: 'curve' },
+  { id: 'shell', name: '贝壳形', shape: 'shell', group: 'curve' },
+  { id: 'cloud', name: '云朵形', shape: 'cloud', group: 'curve', width: 140, height: 85 },
+  { id: 'wave', name: '波浪形', shape: 'wave', group: 'curve', width: 140, height: 80 },
+  { id: 'half-ring', name: '半圆环', shape: 'half-ring', group: 'curve', width: 140, height: 70 },
+  { id: 'quarter-ring', name: '四分之一圆环', shape: 'quarter-ring', group: 'curve' },
+  // 花叶剪裁
+  { id: 'leaf', name: '叶片', shape: 'leaf', group: 'flora' },
+  { id: 'petal', name: '花瓣', shape: 'petal', group: 'flora' },
+  { id: 'flower', name: '六瓣花', shape: 'flower', group: 'flora' },
+  { id: 'four-leaf', name: '四叶花', shape: 'four-leaf', group: 'flora' },
+  { id: 'tulip', name: '郁金香', shape: 'tulip', group: 'flora' },
+  { id: 'maple-leaf', name: '枫叶', shape: 'maple-leaf', group: 'flora' },
+  { id: 'teardrop', name: '水滴形', shape: 'teardrop', group: 'flora' },
+  // 适合贴布、布艺拼贴的独立装饰形状
+  { id: 'star', name: '五角星', shape: 'star', group: 'decor' },
+  { id: 'heart', name: '爱心', shape: 'heart', group: 'decor' },
+  { id: 'arrow', name: '箭头', shape: 'arrow', group: 'decor' },
+  { id: 'chevron', name: 'V形条', shape: 'chevron', group: 'decor' },
+  { id: 'bow-tie', name: '蝴蝶结', shape: 'bow-tie', group: 'decor' },
+  { id: 'butterfly', name: '蝴蝶', shape: 'butterfly', group: 'decor' },
+  { id: 'fish', name: '小鱼', shape: 'fish', group: 'decor' },
+];
+
 export function shapeChoices(category: ShapeCategory, templates: ShapeTemplate[]): ShapeChoice[] {
   if (category === 'mine') return templates.map((t) => ({ id: t.id, templateId: t.id, name: t.name, category, polygons: [t.points] }));
   if (category === 'combo') {
@@ -36,10 +105,14 @@ export function shapeChoices(category: ShapeCategory, templates: ShapeTemplate[]
       { id: 'half', name: '半方三角', category, polygons: [[p(0, 0), p(100, 0), p(0, 100)], [p(100, 0), p(100, 100), p(0, 100)]] },
     ];
   }
-  const shapes: Array<[Shape, string]> = category === 'flora'
-    ? [['petal', '花瓣'], ['leaf', '叶片'], ['star', '星形']]
-    : [['rect', '正方形'], ['circle', '圆形'], ['triangle', '三角形'], ['diamond', '菱形'], ['hexagon', '六边形']];
-  return shapes.map(([shape, name]) => ({ id: shape, name, category, polygons: [makeShape(shape, 100, 100, 50, 50)] }));
+  if (category === 'flora') return BASE_SHAPES.filter((item) => item.group === 'flora').map((item) => ({
+    id: item.id, name: item.name, category, group: item.group,
+    polygons: [makeShape(item.shape, item.width ?? 100, item.height ?? 100, (item.width ?? 100) / 2, (item.height ?? 100) / 2)],
+  }));
+  return BASE_SHAPES.map((item) => ({
+    id: item.id, name: item.name, category, group: item.group,
+    polygons: [makeShape(item.shape, item.width ?? 100, item.height ?? 100, (item.width ?? 100) / 2, (item.height ?? 100) / 2)],
+  }));
 }
 
 export function validShapePlacement(value: ShapePlacement): boolean {

@@ -9,6 +9,7 @@ describe('H5 route mapping', () => {
     expect(routeStateForPath('/profile')).toEqual({ screen: 'home', activeTab: 'profile' });
     expect(routeStateForPath('/projects')).toEqual({ screen: 'my-works', activeTab: 'profile' });
     expect(routeStateForPath('/warehouses')).toEqual({ screen: 'warehouse', activeTab: 'profile' });
+    expect(routeStateForPath('/fabrics')).toEqual({ screen: 'fabrics', activeTab: 'profile' });
   });
 
   it('maps resource and flow URLs to page state', () => {
@@ -27,6 +28,7 @@ describe('H5 route mapping', () => {
     expect(appPathForScreen('author-profile')).toBe('/community/users');
     expect(appPathForScreen('my-works')).toBe('/projects');
     expect(appPathForScreen('warehouse')).toBe('/warehouses');
+    expect(appPathForScreen('fabrics')).toBe('/fabrics');
     expect(appPathForScreen('split-preview')).toBe('/split/preview');
   });
 

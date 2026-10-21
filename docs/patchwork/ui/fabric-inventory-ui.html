@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>巧巧乐 · 布料仓库、缺料、裁剪扣库 UI 设计稿</title>
+<link rel="stylesheet" href="./fabric-inventory-ui.css">
+</head>
+<body>
+<svg class="sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7.5"/><path d="m17 17 4.3 4.3"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 7h16M7 12h10M10 17h4"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4.5 4.5L19 7"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M5 5l14 14M19 5 5 19"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="m10 4-8 14a2 2 0 0 0 1.7 3h16.6a2 2 0 0 0 1.7-3L14 4a2.2 2.2 0 0 0-4 0Z"/><path d="M12 9v5M12 17h.01"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 10v6M12 7h.01"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="m3 7 9 5 9-5-9-5-9 5v10l9 5 9-5V7M12 12v10"/></symbol>
+  <symbol id="i-scissors" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="m9 8 12 12M9 16 21 4"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="18" rx="2"/><circle cx="8" cy="8" r="2"/><path d="m3 18 6-6 5 5 3-3 4 4"/></symbol>
+  <symbol id="i-paint" viewBox="0 0 24 24"><path d="m3 15 9-10 9 9-9 9-9-8ZM16 4l4 4M17 18v2a3 3 0 0 0 6 0v-1"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 9 5-9 5-9-5 9-5ZM3 12l9 5 9-5M3 17l9 5 9-5"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 5H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-8M14 4l6 6M8 16l2-6 8-8a3 3 0 0 1 4 4l-8 8-6 2Z"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h5"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5M4 9h9a7 7 0 0 1 0 14h-2"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8v10h-7v-7h-4v7H3V11Z"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3-7 8-7s8 3 8 7"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V3M7 8l5-5 5 5M4 16v4h16v-4"/></symbol>
+  <symbol id="i-camera" viewBox="0 0 24 24"><path d="M3 7h4l2-3h6l2 3h4v13H3V7Z"/><circle cx="12" cy="13" r="4"/></symbol>
+</svg>
+<div class="shell">
+<header class="hero">
+ <div><p class="eyebrow">QIAOQIAOLE / PATCHWORK · DESIGN SYSTEM V2.0</p>
+ <h1>我的布料，从设计到真实库存。</h1>
+ <p>8 个移动端高保真 UI 画面 · 沿用拼布编辑器视觉体系 · 390 × 844 px。点击画面中的部分控件可跳转关联原型。</p></div>
+ <div class="hero-note"><i></i> 交互视觉稿 · 不连接业务 API</div>
+</header>
+<main class="design-grid" id="mockup-grid"></main>
+<div class="gallery-footer">UI 设计稿 / 2026.10 · 保存设计、标记设计完成不会扣库存；只有实际裁剪确认才会产生库存流水。所有布料图片均为专门绘制的示意纹理。</div>
+</div>
+<div class="prototype-toast" id="toast" role="status"></div>
+<script>
+const icon=(name,cls='')=>'<svg class="ico '+cls+'"><use href="#i-'+name+'"/></svg>';
+const fabric=(name)=>'./assets/'+name+'.svg';
+const img=(name,extra='')=>'<img src="'+fabric(name)+'" alt="'+extra+'">';
+const nav=(active)=>'<nav class="fixed-nav"><button '+(active==='home'?'class="active"':'data-demo-toast="首页仅为导航示意"')+'>'+icon('home')+'首页</button><button '+(active==='editor'?'class="active"':'data-goto="editor"')+'>'+icon('scissors')+'拼布设计</button><button '+(active==='mine'?'class="active"':'data-goto="warehouse"')+'>'+icon('user')+'我的</button></nav>';
+const head=(title,back,action='')=>'<header class="page-header"><button class="icon-button" data-goto="'+back+'" aria-label="返回">'+icon('back')+'</button><strong>'+title+'</strong>'+(action||'<span style="width:35px"></span>')+'</header>';
+const bottom=(main,action,caption='')=>'<footer class="bottom-fixed"><button class="primary" data-goto="'+action+'">'+main+'</button>'+(caption?'<p class="foot-note">'+caption+'</p>':'')+'</footer>';
+const fabricCard=(id,name,amount,attr='',go='detail')=>'<div class="fabric-card" data-goto="'+go+'"><div class="thumb">'+img(id,name)+'</div><div class="fabric-info"><b>'+name+'</b><small '+(attr?'class="'+attr+'"':'')+'>'+amount+'</small></div></div>';
+const status='<div class="statusbar"><span>9:41</span><span class="status-right">▮▮▮ &nbsp; ◉ &nbsp; ▰</span></div>';
+const swatches=[['rose-floral','粉色碎花'],['sage-leaves','鼠尾草绿'],['blue-gingham','蓝色格纹']];
+function editorBase(type){
+ const defs='<defs><pattern id="pat-r-'+type+'" width="80" height="80" patternUnits="userSpaceOnUse"><image href="'+fabric('rose-floral')+'" width="80" height="80"/></pattern><pattern id="pat-s-'+type+'" width="80" height="80" patternUnits="userSpaceOnUse"><image href="'+fabric('sage-leaves')+'" width="80" height="80"/></pattern><pattern id="pat-b-'+type+'" width="80" height="80" patternUnits="userSpaceOnUse"><image href="'+fabric('blue-gingham')+'" width="80" height="80"/></pattern><pattern id="pat-y-'+type+'" width="80" height="80" patternUnits="userSpaceOnUse"><image href="'+fabric('marigold')+'" width="80" height="80"/></pattern></defs>';
+ const p='<path d="M133 176Q48 160 54 87Q107 90 145 164Z" fill="url(#pat-r-'+type+')" stroke="#cf9fa8" stroke-width="2"/><path d="M140 175Q174 95 241 74Q250 162 149 181Z" fill="url(#pat-s-'+type+')" stroke="#8aa99a" stroke-width="2"/><path d="M136 183Q75 211 92 297Q160 281 155 185Z" fill="url(#pat-b-'+type+')" stroke="#8299b0" stroke-width="2"/><path d="M145 186Q206 205 236 283Q161 293 139 199Z" fill="url(#pat-y-'+type+')" stroke="#dfac65" stroke-width="2"/>';
+ const warn=type==='editor';
+ return '<div class="editor-header"><button class="icon-button" data-goto="warehouse">'+icon('back')+'</button><span class="editor-size">20 × 20 cm ⌄</span><div class="editor-header-actions"><button>'+icon('undo')+'</button><button class="save-mini" data-demo-toast="仅保存设计，不会扣减库存">保存</button></div></div><div class="editor-stage"><div class="editor-rail"><button class="tool active">'+icon('box')+'选择</button><button class="tool" data-goto="picker">'+icon('plus')+'添加</button><button class="tool" data-goto="picker">'+icon('paint')+'填布</button><button class="tool" data-goto="requirements">'+icon('layers')+'图层</button></div>'
+ +(warn?'<div class="alert-floating" data-goto="requirements"><span>'+icon('alert','s')+'当前作品缺少 1 种布料</span>'+icon('next','s')+'</div>':'')
+ +'<div class="board-canvas" style="'+(warn?'top:94px;height:346px':'top:50px;height:360px')+'"><div class="board-grid"></div><svg class="board-svg" viewBox="0 0 270 350">'+defs+p
+ +(warn?'<path d="M145 186Q206 205 236 283Q161 293 139 199Z" fill="none" stroke="#dd4758" stroke-width="3.5" stroke-dasharray="6 4"/>':'')
+ +'<circle cx="144" cy="184" r="20" fill="#f6d6b3" stroke="#e2b186" stroke-width="1.8"/><circle cx="144" cy="184" r="5" fill="#d8ab8f"/></svg>'
+ +(warn?'<div class="board-alert">'+icon('alert','s')+'黄色小花 · 缺少</div>':'')+'</div>'
+ +(warn?'<div class="missing-tip"><div><b>需要补充布料</b><br><span>黄色小花 · 预计 0.12 m²</span></div><button data-goto="requirements">查看用料 →</button></div>':'')
+ +'<div class="editor-zoom">− &nbsp; 100% &nbsp; ＋</div></div><div class="editor-material-bar">'+swatches.map((s,i)=>'<div class="material-bubble '+(i===0?'active':'')+'" data-goto="picker">'+img(s[0])+(s[1])+'</div>').join('')+'<div class="material-bubble plus" data-goto="picker"><span>'+icon('plus')+'</span>选布料</div></div>';
+}
+const screens=[
+{id:'warehouse',title:'01 / 我的布料仓库',en:'INVENTORY OVERVIEW',cls:'warehouse-page',html:
+'<div class="page-body with-tabs"><div class="warehouse-intro"><div><h2>我的布料</h2><p>整理手头的每一块布 · 随时掌握库存</p></div><button class="add-circle" data-goto="upload" aria-label="上传布料">'+icon('plus','l')+'</button></div>'+
+'<div class="inv-hero"><div><strong>MY FABRIC COLLECTION</strong><div class="inv-stats"><div><b>12<small>种</small></b><br><span>我的布料</span></div><div><b>8.6<small>m²</small></b><br><span>已核实可用面积</span></div></div></div><div class="hero-swatch-stack">'+img('blue-gingham')+img('sage-leaves')+img('rose-floral')+'</div></div>'+
+'<div class="warehouse-search"><div class="searchbar">'+icon('search')+'搜索布料名称、花色</div><button class="filter-btn" data-demo-toast="示意：按库存和花色筛选">'+icon('filter')+'</button></div>'+
+'<div class="chips warehouse-tabs"><button class="chip active">全部 <b>12</b></button><button class="chip">有库存 <b>10</b></button><button class="chip">已用完 <b>2</b></button></div>'+
+'<div class="section-head"><h3>我的布料</h3><button class="mini-link" data-goto="detail">最近使用 '+icon('next','s')+'</button></div>'+
+'<div class="fabric-grid">'+fabricCard('rose-floral','粉色碎花','剩余 0.80 m²')+fabricCard('sage-leaves','鼠尾草绿','剩余 1.20 m²')+fabricCard('blue-gingham','蓝色格纹','剩余 0.40 m²')+fabricCard('marigold','黄色小花','已用完','bad')+fabricCard('linen-cream','奶油亚麻','剩余 2.60 m²')+fabricCard('lavender-sprig','淡紫碎花','剩余 0.60 m²')+'</div></div>'+nav('mine')},
+{id:'upload',title:'02 / 上传布料及录入库存',en:'ADD FABRIC',cls:'upload-page',html:
+head('上传布料','warehouse','<button class="icon-button" data-demo-toast="示意：打开相机">'+icon('camera')+'</button>')+
+'<div class="page-body"><div class="form-label">布料照片 <span>直接从相册或拍照上传</span></div><div class="upload-photo">'+img('rose-floral','布料纹理裁剪示意')+
+'<div class="crop-rectangle"><i class="crop-corner tl"></i><i class="crop-corner tr"></i><i class="crop-corner bl"></i><i class="crop-corner br"></i></div><div class="crop-prompt">拖动边框，裁剪适合平铺的布纹</div></div>'+
+'<div class="form-label">布料名称</div><div class="field">粉色碎花棉布'+icon('edit','s muted')+'</div>'+
+'<div class="field-row"><div><div class="form-label">布料分类</div><div class="field">棉布'+icon('next','s muted')+'</div></div><div><div class="form-label">主色调</div><div class="field"><span><i class="color-dot"></i>柔雾粉</span>'+icon('next','s muted')+'</div></div></div>'+
+'<div class="form-label">库存记录方式</div><div class="choice-row"><span class="active">按布块尺寸</span><span>仅记录拥有</span></div>'+
+'<div class="form-label">实际布料尺寸 <span>尺寸用于估算可用面积</span></div><div class="field-row"><div class="field vertical"><small>长度</small><b>150 <small>cm</small></b></div><div class="field vertical"><small>宽度</small><b>110 <small>cm</small></b></div></div>'+
+'<div class="form-label">数量</div><div class="field"><span>1 块</span><span class="right">'+icon('minus','s')+'&nbsp; 1 &nbsp;'+icon('plus','s')+'</span></div>'+
+'<div class="hint-box">'+icon('info','s')+'<span>预计入库 <b>1.65 m²</b>；若尺寸尚未测量，可先记录「拥有」，日后补录。</span></div></div>'+
+bottom(icon('check')+'保存到我的布料仓库','warehouse')},
+{id:'detail',title:'03 / 布料详情与库存批次',en:'FABRIC DETAIL',cls:'detail-page',html:
+head('布料详情','warehouse','<button class="icon-button" data-demo-toast="示意：编辑布料资料">'+icon('edit')+'</button>')+
+'<div class="page-body"><div class="detail-cover">'+img('rose-floral','粉色碎花布料大图')+'<span class="photo-index">1 / 1</span></div><div class="detail-main">'+
+'<div class="detail-title-row"><div><h2>粉色碎花棉布</h2><span class="muted" style="font-size:11px">棉布 · FAB-0018 · 细碎花纹</span></div><span class="pill good">'+icon('check','s')+'有库存</span></div>'+
+'<div class="balance-card"><small>当前可用库存（已核实）</small><h3>0.80 <span>m²</span></h3><small>2 个库存批次 · 历史共入库 1.65 m²</small><div class="balance-strip"><span style="width:48%"></span></div></div>'+
+'<div class="section-gap"></div><div class="section-head"><h3>库存批次</h3><button class="mini-link" data-demo-toast="示意：新增库存批次">'+icon('plus','s')+'新增批次</button></div>'+
+'<div class="surface"><div class="batch"><div class="batch-pic">'+img('rose-floral')+'</div><div class="batch-body"><b>整块布 · #01</b><small>原尺寸 110 × 150 cm</small></div><span class="batch-size">0.60 m²</span></div><div class="batch"><div class="batch-pic">'+img('rose-floral')+'</div><div class="batch-body"><b>可用余料 · #02</b><small>已核实可用面积</small></div><span class="batch-size">0.20 m²</span></div></div>'+
+'<div class="section-gap"></div><div class="section-head"><h3>最近变动</h3><button class="mini-link" data-goto="ledger">查看全部 '+icon('next','s')+'</button></div>'+
+'<div class="surface" style="padding:14px;display:flex;justify-content:space-between"><span style="font-size:11px">用于「春日花园」裁剪</span><b style="font-size:12px;color:#c75a60">−0.26 m²</b></div>'+
+'</div></div><div class="bottom-fixed"><div class="detail-actions"><button class="secondary-btn" data-goto="ledger">库存流水</button><button class="primary" data-demo-toast="示意：新建入库批次">'+icon('plus','s')+'补充库存</button></div></div>'},
+{id:'picker',title:'04 / 编辑器统一布料选择器',en:'FABRIC PICKER',cls:'',html:
+editorBase('picker')+'<div class="selection-dim"></div><div class="sheet"><div class="sheet-handle"></div><div class="sheet-top"><b>选择布料</b><button data-goto="editor" aria-label="关闭选布">'+icon('close','s')+'</button></div>'+
+'<div class="searchbar">'+icon('search')+'搜索我的布料</div><div class="sheet-tabs"><span class="active">我的布料 (10)</span><span>最近使用</span><span>收藏</span></div><div class="picker-grid">'+
+[['rose-floral','粉色碎花','0.80 m²'],['sage-leaves','鼠尾草绿','1.20 m²'],['blue-gingham','蓝色格纹','0.40 m²'],['linen-cream','奶油亚麻','2.60 m²'],['lavender-sprig','淡紫碎花','0.60 m²'],['navy-dots','星点蓝布','0.32 m²']].map((v,i)=>'<div class="fabric-card '+(i===0?'selected':'')+'" data-goto="editor"><div class="thumb">'+img(v[0])+(i===0?'<span class="card-check">'+icon('check','s')+'</span>':'')+'</div><div class="fabric-info"><b>'+v[1]+'</b><small>'+v[2]+'</small></div></div>').join('')+'</div>'+
+'<p class="picker-note">'+icon('info','s')+'仅显示仓库中可用的布料 · 点击即填充</p></div>'},
+{id:'editor',title:'05 / 画布缺料标红提醒',en:'CANVAS / MISSING MATERIAL',cls:'',html:editorBase('editor')},
+{id:'requirements',title:'06 / 项目用料清单与缺料处理',en:'FABRIC REQUIREMENTS',cls:'requirements-page',html:
+head('项目用料清单','editor','<button class="icon-button" data-demo-toast="示意：导出用料清单">'+icon('more')+'</button>')+
+'<div class="page-body"><div class="product-title"><div class="product-thumbnail"><div class="mini-quilt"><span></span><span></span><span></span><span></span></div></div><div><b>春日花园 · 拼布设计</b><small>20 × 20 cm · 设计已保存 · 未裁剪</small></div></div>'+
+'<div class="summary-stats"><div><b>7</b><small>布片数量</small></div><div><b>3</b><small>使用布料</small></div><div><b class="red">1</b><small>缺料品种</small></div></div>'+
+'<div class="section-head"><h3>需要的布料</h3><span class="muted" style="font-size:10px">含缝份及预计损耗</span></div>'+
+[['rose-floral','粉色碎花','4','0.26','0.80',false],['sage-leaves','鼠尾草绿','2','0.18','1.20',false],['marigold','黄色小花','1','0.12','0',true]].map(v=>'<div class="requirement-item '+(v[5]?'warning':'')+'"><div class="req-thumb">'+img(v[0])+'</div><div class="req-info"><div class="req-row"><b>'+v[1]+'</b><span class="pill '+(v[5]?'bad':'good')+'">'+icon(v[5]?'alert':'check','s')+(v[5]?'缺少':'已有')+'</span></div><p>'+v[2]+' 块布片 · 需要约 '+v[3]+' m²</p><small '+(v[5]?'style="color:#d3505b;font-weight:700"':'')+'>当前仓库：'+v[4]+' m²'+(v[5]?' · 缺少 '+v[3]+' m²':'')+'</small>'+(v[5]?'<br><button class="req-action" data-goto="picker">更换为我的布料 →</button>':'')+'</div></div>').join('')+
+'<div class="warning-callout">'+icon('info','s')+'<span>缺料不影响保存设计，但「确认已裁剪并扣库」前需要补充库存或更换布料。</span></div>'+
+'<div class="section-head"><h3>用料计算</h3><button class="mini-link" data-goto="cutting">查看明细 '+icon('next','s')+'</button></div>'+
+'<div class="surface" style="padding:13px 12px;display:flex;justify-content:space-between"><span style="font-size:11px;color:#5d788e">预计总用料 · 已含 15% 损耗</span><b style="font-size:13px">0.56 m²</b></div></div>'+
+'<div class="bottom-fixed"><div class="requirements-actions"><button class="primary" data-goto="cutting">查看裁剪用量 '+icon('next','s')+'</button><button class="secondary-btn" data-demo-toast="设计完成仅记录设计状态，不扣减库存">设计已完成 · 暂不扣库</button></div></div>'},
+{id:'cutting',title:'07 / 实际裁剪确认与扣减库存',en:'CUTTING CONFIRMATION',cls:'cutting-page',html:
+head('确认裁剪用布','requirements','<span class="header-caption">第 1 次裁剪</span>')+
+'<div class="page-body"><p class="kicker">春日花园 · 已检查库存（缺料已替换）</p><div class="cut-intro"><span class="subhead">本次预计消耗</span><h2>0.56 <small>m²</small></h2><p>7 块布片 · 含缝份与预计损耗，实际裁剪量可逐项修改</p></div>'+
+'<div class="section-head"><h3>计算选项</h3><span class="pill neutral">可调整</span></div>'+
+'<div class="surface" style="padding:0 13px"><div class="tweak-row"><span>计算裁片缝份<br><small>按每片几何轮廓计算</small></span><div class="switch"></div></div><div class="tweak-row"><span>预计损耗比例<br><small>经验估算，非实际裁剪排版</small></span><b>15% ⌄</b></div><div class="tweak-row"><span>计入底布用量<br><small>按项目设置决定</small></span><span class="pill neutral">未计入</span></div></div>'+
+'<div class="section-gap"></div><div class="section-head"><h3>确认实际使用量</h3><span class="muted" style="font-size:10px">支持编辑和选批次</span></div>'+
+'<div class="surface" style="padding:2px 13px">'+
+[['rose-floral','粉色碎花','整块 #01','0.26'],['sage-leaves','鼠尾草绿','整块 #03','0.18'],['blue-gingham','蓝色格纹','余布 #02','0.12']].map(v=>'<div class="cut-item">'+img(v[0])+'<div class="name"><b>'+v[1]+'</b><small>'+v[2]+'</small></div><span class="area">'+v[3]+' m²</span><button class="edit" data-demo-toast="示意：修改实际消耗与库存批次">编辑</button></div>').join('')+
+'</div><div class="hint-box">'+icon('info','s')+'<span>面积足够不代表可以裁出完整形状。请核对实际布块的形状、尺寸与裁剪余量。</span></div>'+
+'</div><div class="bottom-fixed"><div class="checkline" style="margin:0 0 10px"><span class="checkmark">'+icon('check','s')+'</span><span>我已实际裁剪并核对本次实际耗料量。</span></div><button class="primary" style="width:100%" data-goto="ledger">'+icon('scissors')+'确认已裁剪 · 扣减库存</button><p class="foot-note">服务端仅扣一次；保存设计不会扣库</p></div>'},
+{id:'ledger',title:'08 / 扣减完成与库存流水',en:'STOCK TRANSACTION',cls:'ledger-page',html:
+head('库存扣减记录','detail')+
+'<div class="page-body"><div class="success-card"><div class="success-badge">'+icon('check','l')+'</div><h2>库存扣减成功</h2><p>春日花园 · 本次裁剪已记录</p><div class="success-amount">−0.56 <small>m²</small></div><p>确认时间 2026-10-19 16:05 · #CUT-0028</p></div>'+
+'<div class="section-gap"></div><div class="section-head"><h3>本次库存变动</h3><span class="pill good">已入账</span></div><div class="ledger-list">'+
+[['rose-floral','粉色碎花','整块 #01','−0.26 m²','剩余 0.54 m²'],['sage-leaves','鼠尾草绿','整块 #03','−0.18 m²','剩余 1.02 m²'],['blue-gingham','蓝色格纹','余布 #02','−0.12 m²','剩余 0.28 m²']].map(v=>'<div class="ledger-row">'+img(v[0])+'<div class="label"><b>'+v[1]+'</b><small>'+v[2]+'</small></div><div class="delta">'+v[3]+'<small>'+v[4]+'</small></div></div>').join('')+'</div>'+
+'<div class="section-gap"></div><div class="section-head"><h3>操作信息</h3></div><div class="surface" style="padding:14px;font-size:11px;display:grid;gap:11px"><div style="display:flex;justify-content:space-between"><span class="muted">操作类型</span><b>实际裁剪扣减</b></div><div style="display:flex;justify-content:space-between"><span class="muted">库存流水</span><b>3 条 · 已记录</b></div><div style="display:flex;justify-content:space-between"><span class="muted">重复扣减保护</span><b style="color:#208f68">已启用</b></div></div>'+
+'<div class="audit-box">'+icon('info','s')+'<span>记录不可直接删除；若确属记账错误，请在详情中提交冲正。实际裁剪过的布不能直接当作整块返还。</span></div>'+
+'<div style="margin-top:15px;text-align:center"><button class="danger-outline" data-demo-toast="示意：冲正需填写原因，并由服务端创建反向库存流水">申请冲正错误扣减</button></div></div>'+
+bottom('返回我的布料仓库','warehouse')}
+];
+const grid=document.querySelector('#mockup-grid');
+for(const s of screens){
+ const section=document.createElement('section');section.className='design-card';section.id=s.id;
+ section.innerHTML='<div class="design-meta"><b>'+s.title+'</b><span>'+s.en+'</span></div><div class="device" data-screen="'+s.id+'">'+status+'<div class="phone-screen '+s.cls+'">'+s.html+'</div><div class="home-indicator"></div></div>';
+ grid.appendChild(section);
+}
+document.addEventListener('click',e=>{
+ const t=e.target.closest('[data-goto],[data-demo-toast],.chip');
+ if(!t)return;
+ if(t.dataset.goto){document.querySelector('#'+t.dataset.goto)?.scrollIntoView({behavior:'smooth',block:'center'});return;}
+ if(t.classList.contains('chip')){const par=t.parentElement;par.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));t.classList.add('active');return;}
+ const toast=document.querySelector('#toast');toast.textContent=t.dataset.demoToast;toast.classList.add('show');clearTimeout(window.__toastTimeout);window.__toastTimeout=setTimeout(()=>toast.classList.remove('show'),1700);
+});
+</script>
+</body></html>
