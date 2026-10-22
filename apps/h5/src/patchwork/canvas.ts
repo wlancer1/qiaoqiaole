@@ -66,7 +66,8 @@ export function drawScene(canvas:HTMLCanvasElement,project:PatchworkProject,view
     ctx.globalAlpha=project.reference.opacity;
     const r=project.reference;ctx.drawImage(image,ox+r.x*m.scale,oy+r.y*m.scale,r.width*m.scale,r.height*m.scale);ctx.globalAlpha=1;
   }
-  if(!opts.clean) {
+  // The transparency checker already provides a visual grid. Avoid competing spacings.
+  if(!opts.clean && base) {
     ctx.lineWidth=1;ctx.strokeStyle='rgba(127,121,108,.13)';
     const step=project.widthMm>900?100:25;
     for(let x=step;x<project.widthMm;x+=step){ctx.beginPath();ctx.moveTo(ox+x*m.scale,oy);ctx.lineTo(ox+x*m.scale,oy+bh);ctx.stroke();}

@@ -21,7 +21,7 @@
 
 /* 工作区与左栏（浮动白卡） */
 .patchwork-work{flex:1;min-height:0;position:relative;display:flex}
-.patchwork-rail{align-self:flex-start;width:1.72rem;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:.18rem;padding:.28rem .2rem;margin:.35rem 0 .35rem .35rem;background:#fff;border-radius:.55rem;box-shadow:0 10px 24px rgba(31,58,84,.10);z-index:2}
+.patchwork-rail{position:absolute;top:0;left:0;align-self:flex-start;width:1.72rem;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:.18rem;padding:.28rem .2rem;margin:.35rem 0 .35rem .35rem;background:#fff;border-radius:.55rem;box-shadow:0 10px 24px rgba(31,58,84,.10);z-index:2}
 .patchwork-rail button{width:1.32rem;min-height:1.32rem;border-radius:.38rem;background:transparent;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:.08rem;font-size:.3rem;color:#42566b}
 .patchwork-rail svg{width:.62rem;height:.62rem}
 .patchwork-rail button.active{background:#208edc;color:#fff;box-shadow:0 6px 14px rgba(32,142,220,.35)}
