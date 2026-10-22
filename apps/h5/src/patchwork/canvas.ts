@@ -1,4 +1,5 @@
-import { pointBounds, type PatchworkProject, type Point } from './model';
+import { stitchSegments, outlinePoints, type StitchStyle } from './stitches';
+import { pieceLabel, pointBounds, type PatchworkProject, type Point } from './model';
 export type View = { zoom: number; panX: number; panY: number };
 export type Metrics = { scale: number; ox: number; oy: number; width: number; height: number };
 export function metrics(width: number, height: number, project: PatchworkProject, view: View): Metrics {
@@ -11,7 +12,12 @@ export function worldToScreen(p: Point, m: Metrics): Point {return {x:p.x*m.scal
 function path(ctx:CanvasRenderingContext2D,points:Point[],m:Metrics,close=true) {
   ctx.beginPath();points.forEach((p,i)=>{const {x,y}=worldToScreen(p,m);if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);});if(close && points.length>2)ctx.closePath();
 }
-export type DrawOptions={selectedIds:string[];draft:Point[];draftClosed:boolean;nodeMode:boolean;preview?:{points:Point[];color:string;selected?:boolean}[];previewStyle?:'filled'|'outline';images:Map<string,HTMLImageElement>; showNumbers?:boolean|'selected';clean?:boolean};
+export type DrawOptions={selectedIds:string[];draft:Point[];draftClosed:boolean;draftStitch?:StitchStyle;nodeMode:boolean;preview?:{points:Point[];color:string;selected?:boolean}[];previewStyle?:'filled'|'outline';images:Map<string,HTMLImageElement>; showNumbers?:boolean|'selected';clean?:boolean};
+function drawStitch(ctx: CanvasRenderingContext2D, points: Point[], style: StitchStyle, m: Metrics, closed = false) {
+  ctx.save();ctx.strokeStyle=style.color;ctx.lineWidth=Math.max(.65,style.widthMm*m.scale);ctx.lineCap='round';ctx.lineJoin='round';ctx.setLineDash([]);
+  for(const segment of stitchSegments(points,style,closed)){path(ctx,segment,m,false);ctx.stroke();}
+  ctx.restore();
+}
 export function drawScene(canvas:HTMLCanvasElement,project:PatchworkProject,view:View,opts:DrawOptions) {
   const bounds=canvas.getBoundingClientRect(),w=bounds.width,h=bounds.height;
   if(!w || !h)return;
@@ -58,10 +64,11 @@ export function drawScene(canvas:HTMLCanvasElement,project:PatchworkProject,view
   ctx.restore();
   for(const piece of project.pieces) {
     if(!piece.visible)continue;
+    if(piece.stitch){drawStitch(ctx,piece.points,piece.stitch,m);continue;}
     const material=project.materials.find((a)=>a.id===piece.materialId);
-    path(ctx,piece.points,m);ctx.fillStyle=material?.color||'#d8d8d8';ctx.fill();
+    path(ctx,piece.points,m);ctx.fillStyle=piece.paint?.fill==='solid'?piece.paint.color:material?.color||'#d8d8d8';if(piece.paint?.fill!=='none')ctx.fill();
     const image=material?.assetId?opts.images.get(material.assetId):null;
-    if(image) {
+    if(image && (!piece.paint || piece.paint.fill==='fabric')) {
       ctx.save();path(ctx,piece.points,m);ctx.clip();
       const b=pointBounds(piece.points),scale=piece.texture.scale;
       const wMm=material?.sampleWidthMm||b.width||1,patternWidth=wMm*scale*m.scale;
@@ -75,11 +82,15 @@ export function drawScene(canvas:HTMLCanvasElement,project:PatchworkProject,view
       }
       ctx.restore();
     }
-    path(ctx,piece.points,m);ctx.strokeStyle='rgba(96,74,58,.28)';ctx.lineWidth=1;ctx.stroke();
-    path(ctx,piece.points,m);ctx.strokeStyle='rgba(255,255,255,.85)';ctx.lineWidth=1.3;ctx.setLineDash([4,3]);ctx.stroke();ctx.setLineDash([]);
+    if(!piece.paint || piece.paint.border || piece.paint.fill==='none'){
+      path(ctx,piece.points,m);ctx.strokeStyle=piece.paint?.borderColor||'rgba(96,74,58,.28)';ctx.lineWidth=piece.paint?Math.max(.65,piece.paint.borderWidthMm*m.scale):1;ctx.stroke();
+    }
+    if(!piece.paint&&!piece.outlineStitch){path(ctx,piece.points,m);ctx.strokeStyle='rgba(255,255,255,.85)';ctx.lineWidth=1.3;ctx.setLineDash([4,3]);ctx.stroke();ctx.setLineDash([]);}
+    if(piece.outlineStitch){try{drawStitch(ctx,outlinePoints(piece.points,piece.outlineStitch.insetMm),piece.outlineStitch,m,true);}catch{/* After a resize, suppress an invalid inset instead of drawing outside the piece. */}}
+
     if(opts.showNumbers===true||(opts.showNumbers==='selected'&&opts.selectedIds.includes(piece.id))) {
       const b=pointBounds(piece.points),center=worldToScreen({x:b.x+b.width/2,y:b.y+b.height/2},m);
-      ctx.fillStyle='#22384c';ctx.font='600 11px PingFangSC, sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(`P${project.pieces.indexOf(piece)+1}`,center.x,center.y);
+      ctx.fillStyle='#22384c';ctx.font='600 11px PingFangSC, sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(pieceLabel(project.pieces,piece),center.x,center.y);
     }
   }
   for(const preview of opts.preview||[]){
@@ -96,7 +107,7 @@ export function drawScene(canvas:HTMLCanvasElement,project:PatchworkProject,view
     }
     for(const id of opts.selectedIds) {
       const piece=project.pieces.find((p)=>p.id===id);if(!piece)continue;
-      path(ctx,piece.points,m);ctx.strokeStyle='#208edc';ctx.lineWidth=2.2;ctx.stroke();
+      path(ctx,piece.points,m,!piece.stitch);ctx.strokeStyle='#208edc';ctx.lineWidth=2.2;ctx.stroke();
       if(opts.nodeMode){for(const p of piece.points){const s=worldToScreen(p,m);ctx.beginPath();ctx.arc(s.x,s.y,4.5,0,2*Math.PI);ctx.fillStyle='#fff';ctx.fill();ctx.strokeStyle='#208edc';ctx.lineWidth=2;ctx.stroke();}}
       else if(opts.selectedIds.length===1){
         const b=pointBounds(piece.points),tl=worldToScreen({x:b.x,y:b.y},m),br=worldToScreen({x:b.x+b.width,y:b.y+b.height},m);
@@ -109,7 +120,8 @@ export function drawScene(canvas:HTMLCanvasElement,project:PatchworkProject,view
         ctx.fillStyle='#208edc';ctx.font='11px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('\u21bb',cxm,tl.y-24);
       }
     }
-    if(opts.draft.length) {
+    if(opts.draft.length && opts.draftStitch){drawStitch(ctx,opts.draft,opts.draftStitch,m);}
+    if(opts.draft.length && !opts.draftStitch) {
       path(ctx,opts.draft,m,false);ctx.strokeStyle='#208edc';ctx.lineWidth=2;ctx.lineJoin='round';ctx.setLineDash([5,4]);ctx.stroke();ctx.setLineDash([]);
       if(opts.draftClosed && opts.draft.length>2){const first=worldToScreen(opts.draft[0],m),last=worldToScreen(opts.draft[opts.draft.length-1],m);ctx.strokeStyle='#208edc';ctx.setLineDash([5,3]);ctx.beginPath();ctx.moveTo(last.x,last.y);ctx.lineTo(first.x,first.y);ctx.stroke();ctx.setLineDash([]);}
       const f=worldToScreen(opts.draft[0],m);ctx.beginPath();ctx.arc(f.x,f.y,4,0,2*Math.PI);ctx.fillStyle='#fff';ctx.fill();ctx.strokeStyle='#208edc';ctx.stroke();

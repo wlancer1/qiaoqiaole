@@ -1,3 +1,5 @@
+import { BrushQuickBar, BrushSettingsDialog, brushShapeName, type BrushMode, type BrushSettingsValue } from './BrushTools';
+import { defaultShapePaint, defaultStitch, outlinePoints, pathLength, stitchNames } from './stitches';
 import { CompositionSafeInput } from '../shared/CompositionSafeInput';
 import { isImeComposing } from '../shared/ime';
 import { findBuiltinFabric, unifiedFabrics, presetAsset, matchesMaterialFabric, registerUsedPresetFabrics } from '../fabrics/fabricCatalog';
@@ -12,7 +14,7 @@ import {
   Search, Palette, ImagePlus,
 } from 'lucide-react';
 import {
-  area, clearCanvasContent, cloneDocument, hitTest, isConcave, makePiece, makeProject, makeShape, pointBounds,
+  area, clearCanvasContent, cloneDocument, hitTest, pieceLabel, isConcave, makePiece, makeProject, makeShape, pointBounds,
   pointInPolygon, simplifyPoints, selfIntersects, transformPoints, validatePiece,
   type Guide, type Material, type PatchworkDocument, type PatchworkProject, type Piece,
   type Point, type Shape, type Technique,
@@ -129,6 +131,8 @@ function PieceThumb({ p, mat }: { p: Piece; mat?: Material }) {
     return () => { live = false; if (created) URL.revokeObjectURL(created); };
   }, [mat?.assetId, tick]);
   const pts = thumbPoints(p);
+  if(p.stitch)return <svg className="pw-thumb" viewBox="0 0 24 24" aria-hidden="true"><polyline points={pts} fill="none" stroke={p.stitch.color} strokeWidth="2" strokeDasharray={p.stitch.kind==='running'?'3 2':undefined}/></svg>;
+  if(p.paint && p.paint.fill!=='fabric')return <svg className="pw-thumb" viewBox="0 0 24 24" aria-hidden="true"><polygon points={pts} fill={p.paint.fill==='solid'?p.paint.color:'none'} stroke={p.paint.borderColor}/></svg>;
   if (!mat?.assetId || !tex) {
     return <svg className="pw-thumb" viewBox="0 0 24 24" aria-hidden="true"><polygon points={pts} fill={mat?.color || '#ccc'} stroke="rgba(0,0,0,.15)" /></svg>;
   }
@@ -155,6 +159,11 @@ function nextMatSeq(mats: Material[]): number {
   let mx = 0;
   mats.forEach((m) => { const mm = /^M(\d+)$/.exec(m.id); if (mm) mx = Math.max(mx, Number(mm[1])); });
   return mx + 1;
+}
+function outlineIssue(piece: Piece): string {
+  if (!piece.outlineStitch || piece.stitch) return '';
+  try { outlinePoints(piece.points, piece.outlineStitch.insetMm); return ''; }
+  catch (error) { return `${piece.name}：${error instanceof Error ? error.message : '周边缝线无法生成'}`; }
 }
 const docOf = (p: PatchworkProject): PatchworkDocument => ({
   name: p.name, technique: p.technique, widthMm: p.widthMm, heightMm: p.heightMm,
@@ -203,6 +212,16 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
   const [past, setPast] = useState<PatchworkDocument[]>([]);
   const [future, setFuture] = useState<PatchworkDocument[]>([]);
   const [tool, setTool] = useState<Tool>('select');
+  const [brushMode, setBrushMode] = useState<BrushMode>('shape');
+  const [brushPopover, setBrushPopover] = useState(false);
+  const [brushSettings, setBrushSettings] = useState<'shape'|'stitch'|'outline'|null>(null);
+  const [brushValue, setBrushValue] = useState<BrushSettingsValue>({shape:null,paint:{...defaultShapePaint},stitch:{...defaultStitch},outline:null});
+  const [editStitchId, setEditStitchId] = useState<string|null>(null);
+  useEffect(()=>{
+    if(!brushPopover)return;
+    const key=(e:KeyboardEvent)=>{if(e.key==='Escape'&&!isImeComposing(e)){setBrushPopover(false);e.stopImmediatePropagation();}};
+    window.addEventListener('keydown',key,true);return()=>window.removeEventListener('keydown',key,true);
+  },[brushPopover]);
   const [panel, setPanel] = useState<Panel>(null);
   const shapeDialogVersion = useRef(0);
   useEffect(() => () => { shapeDialogVersion.current += 1; }, [panel]);
@@ -240,7 +259,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
   const [indexList, setIndexList] = useState<IndexEntry[]>([]);
   const [cloudList, setCloudList] = useState<CloudWork[]>([]);
   const [fabricPick, setFabricPick] = useState<FabricItemLite[] | null>(null);
-  const [fabricPickerTarget, setFabricPickerTarget] = useState<'base' | 'props' | 'editor'>('editor');
+  const [fabricPickerTarget, setFabricPickerTarget] = useState<'base' | 'props' | 'editor' | 'brush'>('editor');
   const [cloudId, setCloudIdState] = useState<string | null>(null);
   const cloudIdRef = useRef<string | null>(null);
   const setCloudId = (id: string | null) => { cloudIdRef.current = id; setCloudIdState(id); };
@@ -374,7 +393,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
       if (scope === fabricSaveScopeRef.current && t === tokenRef.current && showList) toast('布料仓库读取失败，请稍后重试');
     }
   };
-  const openFabricPicker = (target: 'base' | 'props' | 'editor') => {
+  const openFabricPicker = (target: 'base' | 'props' | 'editor' | 'brush') => {
     setFabricPickerTarget(target);
     setFabEdit(false);
     setFabQuery('');
@@ -421,7 +440,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
   }, [panel]);
 
   useEffect(() => {
-    if (creatingFabric || !panel || typeof window === 'undefined' || typeof window.addEventListener !== 'function') return undefined;
+    if (creatingFabric || brushSettings || !panel || typeof window === 'undefined' || typeof window.addEventListener !== 'function') return undefined;
     const onKeyDown = (event: KeyboardEvent) => {
       if (isImeComposing(event) || event.key !== 'Escape') return;
       event.preventDefault();
@@ -434,7 +453,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [panel, creatingFabric]);
+  }, [panel, creatingFabric, brushSettings]);
 
   const toast = (text: string) => setMessage(text);
   useEffect(() => { if (!message) return; const t = setTimeout(() => setMessage(''), 3600); return () => clearTimeout(t); }, [message]);
@@ -456,6 +475,12 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
     commitDoc(doc);
   };
   const commitFrom = (origDoc: PatchworkDocument) => {
+    const issue = project.pieces.map(outlineIssue).find(Boolean);
+    if (issue) {
+      setProject(cur => ({ ...cur, ...cloneDocument(origDoc) }));
+      toast(issue + '，已还原；请先减小缝线距边');
+      return;
+    }
     setPast((p) => [...p.slice(-79), cloneDocument(origDoc)]);
     setFuture([]);
   };
@@ -565,11 +590,11 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
       ? candidates.filter((c) => !c.excluded).map((c) => ({ points: c.points, color: c.color, selected: c.chosen }))
       : undefined;
     drawScene(canvas, project, view, {
-      selectedIds, draft: stroke, draftClosed: nearClose(),
-      nodeMode, preview, previewStyle: panel === 'import' ? 'outline' : 'filled', images: imagesRef.current, showNumbers: 'selected',
+      selectedIds:tool==='brush'?[]:selectedIds, draft: brushMode==='shape'?shapeStroke(stroke):stroke, draftClosed: brushMode==='shape' && (!!brushValue.shape || nearClose()), draftStitch: brushMode==='stitch'?brushValue.stitch:undefined,
+      nodeMode, preview, previewStyle: panel === 'import' ? 'outline' : 'filled', images: imagesRef.current, showNumbers: tool==='select'?'selected':false,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project, view, selectedIds, stroke, nodeMode, candidates, imgVersion, redrawTick, panel]);
+  }, [project, view, selectedIds, stroke, nodeMode, candidates, imgVersion, redrawTick, panel, brushMode, brushValue, tool]);
 
   useEffect(() => {
     const stage = stageRef.current;
@@ -618,8 +643,22 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
   }
   const drawing = useRef(false);
   const strokeRef = useRef<Point[]>([]);
+  function shapeStroke(raw: Point[]): Point[] {
+    if (!brushValue.shape || raw.length<2) return raw;
+    const a=raw[0],b=raw[raw.length-1],bounds=pointBounds(brushValue.shape.polygons.flat());
+    const width=Math.abs(a.x-b.x),height=Math.abs(a.y-b.y);
+    return brushValue.shape.polygons[0].map(p=>({x:Math.min(a.x,b.x)+(p.x-bounds.x)/Math.max(1,bounds.width)*width,y:Math.min(a.y,b.y)+(p.y-bounds.y)/Math.max(1,bounds.height)*height}));
+  }
+  const cancelPointer = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    pointers.current.delete(e.pointerId); pinch.current=null;
+    drawing.current=false;strokeRef.current=[];setStroke([]);
+    const orig=drag.current?.orig || xform.current?.orig || nodeDrag.current?.orig;
+    if(orig)setProject(cur=>({...cur,...cloneDocument(orig)}));
+    drag.current=null;xform.current=null;nodeDrag.current=null;
+  };
 
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if(brushPopover){setBrushPopover(false);return;}
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     const rect = canvasRef.current!.getBoundingClientRect();
     pointers.current.set(e.pointerId, { x: e.clientX - rect.left, y: e.clientY - rect.top });
@@ -629,7 +668,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
       if (drag.current) { const origDoc = drag.current.orig; drag.current = null; setProject((cur) => ({ ...cur, ...cloneDocument(origDoc) })); }
       if (xform.current) { const xo = xform.current.orig; xform.current = null; setProject((cur) => ({ ...cur, ...cloneDocument(xo) })); }
       nodeDrag.current = null;
-      drawing.current = false;
+      drawing.current = false;strokeRef.current=[];setStroke([]);
       return;
     }
     if (!e.isPrimary) return;
@@ -645,23 +684,22 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
 
     if (tool === 'brush') {
       drawing.current = true;
-      if (!strokeRef.current.length) strokeRef.current = [w];
-      else strokeRef.current = [...strokeRef.current, w];
+      strokeRef.current = [w];
       setStroke([...strokeRef.current]);
       return;
     }
 
     if (tool === 'fill') {
-      const id = hitTest(w, project.pieces);
+      const id = hitTest(w, project.pieces.filter(p=>!p.stitch));
       if (!id) return;
       const target = project.pieces.find((p) => p.id === id)!;
       if (fillPick) { setActiveMaterialId(target.materialId); setFillPick(false); toast(`已吸取 ${target.name} 的布料`); return; }
       commit((doc) => {
         doc.pieces.forEach((p) => {
-          if (p.locked) return;
-          if (fillScope === 'single' && p.id === id) p.materialId = activeMaterialId;
-          if (fillScope === 'same' && p.materialId === target.materialId) p.materialId = activeMaterialId;
-          if (fillScope === 'all') p.materialId = activeMaterialId;
+          if (p.locked || p.stitch) return;
+          if (fillScope === 'single' && p.id === id) { p.materialId = activeMaterialId; if(p.paint)p.paint.fill='fabric'; }
+          if (fillScope === 'same' && p.materialId === target.materialId) { p.materialId = activeMaterialId; if(p.paint)p.paint.fill='fabric'; }
+          if (fillScope === 'all') { p.materialId = activeMaterialId; if(p.paint)p.paint.fill='fabric'; }
         });
       });
       setSelectedIds([id]);
@@ -716,12 +754,12 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
         nodeDrag.current = { pieceId: single.id, index: insAt, orig };
         return;
       }
-      const id = hitTest(w, project.pieces);
+      const id = hitTest(w, project.pieces, 9/currentMetrics().scale);
       if (id !== single.id) { setNodeMode(false); setNodeIndex(null); setSelectedIds(id ? [id] : []); }
       return;
     }
 
-    const id = hitTest(w, project.pieces);
+    const id = hitTest(w, project.pieces, 9/currentMetrics().scale);
     if (id) {
       const ids = selectedIds.includes(id) && selectedIds.length > 1 ? selectedIds : [id];
       setSelectedIds(ids);
@@ -826,17 +864,25 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
 
   /* ---------- 画笔：松手自动闭合生成 ---------- */
   const finishStroke = (raw: Point[]) => {
+    if (brushMode==='stitch') {
+      const points=simplifyPoints(raw,.25);
+      if(points.length<2 || pathLength(points)<2)return;
+      const piece={...makePiece(points,'',`${stitchNames[brushValue.stitch.kind]} ${project.pieces.filter(p=>p.stitch).length+1}`),stitch:{...brushValue.stitch}};
+      commit(doc=>{doc.pieces.push(piece);});setSelectedIds([piece.id]);return;
+    }
+    if (brushValue.shape) raw=shapeStroke(raw);
     if (raw.length < 3) return;
     // 闭合清理：画圈收尾常会越过起点一点点，截掉后半程绕回起点附近的点，避免闭合段与首段相交被误判自交
     let trimmed = raw;
-    for (let i = Math.floor(raw.length / 2); i < raw.length; i += 1) {
+    for (let i = brushValue.shape ? raw.length : Math.floor(raw.length / 2); i < raw.length; i += 1) {
       if (i >= 3 && Math.hypot(raw[i].x - raw[0].x, raw[i].y - raw[0].y) <= 4) { trimmed = raw.slice(0, i); break; }
     }
     const deduped = trimmed.filter((pt, i) => i === 0 || Math.hypot(pt.x - trimmed[i - 1].x, pt.y - trimmed[i - 1].y) > 0.5);
     const pts = simplifyPoints(deduped.length >= 3 ? deduped : trimmed, 0.3);
     const err = validatePiece(pts);
     if (err) { toast(err); return; }
-    const piece = makePiece(pts, activeMaterialId, `布片 ${project.pieces.length + 1}`);
+    const piece = makePiece(pts, activeMaterialId, `布片 ${project.pieces.filter(p=>!p.stitch).length + 1}`);
+    piece.paint={...brushValue.paint};
     if (project.technique === 'turned') piece.seamMm = 5;
     commit((doc) => { doc.pieces.push(piece); });
     setSelectedIds([piece.id]);
@@ -850,6 +896,25 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
     });
   };
   // 直接点击底部布料：有选中布片就立即填充；否则只切换画笔/填布工具当前布料。
+  const needsFabricFill = (p: Piece, materialId: string) =>
+    !p.locked && !p.stitch && (p.materialId !== materialId || Boolean(p.paint && p.paint.fill !== 'fabric'));
+  const fillSelectedPieces = (doc: PatchworkDocument, materialId: string) => {
+    const ids = new Set(selectedIds);
+    doc.pieces.forEach(p => {
+      if (!ids.has(p.id) || !needsFabricFill(p, materialId)) return;
+      p.materialId = materialId;
+      if (p.paint) p.paint.fill = 'fabric';
+    });
+  };
+  const selectMaterial = (materialId: string) => {
+    setActiveMaterialId(materialId);
+    const targets = selectedPieces.filter((p) => needsFabricFill(p, materialId));
+    if (!targets.length) return;
+    const ids = new Set(targets.map((p) => p.id));
+    commit((doc) => {
+      doc.pieces.forEach((p) => { if (ids.has(p.id)) {p.materialId = materialId;if(p.paint)p.paint.fill='fabric';} });
+    });
+  };
   const rotateSelected = (deg: number) => transformSelected((p) => ({ ...p, points: transformPoints(p.points, 'rotate', deg) }));
   const mirrorSelected = (axis: 'mirrorX' | 'mirrorY') => transformSelected((p) => ({ ...p, points: transformPoints(p.points, axis) }));
   const duplicateSelected = () => {
@@ -933,7 +998,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
     });
   };
   const mergeSelected = () => {
-    const targets = selectedPieces.filter((p) => !p.locked);
+    const targets = selectedPieces.filter((p) => !p.locked && !p.stitch);
     if (targets.length < 2) { toast('先选中至少两块未锁定布片'); return; }
     const merged = unionPolygons(targets.map((p) => p.points));
     if (!merged.length) { toast('合并失败：所选布片无法求并集'); return; }
@@ -951,6 +1016,8 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
   const deleteNode = () => {
     if (!single || nodeIndex == null) return;
     if (single.points.length <= 3) { toast('布片至少保留 3 个节点'); return; }
+    const issue = outlineIssue({ ...single, points: single.points.filter((_, i) => i !== nodeIndex) });
+    if (issue) { toast(issue + '；请先减小缝线距边'); return; }
     commit((doc) => {
       const p = doc.pieces.find((x) => x.id === single.id);
       if (p) p.points = p.points.filter((_, i) => i !== nodeIndex);
@@ -1021,7 +1088,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
     const pid = fabricPickerTarget === 'props' && single ? single.id : null;
     commit((doc) => {
       const already = doc.materials.find(m => matchesMaterialFabric(m, f));
-      if (already) { holder.mat = already; if (pid) { const piece = doc.pieces.find(p => p.id === pid); if (piece) piece.materialId = already.id; } return; }
+      if (already) { holder.mat = already; if (pid) { const piece = doc.pieces.find(p => p.id === pid); if (piece && needsFabricFill(piece, already.id)) {piece.materialId = already.id;if(piece.paint)piece.paint.fill='fabric';} } if(fabricPickerTarget === 'editor') fillSelectedPieces(doc, already.id); return; }
       // 编号按提交时的最新材料表计算，避免慢网络下连点两次生成同号材料
       const seq = nextMatSeq(doc.materials);
       const sampleW = f.sampleWidthMm && f.sampleWidthMm > 0 ? f.sampleWidthMm : f.widthMm && f.widthMm > 0 ? f.widthMm : undefined;
@@ -1039,8 +1106,9 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
       doc.materials.push(createdMat);
       if (pid) {
         const pc = doc.pieces.find((x) => x.id === pid);
-        if (pc) pc.materialId = createdMat.id;
+        if (pc) {pc.materialId = createdMat.id;if(pc.paint)pc.paint.fill='fabric';}
       }
+      if (fabricPickerTarget === 'editor') fillSelectedPieces(doc, createdMat.id);
     });
     if (!holder.mat) return;
     const pickedId = holder.mat.id;
@@ -1079,11 +1147,11 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
       replacedId = targetMat.id;
       if (scope === 'selected' && selectedIds.length > 0) {
         doc.pieces.forEach((pc) => {
-          if (selectedIds.includes(pc.id)) pc.materialId = targetMat.id;
+          if (selectedIds.includes(pc.id)) {pc.materialId = targetMat.id;if(pc.paint)pc.paint.fill='fabric';}
         });
       } else {
         doc.pieces.forEach((pc) => {
-          if (pc.materialId === sourceMaterialId) pc.materialId = targetMat.id;
+          if (pc.materialId === sourceMaterialId) {pc.materialId = targetMat.id;if(pc.paint)pc.paint.fill='fabric';}
         });
         if (doc.base.materialId === sourceMaterialId) doc.base.materialId = targetMat.id;
       }
@@ -1372,10 +1440,11 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
   const leave = () => { if (dirty) setPanel('leave'); else navigate('/'); };
 
   /* ---------- 布料选择与编辑（新版） ---------- */
-  const usageOf = (id: string) => project.pieces.filter((pc) => pc.materialId === id).length + (project.base.materialId === id ? 1 : 0);
+  const usageOf = (id: string) => project.pieces.filter((pc) => !pc.stitch && pc.materialId === id).length + (project.base.materialId === id ? 1 : 0);
   const closeFabrics = () => {
     if (savingFabricRef.current) return;
     setPanel(fabricPickerTarget === 'base' ? 'base' : fabricPickerTarget === 'props' ? 'props' : null);
+    if(fabricPickerTarget==='brush')setBrushSettings('shape');
     setMatDetailId(null);
     setMatDraft(null);
     setMatDeleting(false);
@@ -1386,20 +1455,21 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
     if (fabricPickerTarget === 'base') {
       setBaseForm((cur) => cur ? { ...cur, materialId: id } : cur);
     } else if (fabricPickerTarget === 'props') {
-      if (single && single.materialId !== id) {
+      if (single && needsFabricFill(single, id)) {
         const pid = single.id;
         commit((doc) => {
           const t = doc.pieces.find((x) => x.id === pid);
-          if (t) t.materialId = id;
+          if (t) {t.materialId = id;if(t.paint)t.paint.fill='fabric';}
         });
       }
       setActiveMaterialId(id);
+    } else if(fabricPickerTarget==='brush'){setActiveMaterialId(id);
     } else {
       setActiveMaterialId(id);
-      const targets = selectedPieces.filter((p) => !p.locked && p.materialId !== id);
+      const targets = selectedPieces.filter((p) => needsFabricFill(p, id));
       if (targets.length) {
         const ids = new Set(targets.map((p) => p.id));
-        commit((doc) => { doc.pieces.forEach((p) => { if (ids.has(p.id)) p.materialId = id; }); });
+        commit((doc) => { doc.pieces.forEach((p) => { if (ids.has(p.id)) {p.materialId = id;if(p.paint)p.paint.fill='fabric';} }); });
       }
     }
     closeFabrics();
@@ -1451,7 +1521,8 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
         calibrated: Boolean(payload.sampleWidthMm), texturePattern,
         ...(fabric ? { inventoryFabricId: fabric.id } : { projectOnly: true }),
       });
-      if (pid) { const pc = doc.pieces.find((p) => p.id === pid); if (pc) pc.materialId = id; }
+      if (pid) { const pc = doc.pieces.find((p) => p.id === pid); if (pc) {pc.materialId = id;if(pc.paint)pc.paint.fill='fabric';} }
+      if (fabricPickerTarget === 'editor') fillSelectedPieces(doc, id);
     });
     if (fabricPickerTarget === 'base') setBaseForm((cur) => cur ? { ...cur, materialId: holder.id! } : cur);
     else setActiveMaterialId(holder.id!);
@@ -1515,7 +1586,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
         if (t) { t.name = name; t.color = d.color; t.assetId = assetId; t.assetPath = assetPath; t.sampleWidthMm = sampleWidthMm; t.calibrated = calibrated; t.texturePattern = texturePattern; }
         if (pid) {
           const pc = doc.pieces.find((x) => x.id === pid);
-          if (pc) pc.materialId = m.id;
+          if (pc) {pc.materialId = m.id;if(pc.paint)pc.paint.fill='fabric';}
         }
       });
       if (!existing) {
@@ -1561,7 +1632,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
       confirmText: '删除', danger: true,
       onConfirm: () => {
         commit((doc) => {
-          doc.pieces.forEach((pc) => { if (pc.materialId === m.id) pc.materialId = matReplaceId; });
+          doc.pieces.forEach((pc) => { if (pc.materialId === m.id) {pc.materialId = matReplaceId;if(pc.paint)pc.paint.fill='fabric';} });
           if (doc.base.materialId === m.id) doc.base.materialId = matReplaceId;
           doc.materials = doc.materials.filter((x) => x.id !== m.id);
         });
@@ -1678,14 +1749,14 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
         doc.materials.push(createdMat);
         if (replaceCtx) {
           if (replaceCtx.scope === 'selected' && selectedIds.length > 0) {
-            doc.pieces.forEach((pc) => { if (selectedIds.includes(pc.id)) pc.materialId = createdMat.id; });
+            doc.pieces.forEach((pc) => { if (selectedIds.includes(pc.id)) {pc.materialId = createdMat.id;if(pc.paint)pc.paint.fill='fabric';} });
           } else {
-            doc.pieces.forEach((pc) => { if (pc.materialId === replaceCtx.sourceMatId) pc.materialId = createdMat.id; });
+            doc.pieces.forEach((pc) => { if (pc.materialId === replaceCtx.sourceMatId) {pc.materialId = createdMat.id;if(pc.paint)pc.paint.fill='fabric';} });
             if (doc.base.materialId === replaceCtx.sourceMatId) doc.base.materialId = createdMat.id;
           }
         } else if (pid) {
           const pc = doc.pieces.find((x) => x.id === pid);
-          if (pc) pc.materialId = createdMat.id;
+          if (pc) {pc.materialId = createdMat.id;if(pc.paint)pc.paint.fill='fabric';}
         }
       });
       if (!holder.mat) return;
@@ -1951,6 +2022,10 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
   const applyBase = () => {
     if (!baseForm) return;
     const sx = baseForm.w / project.widthMm, sy = baseForm.h / project.heightMm;
+    if (baseForm.scaleDesign) {
+      const issue = project.pieces.map(p => outlineIssue({ ...p, points: p.points.map(pt => ({ x: pt.x * sx, y: pt.y * sy })) })).find(Boolean);
+      if (issue) { toast(issue + '；请先减小缝线距边'); return; }
+    }
     let outCount = 0;
     commit((doc) => {
       doc.name = baseForm.name.trim() || doc.name;
@@ -2000,7 +2075,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
     if (!geoOrig.current || !single) return;
     const orig = geoOrig.current;
     geoOrig.current = null;
-    const err = validatePiece(single.points);
+    const err = validatePiece(single.points) || outlineIssue(single);
     if (err) {
       setProject((cur) => ({ ...cur, ...cloneDocument(orig) }));
       const op = (orig.pieces as Piece[]).find((p) => p.id === single.id);
@@ -2073,7 +2148,8 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
           ] as const).map((t) => (
             <button key={t.name} aria-label={t.label} className={tool === t.name ? 'active' : ''} onClick={() => {
               if (panel === 'import') cancelAnalysis();
-              setTool(t.name);
+              if(t.name==='brush'){setBrushPopover(v=>!v);setTool('brush');setPanel(null);setNodeMode(false);return;}
+              setBrushPopover(false);setTool(t.name);
               if (t.name === 'add') setPanel('add');
               else if (t.name === 'layers') setPanel('layers');
               else if (t.name === 'fill') setPanel(null);
@@ -2084,14 +2160,18 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
             onClick={confirmClearCanvas}><Trash2 /><span>清空</span></button>
         </aside>
 
+        {brushPopover&&<div className="pw-brush-popover" role="group" aria-label="选择画笔类型">
+          <button className={brushMode==='shape'?'active':''} onClick={()=>{setBrushMode('shape');setBrushPopover(false);setSelectedIds([]);}}><Shapes/>形状</button>
+          <button className={brushMode==='stitch'?'active':''} onClick={()=>{setBrushMode('stitch');setBrushPopover(false);setSelectedIds([]);}}><Pencil/>缝纫线</button>
+        </div>}
         <section className="patchwork-stage" ref={stageRef}>
           <canvas ref={canvasRef} aria-label="拼布编辑画布"
-            onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
+            onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={cancelPointer}
             onDoubleClick={(e) => {
               if (tool !== 'select') return;
               const id = hitTest(toWorld(e), project.pieces);
               const p = project.pieces.find((x) => x.id === id);
-              if (p && !p.locked) { setSelectedIds([p.id]); setNodeMode(true); setNodeIndex(null); }
+              if (p && !p.locked && !p.stitch) { setSelectedIds([p.id]); setNodeMode(true); setNodeIndex(null); }
             }} />
           <div className="patchwork-zoom">
             <button aria-label="缩小" onClick={() => setView((v) => ({ ...v, zoom: clamp(v.zoom - 0.15, 0.2, 6) }))}>−</button>
@@ -2102,7 +2182,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
 
           {tool === 'brush' && (
             <div className="patchwork-hintpill pw-brushpill">
-              <span>在画布上画一圈，松手自动生成布片</span>
+              <span>{brushMode==='shape'?`形状 · ${brushShapeName(brushValue.shape)}`:`缝纫线 · ${stitchNames[brushValue.stitch.kind]}`}</span>
             </div>
           )}
           {tool === 'fill' && (
@@ -2135,19 +2215,35 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
             }
             return (
               <div className="patchwork-floating patchwork-selbar" style={posStyle}>
-                {single && <button aria-label="节点编辑" onClick={() => { if (!single.locked) { setNodeMode(true); setNodeIndex(null); } }}><Pencil /><span>节点</span></button>}
+                {single && !single.stitch && <button aria-label="节点编辑" onClick={() => { if (!single.locked) { setNodeMode(true); setNodeIndex(null); } }}><Pencil /><span>节点</span></button>}
                 <button aria-label="旋转90度" onClick={() => rotateSelected(90)}><RotateCw /><span>旋转</span></button>
                 <button aria-label="水平镜像" onClick={() => mirrorSelected('mirrorX')}><FlipHorizontal2 /><span>镜像</span></button>
                 <button aria-label="复制" onClick={duplicateSelected}><Copy /><span>复制</span></button>
                 <button aria-label="删除" onClick={deleteSelected}><Trash2 /><span>删除</span></button>
-                {single && <button aria-label="属性" onClick={() => setPanel('props')}><SlidersHorizontal /><span>属性</span></button>}
+                {single && <button aria-label="属性" onClick={() => {if(single.stitch){setEditStitchId(single.id);setBrushSettings('stitch');}else setPanel('props');}}><SlidersHorizontal /><span>属性</span></button>}
               </div>
             );
           })()}
         </section>
       </div>
 
-      <footer className="patchwork-materials">
+      {tool==='brush'&&<BrushQuickBar mode={brushMode} shape={brushValue.shape} stitch={brushValue.stitch}
+        onShape={shape=>{setBrushPopover(false);setBrushValue(v=>({...v,shape}));}}
+        onStitch={stitch=>{setBrushPopover(false);setBrushValue(v=>({...v,stitch}));}}
+        onMore={()=>{setBrushPopover(false);setEditStitchId(null);setBrushSettings(brushMode);}}/>}
+      {brushSettings&&<BrushSettingsDialog kind={brushSettings} material={project.materials.find(m=>m.id===activeMaterialId)}
+        initial={{...brushValue,stitch:project.pieces.find(p=>p.id===editStitchId)?.stitch||brushValue.stitch,outline:brushSettings==='outline'?single?.outlineStitch||null:brushValue.outline}}
+        onClose={()=>{if(brushSettings==='outline')setPanel('props');setBrushSettings(null);setEditStitchId(null);}}
+        onFabric={v=>{setBrushValue(v);setBrushSettings(null);openFabricPicker('brush');}}
+        onDone={v=>{
+          if(brushSettings==='outline'&&single){
+            if(v.outline)outlinePoints(single.points,v.outline.insetMm);
+            const id=single.id;commit(doc=>{const p=doc.pieces.find(p=>p.id===id);if(p&&!p.locked)p.outlineStitch=v.outline||undefined;});
+          }else if(editStitchId){const id=editStitchId;commit(doc=>{const p=doc.pieces.find(p=>p.id===id);if(p&&!p.locked)p.stitch={...v.stitch};});}
+          else setBrushValue(v);
+          if(brushSettings==='outline')setPanel('props');setBrushSettings(null);setEditStitchId(null);
+        }}/>}
+      {tool === 'fill' && (<footer className="patchwork-materials">
         <button className="pw-fab-open" aria-label="打开布料列表" onClick={() => openFabricPicker('editor')}>
           <span className="pw-fab-open-thumb"><Palette /></span>
           <span className="pw-label">布料</span>
@@ -2156,13 +2252,13 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
         {project.materials.filter((m) => usageOf(m.id) > 0 || m.id === activeMaterialId).map((m) => (
           <button key={m.id} className={`pw-material-item${activeMaterialId === m.id ? ' selected' : ''}`} aria-pressed={activeMaterialId === m.id}
             aria-label={`布料 ${m.id} ${m.name}`} title={`${m.id} · ${m.name}${m.assetId && !m.calibrated ? '（未校准，仅效果参考）' : ''}`}
-            onClick={() => openFabricPicker('editor')}
+            onClick={() => selectMaterial(m.id)}
             onContextMenu={(e) => { e.preventDefault(); setFabEdit(true); openMatDetail(m.id); setPanel('fabrics'); }}>
             <MatSwatch m={m} />
           </button>
         ))}
         </div>
-      </footer>
+      </footer>)}
 
       {stockFabric && <FabricStockDialog key={stockFabric.id} fabric={stockFabric} onClose={() => setStockFabric(null)} onSave={async stock => {
         const t = tokenRef.current;
@@ -2446,7 +2542,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
                   <button className={fillScope === 'all' ? 'on' : ''} onClick={() => setFillScope('all')}>全部布片</button>
                 </div>
                 <button className={`patchwork-chip ${fillPick ? 'on' : ''}`} onClick={() => setFillPick((v) => !v)}>吸取：点画布上的布片取它的布料</button>
-                <p className="patchwork-hint">当前布料：{activeMaterialId}。点底部色板打开布料选择器，选中布片时在选择器里点布料即替换；这里的范围设置仅作用于填布工具点击画布时。</p>
+                <p className="patchwork-hint">当前布料：{activeMaterialId}。点底部已用布料直接切换并替换选中布片，更多布料点「布料」按钮打开选择器；这里的范围设置仅作用于填布工具点击画布时。</p>
                 {single && !single.locked && (
                   <>
                     <h4>纹理变换 · {single.name}（只改布纹，不改轮廓）</h4>
@@ -2478,7 +2574,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
                       <input type="checkbox" aria-label={`多选 ${p.name}`} checked={selectedIds.includes(p.id)}
                         onChange={() => setSelectedIds((ids) => (ids.includes(p.id) ? ids.filter((x) => x !== p.id) : [...ids, p.id]))} />
                       <PieceThumb p={p} mat={project.materials.find((m) => m.id === p.materialId)} />
-                      <button className="patchwork-layer-name" onClick={() => { setSelectedIds([p.id]); setTool('select'); }}><b>P{i + 1}</b> {p.name}{p.groupId ? ' · 组' : ''}</button>
+                      <button className="patchwork-layer-name" onClick={() => { setSelectedIds([p.id]); setTool('select'); }}><b>{pieceLabel(project.pieces,p)}</b> {p.name}{p.groupId ? ' · 组' : ''}</button>
                       <button aria-label="上移图层" onClick={() => commit((doc) => { const i = doc.pieces.findIndex((x) => x.id === p.id); if (i < doc.pieces.length - 1) { const [it] = doc.pieces.splice(i, 1); doc.pieces.splice(i + 1, 0, it); } })}><ChevronUp /></button>
                       <button aria-label="下移图层" onClick={() => commit((doc) => { const i = doc.pieces.findIndex((x) => x.id === p.id); if (i > 0) { const [it] = doc.pieces.splice(i, 1); doc.pieces.splice(i - 1, 0, it); } })}><ChevronDown /></button>
                       <button aria-label="显隐" onClick={() => commit((doc) => { const t = doc.pieces.find((x) => x.id === p.id); if (t) t.visible = !t.visible; })}>{p.visible ? <Eye /> : <EyeOff />}</button>
@@ -2963,6 +3059,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
                       <ChevronRight aria-hidden="true" />
                     </button>
                   </div>
+                  <div className="pw-span2"><button className="pw-brush-fabric" aria-label="设置布片周边缝线" onClick={()=>{flushPropsEdits();setPanel(null);setEditStitchId(null);setBrushSettings('outline');}}><Pencil/><strong>周边缝线 · {single.outlineStitch?stitchNames[single.outlineStitch.kind]:'未设置'}</strong><ChevronRight/></button></div>
                   <label>
                     <span>X (mm)</span>
                     <input type="number" step="0.5" value={geo.x} onChange={(e) => geoChange({ x: Number(e.target.value) || 0 })} onBlur={geoCommit} />

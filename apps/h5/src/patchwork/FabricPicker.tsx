@@ -1,7 +1,7 @@
 import { CompositionSafeInput } from '../shared/CompositionSafeInput';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Ban, Check, Pencil, Plus, Search, X } from 'lucide-react';
-import { unifiedFabrics, matchesMaterialFabric } from '../fabrics/fabricCatalog';
+import { unifiedFabrics, matchesMaterialFabric, presetAssetUrl } from '../fabrics/fabricCatalog';
 import type { Material } from './model';
 import { getAsset } from './assets';
 import { fabricBadgeInfo, fabricSpecLabel, type FabricItem } from './fabricInventory';
@@ -32,6 +32,10 @@ export function MatSwatch({ m }: { m: Material }) {
     };
   }, [m.assetId, tick]);
   if (url) return <span className="pw-swatch"><img src={url} alt="" /></span>;
+  // 目录预设布只有 assetPath、本地素材库里没有 blob，必须像画布一样走 presetAssetUrl，
+  // 否则浅色预设布只剩白底加白色「布」字，看上去像白色占位。
+  const presetUrl = m.assetId ? presetAssetUrl(m.assetId) : undefined;
+  if (presetUrl) return <span className="pw-swatch"><img src={presetUrl} alt="" /></span>;
   return <span className="pw-swatch" style={{ background: m.color }}>{m.assetId ? '布' : ''}</span>;
 }
 

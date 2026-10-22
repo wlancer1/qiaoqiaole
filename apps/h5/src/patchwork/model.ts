@@ -1,4 +1,5 @@
 import { newPatchworkId } from './ids';
+import type { StitchStyle, OutlineStitch, ShapePaint } from './stitches';
 
 /** 拼布的所有几何数据以毫米为单位，和拼豆格子完全独立。 */
 export type Point = { x: number; y: number };
@@ -30,7 +31,7 @@ export type Material = {
   calibrated?: boolean;
   texturePattern?: 'linen' | 'check' | 'stripe' | 'dot';
 };
-export type Piece = { id: string; name: string; points: Point[]; materialId: string; locked: boolean; visible: boolean; groupId?: string; seamMm: number; texture: TextureTransform };
+export type Piece = { stitch?: StitchStyle; outlineStitch?: OutlineStitch; paint?: ShapePaint; id: string; name: string; points: Point[]; materialId: string; locked: boolean; visible: boolean; groupId?: string; seamMm: number; texture: TextureTransform };
 export type Guide = { id: string; points: Point[]; visible: boolean };
 export type Reference = { assetId: string; assetPath?: string; opacity: number; x: number; y: number; width: number; height: number };
 export type PatchworkProject = { schemaVersion: 1; id: string; kind: 'patchwork'; name: string; revision: number; technique: Technique; widthMm: number; heightMm: number; base: { materialId: string; locked: boolean; includeInCutList: boolean }; materials: Material[]; pieces: Piece[]; guides: Guide[]; reference?: Reference; coverAssetId?: string };
@@ -90,9 +91,24 @@ export function pointInPolygon(p: Point, points: Point[]) {
   }
   return inside;
 }
-export function hitTest(p: Point, pieces: Piece[]) {
+/** Sewing layers have their own sequence, so P numbers still match the cutting list. */
+export function pieceLabel(pieces: Piece[], piece: Piece): string {
+  const sequence = pieces.filter(p => Boolean(p.stitch) === Boolean(piece.stitch));
+  return `${piece.stitch ? 'S' : 'P'}${sequence.findIndex(p => p.id === piece.id) + 1}`;
+}
+export function distanceToPath(p: Point, points: Point[]) {
+  let best = Infinity;
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1], b = points[i], dx = b.x - a.x, dy = b.y - a.y;
+    const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy || 1)));
+    best = Math.min(best, Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy));
+  }
+  return best;
+}
+export function hitTest(p: Point, pieces: Piece[], tolerance = 5) {
   for (let i = pieces.length - 1; i >= 0; i--) {
     const piece = pieces[i]; if (!piece.visible || piece.locked) continue;
+    if (piece.stitch) { if (distanceToPath(p, piece.points) <= tolerance) return piece.id; continue; }
     const b = pointBounds(piece.points);
     if (p.x >= b.x && p.x <= b.x + b.width && p.y >= b.y && p.y <= b.y + b.height && pointInPolygon(p, piece.points)) return piece.id;
   }
@@ -269,11 +285,12 @@ export function isConcave(points: Point[]) {
 export function exportIssues(project: PatchworkProject) {
   const issues: string[] = [];
   for (const piece of project.pieces) {
+    if (piece.stitch) continue;
     const issue = validatePiece(piece.points);
     if (issue) issues.push(`${piece.name}：${issue}`);
     if (project.technique === 'turned' && piece.seamMm > 0 && isConcave(piece.points)) issues.push(`${piece.name}：复杂凹角尚未验证折边偏移，禁止原尺寸导出`);
     if (project.technique === 'pieced' && piece.points.length > 6) issues.push(`${piece.name}：拼接工艺仅支持已验证的规则直线布片`);
   }
-  if (project.technique === 'pieced' && project.pieces.length > 0) issues.push('拼接模式的空隙、重叠与缝边匹配尚未校验，暂不可导出原尺寸纸样');
+  if (project.technique === 'pieced' && project.pieces.some(p => !p.stitch)) issues.push('拼接模式的空隙、重叠与缝边匹配尚未校验，暂不可导出原尺寸纸样');
   return issues;
 }

@@ -1,0 +1,59 @@
+/* The drawing tools keep a single compact row, leaving the canvas available. */
+.pw-brush-quickbar{display:flex;align-items:center;gap:.22rem;padding:.22rem .38rem calc(.22rem + env(safe-area-inset-bottom));background:#fff;box-shadow:0 -.12rem .5rem #1f3a5408;flex-shrink:0;color:#52687d;min-height:1.8rem;box-sizing:border-box}
+.pw-brush-quickbar button{background:transparent;color:inherit;font-size:.31rem;display:flex;align-items:center;justify-content:center;gap:.12rem;flex-direction:column;border-radius:.3rem;min-height:1.35rem;padding:.12rem .18rem;flex-shrink:0}
+.pw-brush-quickbar button.active{color:#208edc;background:#e8f4ff}
+.pw-brush-quickbar svg{width:.65rem;height:.65rem;flex-shrink:0}
+.pw-shape-quick-items{display:flex;flex:1;gap:.1rem;min-width:0;overflow-x:auto;scrollbar-width:none}
+.pw-shape-quick-items button{flex:1;min-width:1.18rem}
+.pw-free-shape{border:1px solid #e3eaf1!important;min-width:1.55rem}
+.pw-brush-more{margin-left:auto;min-width:1.25rem}
+.pw-stitch-kind{position:relative;border:1px solid #dce7f0;border-radius:.38rem;background:#f5f9fc;display:flex;align-items:center;flex-shrink:0}
+.pw-stitch-kind select{appearance:none;border:0;background:transparent;color:#344c62;font-size:.4rem;padding:.32rem .85rem .32rem .35rem;width:3rem;font-weight:600}
+.pw-stitch-kind>svg{position:absolute;right:.25rem;width:.4rem;height:.4rem;pointer-events:none}
+.pw-thread-quick-colors{display:flex;align-items:center;justify-content:space-around;gap:.12rem;flex:1;min-width:0}
+.pw-thread-color,.pw-brush-quickbar .pw-thread-color{width:.87rem;height:.87rem;min-height:0;padding:0;border-radius:50%;border:1px solid #b5b7b943;box-shadow:inset 0 0 0 2px #ffffff70;flex-shrink:0}
+.pw-thread-color.active{outline:2px solid #208edc;outline-offset:3px}
+.pw-brush-popover{position:absolute;left:2.35rem;top:2.1rem;z-index:7;display:flex;gap:.16rem;background:#fff;border:1px solid #dce7f0;border-radius:.42rem;box-shadow:0 .18rem .65rem #294d7130;padding:.22rem}
+.pw-brush-popover:before{content:'';position:absolute;left:-.17rem;top:.48rem;width:.3rem;height:.3rem;transform:rotate(45deg);background:#fff;border-left:1px solid #dce7f0;border-bottom:1px solid #dce7f0}
+.pw-brush-popover button{display:flex;align-items:center;gap:.2rem;white-space:nowrap;background:#f5f9fc;color:#52687d;padding:.32rem .4rem;border-radius:.25rem;font-size:.4rem}
+.pw-brush-popover button.active{background:#e8f4ff;color:#208edc}
+.pw-brush-popover svg{width:.55rem;height:.55rem}
+.patchwork-hintpill.pw-brushpill{top:.4rem;bottom:auto;font-size:.34rem;padding:.22rem .45rem;color:#637b91;pointer-events:none;white-space:nowrap}
+.pw-brush-backdrop{position:fixed;inset:0;z-index:150;display:flex;justify-content:center;align-items:flex-end;background:#182d493b;touch-action:none;padding:0 max(.38rem,env(safe-area-inset-right)) max(.38rem,env(safe-area-inset-bottom));box-sizing:border-box;font-family:PingFangSC,-apple-system,sans-serif;color:#22384c}
+.pw-brush-sheet{width:12.127rem;max-width:100%;max-height:calc(100dvh - max(.76rem,env(safe-area-inset-top)));display:flex;flex-direction:column;border-radius:.6984rem;background:#fff;box-shadow:0 .3rem 1.5rem #12283e25;overflow:hidden;outline:none;touch-action:pan-y}
+.pw-brush-sheet>header{display:flex;align-items:center;justify-content:space-between;padding:.52rem .6rem .35rem;font-size:.52rem;flex-shrink:0}
+.pw-brush-sheet>header button{background:transparent;color:#64758a;padding:.1rem;display:grid;place-items:center}
+.pw-brush-sheet>header svg{width:.62rem;height:.62rem}
+.pw-brush-sheet-body{overflow-y:auto;padding:0 .6rem;overscroll-behavior:contain;min-height:0;font-size:.4rem;scrollbar-width:thin}
+.pw-brush-sheet section{padding:.4rem 0;border-top:1px solid #eef1f5}
+.pw-brush-sheet h3{font-size:.42rem;margin:0 0 .32rem;font-weight:600}
+.pw-brush-shape-types{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:.12rem;margin:.1rem 0 .45rem}
+.pw-brush-shape-types button,.pw-brush-shape-library button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.2rem;padding:.2rem .02rem;background:transparent;color:#718397;border-radius:.3rem;font-size:.29rem}
+.pw-brush-shape-types svg{width:.8rem;height:.8rem}
+.pw-brush-shape-types button.active,.pw-brush-shape-library button.active{color:#208edc;background:#eaf5ff}
+.pw-brush-shape-library{max-height:6rem;overflow-y:auto;border:1px solid #eef1f5;border-radius:.35rem;margin-bottom:.35rem;overscroll-behavior:contain}
+.pw-brush-shape-library>div{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));padding:.2rem;gap:.15rem}
+.pw-brush-shape-library svg{width:1rem;height:1rem}
+.pw-brush-shape-library .pw-brush-load{width:100%;font-size:.33rem;padding:.3rem}
+.pw-brush-segments{display:flex;background:#f1f5fa;padding:.1rem;border-radius:.38rem;gap:.1rem}
+.pw-brush-segments button{flex:1;border-radius:.28rem;padding:.3rem .1rem;font-size:.4rem;color:#7d8fa1;background:transparent}
+.pw-brush-segments button.active{color:#208edc;background:#fff;box-shadow:0 .05rem .18rem #456b8c15;font-weight:600}
+.pw-thread-palette{display:flex;align-items:center;justify-content:space-between;gap:.25rem;padding:.35rem .15rem .12rem}
+.pw-custom-color{position:relative;width:.9rem;height:.9rem;overflow:hidden;border-radius:50%;border:1px solid #dce5ef;display:grid;place-items:center;color:#8398ab;font-size:.6rem}
+.pw-custom-color input{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer}
+.pw-brush-fabric{display:flex;align-items:center;gap:.35rem;width:100%;padding:.3rem .38rem;margin-top:.3rem;border:1px solid #e6edf4;border-radius:.35rem;background:#fbfcfe;color:#4f647b;font-size:.4rem}
+.pw-brush-fabric>span{width:.9rem;height:.9rem;border-radius:.2rem}.pw-brush-fabric strong{flex:1;text-align:left;font-weight:500}.pw-brush-fabric svg{width:.45rem;height:.45rem}
+.pw-brush-switch{display:flex;align-items:center;justify-content:space-between;font-weight:600;padding:.1rem 0}
+.pw-brush-switch input{appearance:none;width:1.2rem;height:.7rem;background:#d6e2ed;border-radius:99px;position:relative;flex-shrink:0}
+.pw-brush-switch input:before{content:'';position:absolute;left:.08rem;top:.08rem;width:.54rem;height:.54rem;border-radius:50%;background:#fff;box-shadow:0 .02rem .1rem #395b7130;transition:transform .15s}
+.pw-brush-switch input:checked{background:#208edc}.pw-brush-switch input:checked:before{transform:translateX(.5rem)}
+.pw-brush-link{background:none;color:#7a91a8;font-size:.34rem;margin-top:.25rem;display:flex;align-items:center;gap:.15rem}.pw-brush-link svg{width:.4rem;height:.4rem}
+.pw-stitch-types{display:flex;gap:.25rem;margin:.2rem 0 .4rem}.pw-stitch-types button{flex:1;min-width:0;background:#f7f9fc;color:#718296;border:1px solid #e7edf4;border-radius:.35rem;display:flex;flex-direction:column;align-items:center;padding:.3rem .15rem;font-size:.4rem;gap:.12rem}.pw-stitch-types button.active{color:#208edc;background:#edf7ff;border-color:#73baed}.pw-stitch-types svg{width:100%;height:.7rem}
+.pw-brush-range{display:flex;align-items:center;flex-wrap:wrap;gap:.3rem;margin:.3rem 0 .5rem;font-size:.4rem}.pw-brush-range output{margin-left:auto;color:#8b9eb0;font-size:.35rem}.pw-brush-range input{width:100%;accent-color:#208edc;margin:0;min-height:.5rem}
+.pw-stitch-preview{border-radius:.4rem;background:#f1e5d0;box-shadow:inset 0 0 0 1px #ddceb9;padding:.3rem .7rem;margin-bottom:.2rem}.pw-stitch-preview svg{width:100%;height:.9rem;display:block}
+.pw-brush-sheet .pw-brush-done{background:#208edc;color:#fff;border-radius:.4rem;padding:.35rem;margin:.3rem .6rem .5rem;font-size:.42rem;font-weight:600;flex-shrink:0}.pw-brush-error{color:#b65050;font-size:.34rem}
+@media(max-width:350px){.pw-thread-color,.pw-brush-quickbar .pw-thread-color{width:.75rem;height:.75rem}.pw-brush-quickbar{gap:.15rem;padding-left:.25rem;padding-right:.25rem}.pw-stitch-kind select{width:2.7rem}.pw-thread-quick-colors{gap:.1rem}}
+
+.patchwork-hintpill.pw-brushpill{background:#fff;color:#637b91;box-shadow:0 .1rem .35rem #1f3a5415;border:1px solid #e2eaf2}
+.pw-brush-quickbar{border-radius:.55rem .55rem 0 0}
+.pw-brush-quickbar .pw-shape-quick-items button.active{box-shadow:inset 0 0 0 1px #208edc}

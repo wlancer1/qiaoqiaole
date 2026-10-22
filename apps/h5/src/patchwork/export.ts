@@ -1,7 +1,7 @@
 import { area, exportIssues, pointBounds, type PatchworkProject, type Piece, type Point } from './model';
 
 export function cutList(project: PatchworkProject, includeHidden = true) {
-  return project.pieces.filter((p) => includeHidden || p.visible).map((p, index) => ({
+  return project.pieces.filter((p) => !p.stitch && (includeHidden || p.visible)).map((p, index) => ({
     index: index + 1, id: p.id, name: p.name, materialId: p.materialId, bounds: pointBounds(p.points), areaMm2: area(p.points), seamMm: p.seamMm,
   }));
 }
@@ -23,7 +23,7 @@ export function outwardOffset(points: Point[], mm: number): Point[] {
 export function planIssues(project: PatchworkProject) {
   const issues = exportIssues(project);
   if (project.technique === 'turned') for (const p of project.pieces) {
-    try { if(p.seamMm>0) outwardOffset(p.points,p.seamMm); } catch {issues.push(`${p.name}：缝份外扩失败`);}
+    try { if(!p.stitch && p.seamMm>0) outwardOffset(p.points,p.seamMm); } catch {issues.push(`${p.name}：缝份外扩失败`);}
   }
   return issues;
 }
@@ -39,7 +39,7 @@ function pdfPages(project: PatchworkProject, paper: 'A4'|'Letter', includeHidden
   const cols=Math.max(1,Math.ceil(Math.max(0,project.widthMm-availableW)/strideX)+1);
   const rows=Math.max(1,Math.ceil(Math.max(0,project.heightMm-availableH)/strideY)+1);
   const paperW=pt(pageWidthMm),paperH=pt(pageHeightMm);
-  const selected=project.pieces.filter((p)=>includeHidden||p.visible);
+  const selected=project.pieces.filter((p)=>!p.stitch && (includeHidden||p.visible));
   const materials=new Map(project.materials.map((m)=>[m.id,m]));
   const pages:string[]=[];
   // 总览：整张图缩放仅用于定位；不将这一页当作原尺寸纸样。
@@ -51,7 +51,7 @@ function pdfPages(project: PatchworkProject, paper: 'A4'|'Letter', includeHidden
   cover+=`0.92 0.88 0.82 rg ${fmt(pt(15))} ${fmt(pt(pageHeightMm-48-project.heightMm*overviewScale))} ${fmt(pt(project.widthMm*overviewScale))} ${fmt(pt(project.heightMm*overviewScale))} re f\n`;
   for(const piece of selected) {
     const material=materials.get(piece.materialId);
-    cover+=`${rgb(material?.color||'#cccccc')} rg 0.35 w\n`+line(piece.points.map((p)=>({x:p.x*overviewScale,y:p.y*overviewScale})),15,48,pageHeightMm)+'f\n';
+    if(piece.paint?.fill!=='none') cover+=`${rgb(piece.paint?.fill==='solid'?piece.paint.color:material?.color||'#cccccc')} rg 0.35 w\n`+line(piece.points.map((p)=>({x:p.x*overviewScale,y:p.y*overviewScale})),15,48,pageHeightMm)+'f\n';
     cover+=`0.22 0.22 0.22 RG\n`+line(piece.points.map((p)=>({x:p.x*overviewScale,y:p.y*overviewScale})),15,48,pageHeightMm)+'S\n';
   }
   const list=cutList(project,includeHidden);
@@ -72,9 +72,9 @@ function pdfPages(project: PatchworkProject, paper: 'A4'|'Letter', includeHidden
     content+=`q ${fmt(pt(margin))} ${fmt(pt(pageHeightMm-headerMm-availableH))} ${fmt(pt(availableW))} ${fmt(pt(availableH))} re W n\n`;
     // translate world board origin to page at (margin - originX, headerMm - originY)
     for(const piece of selected) {
-      const color=rgb(materials.get(piece.materialId)?.color||'#ccc');
+      const color=rgb(piece.paint?.fill==='solid'?piece.paint.color:materials.get(piece.materialId)?.color||'#ccc');
       const outline=project.technique==='turned'?outwardOffset(piece.points,piece.seamMm):piece.points;
-      content+=`${color} rg 0.25 0.25 0.25 RG 0.6 w\n`+line(outline,margin-originX,headerMm-originY,pageHeightMm)+'B\n';
+      content+=`${color} rg 0.25 0.25 0.25 RG 0.6 w\n`+line(outline,margin-originX,headerMm-originY,pageHeightMm)+(piece.paint?.fill==='none'?'S\n':'B\n');
     }
     content+='Q\n';
     // Crosshair registration marks around print area

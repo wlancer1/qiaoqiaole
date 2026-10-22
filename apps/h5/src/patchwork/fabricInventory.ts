@@ -228,6 +228,7 @@ export function computeProjectMaterialRequirements(
   };
 
   for (const piece of project.pieces) {
+    if (piece.stitch) continue;
     if (!includeHidden && !piece.visible) continue;
     const bucket = ensureBucket(piece.materialId);
     bucket.pieceIds.push(piece.id);

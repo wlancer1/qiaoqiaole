@@ -10,6 +10,7 @@ export const appOverlaySlotNames = [
   'folder',
   'projectAction',
   'patchworkCreate',
+  'patchworkBrush',
   'inventory',
   'warehouse',
   'loading',
