@@ -27,6 +27,19 @@ afterEach(()=>{if(renderer)act(()=>renderer.unmount());vi.unstubAllGlobals();});
 async function mount(props: Parameters<typeof PatchworkPage>[0] = {}, fresh = false){await act(async()=>{renderer=create(<Provider store={createH5Store()}><MemoryRouter initialEntries={fresh?[{pathname:"/patchwork",state:{fresh:true,widthMm:400,heightMm:400}}]:undefined}><AppOverlayProvider><AppOverlayHost/><PatchworkPage {...props}/></AppOverlayProvider></MemoryRouter></Provider>,{createNodeMock:e=>e.type==='canvas'?{getBoundingClientRect:()=>({left:0,top:0,width:360,height:480})}:null});});}
 function draw(){act(()=>canvas().props.onPointerDown(event(100,150)));act(()=>canvas().props.onPointerMove(event(220,270)));act(()=>canvas().props.onPointerUp(event(220,270)));}
 describe('compact brush workflow',()=>{
+
+ it('keeps no-base selection explicit in settings and removes the fake base layer',async()=>{
+  await mount();act(()=>button('作品尺寸').props.onClick());act(()=>button('选择底布布料').props.onClick());
+  act(()=>renderer.root.findByType(FabricPicker).props.onSelect(''));
+  const toggle=renderer.root.findByProps({'aria-label':'底布参与制作（计入裁片清单）'});
+  expect(toggle.props.disabled).toBe(true);expect(toggle.props.checked).toBe(false);
+  act(()=>button('应用设置').props.onClick());
+  expect(state.project!.base).toMatchObject({materialId:'',includeInCutList:false});
+  act(()=>button('图层').props.onClick());
+  expect(renderer.root.findAllByProps({className:'patchwork-baseline'})).toHaveLength(0);
+  act(()=>button('作品尺寸').props.onClick());
+  expect(button('选择底布布料').findAllByType('small').map(n=>n.children.join(''))).toContain('无底布');
+ });
  it('shows no fill swatches on a blank canvas without a base fabric',async()=>{
   await mount({},true);act(()=>button('填布').props.onClick());
   expect(renderer.root.findAllByType('button').filter(b=>String(b.props['aria-label']||'').startsWith('布料 '))).toHaveLength(0);

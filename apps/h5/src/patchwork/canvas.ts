@@ -33,9 +33,20 @@ export function drawScene(canvas:HTMLCanvasElement,project:PatchworkProject,view
     for(let x=11;x<w+22;x+=22)for(let y=11;y<h+22;y+=22){ctx.beginPath();ctx.moveTo(x-3,y);ctx.lineTo(x+3,y);ctx.moveTo(x,y-3);ctx.lineTo(x,y+3);ctx.stroke();}
     ctx.restore();
   }
-  ctx.save();ctx.shadowColor='rgba(37,47,60,.12)';ctx.shadowBlur=opts.clean?0:20;ctx.fillStyle=project.materials.find((a)=>a.id===project.base.materialId)?.color||'#f2e6d2';ctx.fillRect(ox,oy,bw,bh);ctx.restore();
-  ctx.save();ctx.beginPath();ctx.rect(ox,oy,bw,bh);ctx.clip();
   const base=project.materials.find((a)=>a.id===project.base.materialId);
+  if(base || !opts.clean) {
+    ctx.save();ctx.shadowColor='rgba(37,47,60,.12)';ctx.shadowBlur=opts.clean?0:20;ctx.fillStyle=base?.color||'#ffffff';ctx.fillRect(ox,oy,bw,bh);ctx.restore();
+  }
+  ctx.save();ctx.beginPath();ctx.rect(ox,oy,bw,bh);ctx.clip();
+  if(!base && !opts.clean) {
+    // Transparency is an editor affordance; clean PNG renders keep these pixels transparent.
+    const tile=12;
+    const startX=Math.max(0,Math.floor(-ox/tile)),startY=Math.max(0,Math.floor(-oy/tile));
+    ctx.fillStyle='#edf0f3';
+    for(let x=startX;x*tile<bw && ox+x*tile<w;x++)for(let y=startY;y*tile<bh && oy+y*tile<h;y++){
+      if((x+y)%2===0)ctx.fillRect(ox+x*tile,oy+y*tile,tile,tile);
+    }
+  }
   if(base?.assetId && opts.images.has(base.assetId)) {
     const image=opts.images.get(base.assetId)!;
     const pattern = ctx.createPattern(image, 'repeat');

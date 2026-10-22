@@ -48,14 +48,15 @@ function pdfPages(project: PatchworkProject, paper: 'A4'|'Letter', includeHidden
   let cover=`BT /F1 17 Tf ${fmt(pt(15))} ${fmt(paperH-pt(20))} Td (PATCHWORK PATTERN / OVERVIEW) Tj ET\n`;
   cover+=`BT /F1 10 Tf ${fmt(pt(15))} ${fmt(paperH-pt(30))} Td (${pdfText(project.name)} - ${project.widthMm} x ${project.heightMm} mm) Tj ET\n`;
   cover+=`BT /F1 9 Tf ${fmt(pt(15))} ${fmt(paperH-pt(38))} Td (Overview not to scale. Print pattern sheets at ACTUAL SIZE / 100%.) Tj ET\n`;
-  cover+=`0.92 0.88 0.82 rg ${fmt(pt(15))} ${fmt(pt(pageHeightMm-48-project.heightMm*overviewScale))} ${fmt(pt(project.widthMm*overviewScale))} ${fmt(pt(project.heightMm*overviewScale))} re f\n`;
+  const base=materials.get(project.base.materialId);
+  if(base) cover+=`${rgb(base.color)} rg ${fmt(pt(15))} ${fmt(pt(pageHeightMm-48-project.heightMm*overviewScale))} ${fmt(pt(project.widthMm*overviewScale))} ${fmt(pt(project.heightMm*overviewScale))} re f\n`;
   for(const piece of selected) {
     const material=materials.get(piece.materialId);
     if(piece.paint?.fill!=='none') cover+=`${rgb(piece.paint?.fill==='solid'?piece.paint.color:material?.color||'#cccccc')} rg 0.35 w\n`+line(piece.points.map((p)=>({x:p.x*overviewScale,y:p.y*overviewScale})),15,48,pageHeightMm)+'f\n';
     cover+=`0.22 0.22 0.22 RG\n`+line(piece.points.map((p)=>({x:p.x*overviewScale,y:p.y*overviewScale})),15,48,pageHeightMm)+'S\n';
   }
   const list=cutList(project,includeHidden);
-  cover+=`BT /F1 10 Tf ${fmt(pt(15))} ${fmt(pt(47))} Td (Materials: ${project.materials.length}   Pieces: ${list.length}   Base: ${project.base.includeInCutList?'included':'excluded'}) Tj ET\n`;
+  cover+=`BT /F1 10 Tf ${fmt(pt(15))} ${fmt(pt(47))} Td (Materials: ${project.materials.length}   Pieces: ${list.length}   Base: ${base&&project.base.includeInCutList?'included':'excluded'}) Tj ET\n`;
   cover+=`0 0 0 RG 0.8 w ${fmt(pt(15))} ${fmt(pt(55))} ${fmt(pt(50))} ${fmt(pt(50))} re S\n`;
   cover+=`BT /F1 9 Tf ${fmt(pt(70))} ${fmt(pt(76))} Td (50 x 50 mm calibration square) Tj ET\n`;
   pages.push(cover);

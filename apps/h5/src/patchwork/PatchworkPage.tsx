@@ -12,7 +12,7 @@ import {
   PaintBucket, Layers, Trash2, Copy, Lock, Unlock, Eye, EyeOff, RotateCw, FlipHorizontal2,
   FlipVertical2, X, Plus, Check, ChevronUp, ChevronDown, ChevronRight, RefreshCw, Scissors,
   Square, Circle, Triangle, Diamond, Hexagon, Star, Flower2, Leaf, LayoutGrid, SlidersHorizontal,
-  Search, Palette, ImagePlus,
+  Search, Palette, ImagePlus, Ban,
 } from 'lucide-react';
 import {
   area, clearCanvasContent, cloneDocument, hitTest, pieceLabel, isConcave, makePiece, makeProject, makeShape, pointBounds,
@@ -1457,7 +1457,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
   const closeMatDetail = () => { if (savingFabricRef.current) return; setMatDetailId(null); setMatDraft(null); setMatDeleting(false); };
   const pickMaterial = (id: string) => {
     if (fabricPickerTarget === 'base') {
-      setBaseForm((cur) => cur ? { ...cur, materialId: id } : cur);
+      setBaseForm((cur) => cur ? { ...cur, materialId: id, include: id ? cur.include : false } : cur);
     } else if (fabricPickerTarget === 'props') {
       if (single && needsFabricFill(single, id)) {
         const pid = single.id;
@@ -2035,7 +2035,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
       doc.name = baseForm.name.trim() || doc.name;
       doc.technique = baseForm.technique;
       doc.widthMm = baseForm.w; doc.heightMm = baseForm.h;
-      doc.base = { materialId: baseForm.materialId, locked: baseForm.locked, includeInCutList: baseForm.include };
+      doc.base = { materialId: baseForm.materialId, locked: baseForm.locked, includeInCutList: Boolean(baseForm.materialId) && baseForm.include };
       if (baseForm.scaleDesign) {
         doc.pieces.forEach((p) => { p.points = p.points.map((pt) => ({ x: pt.x * sx, y: pt.y * sy })); });
         doc.guides.forEach((g) => { g.points = g.points.map((pt) => ({ x: pt.x * sx, y: pt.y * sy })); });
@@ -2350,12 +2350,12 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
                       <span className="pw-base-fabric-thumb">
                         {(() => {
                           const material = project.materials.find((m) => m.id === baseForm.materialId);
-                          return material ? <MatSwatch m={material} /> : <Palette />;
+                          return material ? <MatSwatch m={material} /> : <Ban />;
                         })()}
                       </span>
                       <span className="pw-base-fabric-copy">
                         <strong>布料</strong>
-                        <small>{project.materials.find((m) => m.id === baseForm.materialId)?.name || '请选择布料'}</small>
+                        <small>{project.materials.find((m) => m.id === baseForm.materialId)?.name || '无底布'}</small>
                       </span>
                       <ChevronRight aria-hidden="true" />
                     </button>
@@ -2367,7 +2367,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
                       <strong>底布参与制作</strong>
                       <small>计入裁片清单</small>
                     </span>
-                    <input type="checkbox" className="patchwork-switch" aria-label="底布参与制作（计入裁片清单）" checked={baseForm.include} onChange={(e) => setBaseForm((cur) => (cur ? { ...cur, include: e.target.checked } : cur))} />
+                    <input type="checkbox" className="patchwork-switch" aria-label="底布参与制作（计入裁片清单）" disabled={!baseForm.materialId} checked={Boolean(baseForm.materialId) && baseForm.include} onChange={(e) => setBaseForm((cur) => (cur ? { ...cur, include: e.target.checked } : cur))} />
                   </label>
                   <label className="patchwork-check pw-setting-row">
                     <span className="pw-setting-copy">
@@ -2600,12 +2600,12 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
                     </div>
                   </>
                 )}
-                <div className="patchwork-baseline">
+                {project.materials.some(m => m.id === project.base.materialId) && <div className="patchwork-baseline">
                   <span className="pw-thumb-base" style={{ background: project.materials.find((m) => m.id === project.base.materialId)?.color || '#f2e6d2' }} />
                   <span className="patchwork-layer-name">底布</span>
                   <span className="patchwork-hint">{project.base.includeInCutList ? '参与制作' : '不参与制作'}</span>
                   <button aria-label="底布锁定" onClick={() => commit((doc) => { doc.base.locked = !doc.base.locked; })}>{project.base.locked ? <Lock /> : <Unlock />}</button>
-                </div>
+                </div>}
                 {project.guides.length > 0 && <p className="patchwork-hint">辅助线 {project.guides.length} 条（不计入裁片清单）。</p>}
               </div>
             )}

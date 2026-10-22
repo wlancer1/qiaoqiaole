@@ -56,3 +56,16 @@ describe('fabric numbering with sewing layers',()=>{
   expect(calls.fillText.mock.calls.some(([text])=>text==='P2')).toBe(false);
  });
 });
+
+describe('no base fabric',()=>{
+ it.each([false,true])('does not invent a cream material when none is selected (clean=%s)',clean=>{
+  vi.stubGlobal('window',{devicePixelRatio:1});
+  const fills:string[]=[];let fill='';
+  const ctx=new Proxy({} as any,{get:(_,key:string)=>key==='fillRect'?()=>fills.push(fill):vi.fn(),set:(_,key:string,value)=>{if(key==='fillStyle')fill=value;return true;}});
+  const canvas={width:0,height:0,getBoundingClientRect:()=>({width:400,height:400}),getContext:()=>ctx} as unknown as HTMLCanvasElement;
+  const project=makeProject();project.base.materialId='';
+  drawScene(canvas,project,{zoom:1,panX:0,panY:0},{selectedIds:[],draft:[],draftClosed:false,nodeMode:false,images:new Map(),clean});
+  expect(fills).not.toContain('#f2e6d2');
+  if(clean)expect(fills).toEqual([]);
+ });
+});

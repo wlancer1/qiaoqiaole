@@ -41,3 +41,12 @@ describe('physical sewing paths',()=>{
   expect(computeProjectMaterialRequirements(project,[])).toEqual([]);
  });
 });
+
+describe('base fabric in PDF',()=>{
+ it('omits the fabric background and reports exclusion when no base is selected',async()=>{
+  const project=makeProject();project.base.materialId='';project.base.includeInCutList=true;
+  const text=await buildPatternPdf(project).text();
+  expect(text).not.toContain('0.92 0.88 0.82 rg');
+  expect(text).toContain('Base: excluded');
+ });
+});
