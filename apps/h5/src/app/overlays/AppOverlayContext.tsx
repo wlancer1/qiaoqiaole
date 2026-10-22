@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useMemo, useRef, useState, type
 import type { ConfirmDialogRequest } from '../../shared/ConfirmDialog';
 
 export const appOverlaySlotNames = [
+  'creationMenu',
   'login',
   'profile',
   'save',

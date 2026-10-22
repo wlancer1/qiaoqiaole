@@ -1,4 +1,5 @@
 import './home-layout.css';
+import { CreationLauncher } from './CreationLauncher';
 import { HomeUploadHero } from '../../flow/H5FlowComponents';
 import { LoadMoreSentinel, PatternDiscoverPage, PatternMessagesPage } from '../../patterns/H5PatternPages';
 import { CommunityPatternCard } from '../../community/CommunityPatternCard';
@@ -509,9 +510,7 @@ export function HomeShellPage(props: HomeShellPageProps) {
           <Icon name="discover" />
           <span>发现</span>
         </button>
-        <button className="plus-tab" aria-label="创建" onClick={() => openUpload('bead')}>
-          <Icon name="plus" />
-        </button>
+        <CreationLauncher onBead={() => openUpload('bead')} onFabric={() => setShowPatchworkCreateModal(true)} />
         <button className={activeTab === 'messages' ? 'active' : ''} aria-label="消息" onClick={() => { setActiveTab('messages'); void loadNotifications?.(); }}>
           <span className="pattern-message-tab-icon"><Icon name="message" />{unreadNotificationCount > 0 ? <i aria-label={`${unreadNotificationCount} 条未读`}>{unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}</i> : null}</span>
           <span>消息</span>
