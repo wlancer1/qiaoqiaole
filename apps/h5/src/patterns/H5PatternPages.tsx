@@ -329,7 +329,7 @@ export function PatternDiscoverPage({ patterns, activeSort = 'hot', query = '', 
             <div className="pattern-masonry-column" key={`pattern-column-${columnIndex}`}>
               {column.map((card) => (
                 <CommunityPatternCard
-                  key={card.title}
+                  key={card.id}
                   pattern={card}
                   dataCardIndex={patterns.indexOf(card)}
                   loading={patterns.indexOf(card) < 6 ? 'eager' : 'lazy'}
