@@ -108,6 +108,11 @@ export function CommunityFeatureProvider({ children, requestApi, requireLogin, l
     if (!token) requireLogin((nextToken) => { void copy(nextToken); }); else void copy(token);
   }, [copyingPostId, navigate, requireLogin, requestApi, setStatus, token]);
   useEffect(() => {
+    if (screen !== 'home' || activeTab !== 'home') return;
+    void domain.loadCommunityPosts('hot', token);
+    // Reload the unfiltered first page on home entry; legacy commands change each render.
+  }, [screen, activeTab, token]);
+  useEffect(() => {
     if (activeTab !== 'discover') return;
     if (domain.communitySort !== discovery.value.sort) {
       domain.setCommunitySort(discovery.value.sort);

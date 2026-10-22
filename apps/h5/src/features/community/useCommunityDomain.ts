@@ -97,6 +97,7 @@ type CommunityLoadOptions = {
 
 export function useCommunityDomain({ activeTab, screen, routeAuthorId, routeScope = `${activeTab}:${screen}:${routeAuthorId}`, authToken, requestApi, setStatus, requireLogin, navigate, loadFollowingCount }: CommunityDomainOptions): CommunityDomainResult {
   const [communityPosts, setCommunityPosts] = useState<CommunityPost[]>([]);
+  const [homePosts, setHomePosts] = useState<CommunityPost[]>([]);
   const [communityAvailableTags, setCommunityAvailableTags] = useState<string[]>([]);
   const [isCommunityLoading, setIsCommunityLoading] = useState(false);
   const [isCommunityLoadingMore, setIsCommunityLoadingMore] = useState(false);
@@ -144,6 +145,7 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, routeScop
     operationScopeRef.current = { authToken, routeScope, generation: operationScopeRef.current.generation + 1 };
   }
 
+  const renderOperationScope = { ...operationScopeRef.current };
   const captureOperationScope = () => ({ ...operationScopeRef.current });
   const isOperationCurrent = (operation: { authToken: string; routeScope: string; generation: number }) => (
     operationScopeRef.current.generation === operation.generation
@@ -223,6 +225,9 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, routeScop
         const next = append ? [...current, ...posts] : posts;
         return sort === 'hot' ? sortCommunityPosts(next) : next;
       });
+      if (activeTab === 'home' && sort === 'hot') {
+        setHomePosts(current => sortCommunityPosts(append ? [...current, ...posts] : posts));
+      }
       const hasMore = posts.length === COMMUNITY_PAGE_SIZE;
       committedCommunityContextRef.current = { sort, page, hasMore };
       communityPageRef.current = page;
@@ -253,8 +258,8 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, routeScop
     }
   };
 
-  const loadMoreCommunityPosts = async (sort = communitySort) => {
-    const operation = captureOperationScope();
+  const loadMoreCommunityPosts = async (sort = activeTab === 'home' ? 'hot' : communitySort) => {
+    const operation = renderOperationScope;
     const committedContext = committedCommunityContextRef.current;
     if (
       communityAppendOwnerRef.current
@@ -387,6 +392,7 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, routeScop
     communityBaseOwnerRef.current = null;
     communityAppendOwnerRef.current = null;
     setCommunityPosts([]);
+    setHomePosts([]);
     setCommunityAvailableTags([]);
     setCommunityHasMore(false);
     setCommunityComments([]);
@@ -590,7 +596,7 @@ export function useCommunityDomain({ activeTab, screen, routeAuthorId, routeScop
   }, [screen, authToken]);
 
   const communityCards = useMemo(() => communityPosts.map(toPatternListCard), [communityPosts]);
-  const homeTemplateCards = useMemo(() => communityCards, [communityCards]);
+  const homeTemplateCards = useMemo(() => homePosts.map(toPatternListCard), [homePosts]);
 
   return {
     communityPosts,

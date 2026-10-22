@@ -35,16 +35,16 @@ function notification(id: string, overrides: Partial<CommunityNotification> = {}
   return { id, type: 'like', content: '通知', createdAt: '', isRead: false, senderId: 'sender-1', senderName: '发送者', ...overrides };
 }
 
-function createHarness(requestApi: CommunityRequestApi, initial = { authToken: 'token-1', screen: 'home' }) {
+function createHarness(requestApi: CommunityRequestApi, initial: {authToken:string;screen:string;activeTab?:'home'|'discover'} = { authToken: 'token-1', screen: 'home' }) {
   const control = { current: null as CommunityDomainResult | null };
   const setStatus = vi.fn();
   const navigate = vi.fn();
   const loadFollowingCount = vi.fn().mockResolvedValue(undefined);
   let renderer!: ReactTestRenderer;
 
-  function Probe({ authToken, screen }: { authToken: string; screen: string }) {
+  function Probe({ authToken, screen, activeTab = 'discover' }: typeof initial) {
     control.current = useCommunityDomain({
-      activeTab: 'discover',
+      activeTab,
       screen,
       routeAuthorId: '',
       authToken,
@@ -86,6 +86,19 @@ describe('useCommunityDomain', () => {
   afterEach(() => {
     for (const renderer of renderers) act(() => renderer.unmount());
     renderers.length = 0;
+  });
+
+  it('keeps home templates unfiltered after discovery tags change', async () => {
+    const request = vi.fn().mockResolvedValueOnce({posts:[post('all-1',3),post('all-2',2)]}).mockResolvedValueOnce({posts:[post('anime',1)]});
+    const harness=createHarness(request as unknown as CommunityRequestApi,{authToken:'token-1',activeTab:'home',screen:'home'});
+    await harness.mount();
+    await act(async()=>{await harness.control.current!.loadCommunityPosts('hot');});
+    await harness.update({activeTab:'discover'});
+    await act(async()=>{harness.control.current!.setCommunitySelectedTags(['动漫']);});
+    await act(async()=>{await harness.control.current!.loadCommunityPosts('hot');});
+    expect(harness.control.current!.communityCards.map(p=>p.id)).toEqual(['anime']);
+    expect(harness.control.current!.homeTemplateCards.map(p=>p.id)).toEqual(['all-1','all-2']);
+    await harness.unmount();
   });
 
   it('loads and sorts the first community page', async () => {
