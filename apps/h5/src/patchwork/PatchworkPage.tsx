@@ -1441,6 +1441,9 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
   const leave = () => { if (dirty) setPanel('leave'); else navigate('/'); };
 
   /* ---------- 布料选择与编辑（新版） ---------- */
+  // The fill strip represents visible fills, not remembered brush defaults or reference-only materials.
+  const filledMaterialIds = new Set(project.pieces.filter(p => !p.stitch && p.paint?.fill !== 'none').map(p => p.materialId));
+  if (project.base.materialId) filledMaterialIds.add(project.base.materialId);
   const usageOf = (id: string) => project.pieces.filter((pc) => !pc.stitch && pc.materialId === id).length + (project.base.materialId === id ? 1 : 0);
   const closeFabrics = () => {
     if (savingFabricRef.current) return;
@@ -2250,7 +2253,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
           <span className="pw-label">布料</span>
         </button>
         <div className="pw-material-scroll" role="group" aria-label="当前与已用布料">
-        {project.materials.filter((m) => usageOf(m.id) > 0 || m.id === activeMaterialId).map((m) => (
+        {project.materials.filter(m => filledMaterialIds.has(m.id)).map((m) => (
           <button key={m.id} className={`pw-material-item${activeMaterialId === m.id ? ' selected' : ''}`} aria-pressed={activeMaterialId === m.id}
             aria-label={`布料 ${m.id} ${m.name}`} title={`${m.id} · ${m.name}${m.assetId && !m.calibrated ? '（未校准，仅效果参考）' : ''}`}
             onClick={() => selectMaterial(m.id)}

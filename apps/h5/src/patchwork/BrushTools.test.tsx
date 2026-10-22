@@ -24,9 +24,28 @@ beforeEach(()=>{
  vi.stubGlobal('document',{body:{classList:{add:vi.fn(),remove:vi.fn(),contains:()=>false},style:{}}});
 });
 afterEach(()=>{if(renderer)act(()=>renderer.unmount());vi.unstubAllGlobals();});
-async function mount(props: Parameters<typeof PatchworkPage>[0] = {}){await act(async()=>{renderer=create(<Provider store={createH5Store()}><MemoryRouter><AppOverlayProvider><AppOverlayHost/><PatchworkPage {...props}/></AppOverlayProvider></MemoryRouter></Provider>,{createNodeMock:e=>e.type==='canvas'?{getBoundingClientRect:()=>({left:0,top:0,width:360,height:480})}:null});});}
+async function mount(props: Parameters<typeof PatchworkPage>[0] = {}, fresh = false){await act(async()=>{renderer=create(<Provider store={createH5Store()}><MemoryRouter initialEntries={fresh?[{pathname:"/patchwork",state:{fresh:true,widthMm:400,heightMm:400}}]:undefined}><AppOverlayProvider><AppOverlayHost/><PatchworkPage {...props}/></AppOverlayProvider></MemoryRouter></Provider>,{createNodeMock:e=>e.type==='canvas'?{getBoundingClientRect:()=>({left:0,top:0,width:360,height:480})}:null});});}
 function draw(){act(()=>canvas().props.onPointerDown(event(100,150)));act(()=>canvas().props.onPointerMove(event(220,270)));act(()=>canvas().props.onPointerUp(event(220,270)));}
 describe('compact brush workflow',()=>{
+ it('shows no fill swatches on a blank canvas without a base fabric',async()=>{
+  await mount({},true);act(()=>button('填布').props.onClick());
+  expect(renderer.root.findAllByType('button').filter(b=>String(b.props['aria-label']||'').startsWith('布料 '))).toHaveLength(0);
+  expect(button('打开布料列表')).toBeDefined();
+ });
+ it('shows no swatch for an unfilled shape, then shows the applied fabric and removes it on undo',async()=>{
+  await mount({},true);act(()=>button('画笔').props.onClick());act(()=>button('形状').props.onClick());act(()=>button('画笔矩形').props.onClick());
+  act(()=>button('更多形状设置').props.onClick());
+  const settings=renderer.root.findByType(BrushSettingsDialog);
+  act(()=>settings.props.onDone({...settings.props.initial,paint:{...defaultShapePaint,fill:'none'}}));
+  draw();act(()=>button('填布').props.onClick());
+  const swatches=()=>renderer.root.findAllByType('button').filter(b=>String(b.props['aria-label']||'').startsWith('布料 '));
+  expect(swatches()).toHaveLength(0);
+  act(()=>button('打开布料列表').props.onClick());
+  act(()=>renderer.root.findByType(FabricPicker).props.onSelect('B'));
+  expect(state.project!.pieces[0].paint?.fill).toBe('fabric');expect(swatches()).toHaveLength(1);
+  act(()=>button('撤销').props.onClick());expect(swatches()).toHaveLength(0);
+ });
+
  it('draws a preset with two drag endpoints and keeps undo/redo as one gesture',async()=>{
   await mount();act(()=>button('画笔').props.onClick());act(()=>button('形状').props.onClick());act(()=>button('画笔矩形').props.onClick());draw();
   expect(state.project!.pieces).toHaveLength(1);expect(state.project!.pieces[0].points).toHaveLength(4);
