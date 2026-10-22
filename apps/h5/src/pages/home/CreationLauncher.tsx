@@ -23,7 +23,7 @@ export function CreationMenu({onClose,onBead,onFabric}:{onClose:()=>void;onBead:
   const close=useRef(onClose);close.current=onClose;
   const attachPanel=useCallback((node:HTMLDivElement|null)=>{
     panel.current=node;
-    node?.querySelector<HTMLButtonElement>('button')?.focus();
+    node?.focus({preventScroll:true});
   },[]);
   useEffect(()=>{
     const previous=document.activeElement as HTMLElement|null;
@@ -34,7 +34,7 @@ export function CreationMenu({onClose,onBead,onFabric}:{onClose:()=>void;onBead:
         const buttons=panel.current?.querySelectorAll<HTMLButtonElement>('button');
         if(!buttons?.length)return;
         const first=buttons[0],last=buttons[buttons.length-1];
-        if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}
+        if(e.shiftKey&&(document.activeElement===first||document.activeElement===panel.current)){e.preventDefault();last.focus();}
         else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
       }
     };
@@ -44,7 +44,7 @@ export function CreationMenu({onClose,onBead,onFabric}:{onClose:()=>void;onBead:
   },[]);
   useLayoutEffect(()=>{
     setOverlaySlot('creationMenu',<div className="creation-menu-backdrop" onClick={onClose} onTouchStart={e=>e.stopPropagation()}>
-      <div className="creation-menu" role="dialog" aria-modal="true" aria-label="选择创作类型" ref={attachPanel} onClick={e=>e.stopPropagation()} onTouchStart={e=>e.stopPropagation()}>
+      <div className="creation-menu" tabIndex={-1} role="dialog" aria-modal="true" aria-label="选择创作类型" ref={attachPanel} onClick={e=>e.stopPropagation()} onTouchStart={e=>e.stopPropagation()}>
         <div className="creation-menu-options">
           <button type="button" onClick={()=>{onClose();onBead();}}>
             <span className="creation-menu-circle"><CreationIcon/></span>

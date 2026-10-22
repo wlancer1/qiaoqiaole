@@ -1,13 +1,16 @@
 .creation-menu-backdrop{position:fixed;inset:0;z-index:850;background:rgba(31,39,56,.60);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:flex;align-items:flex-end;justify-content:center;overscroll-behavior:contain;touch-action:none}
-.creation-menu{width:min(100%,15.2381rem);padding: .7619rem .7619rem calc(.7619rem + env(safe-area-inset-bottom));display:flex;flex-direction:column;align-items:center;gap:.7619rem;max-height:100dvh;overflow-y:auto;touch-action:pan-y}
-.creation-menu-options{width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.7619rem}
+.creation-menu{width:min(100%,12.127rem);padding: .7619rem .7619rem calc(.7619rem + env(safe-area-inset-bottom));display:flex;flex-direction:column;align-items:center;gap:.5714rem;max-height:100dvh;overflow-y:auto;touch-action:pan-y}
+.creation-menu-options{width:100%;max-width:9.1429rem;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.7619rem}
 .creation-menu-options button{background:transparent;border:0;padding:0;display:flex;flex-direction:column;align-items:center;color:#fff;font-family:inherit}
-.creation-menu-circle{width:2.9841rem;height:2.9841rem;border-radius:50%;background:#fff;display:grid;place-items:center;margin-bottom:.381rem}
-.creation-menu-circle svg{width:1.3968rem;height:1.3968rem}
-.creation-menu-options strong{font-size:.5714rem;line-height:1.4;font-weight:700}
-.creation-menu-options small{font-size:.381rem;line-height:1.5;color:rgba(255,255,255,.8);margin-top:.127rem;white-space:nowrap}
-.creation-menu-close{width:2.0317rem;height:2.0317rem;flex-shrink:0;border-radius:50%;border:0;background:#fff;color:#111827;display:grid;place-items:center;padding:0}
-.creation-menu-close svg{width:.8254rem;height:.8254rem;stroke-width:2.5}
+.creation-menu-circle{width:2.4127rem;height:2.4127rem;border-radius:50%;background:#fff;display:grid;place-items:center;margin-bottom:.381rem}
+.creation-menu-circle svg{width:1.0794rem;height:1.0794rem}
+.creation-menu-options strong{font-size:.4762rem;line-height:1.4;font-weight:700}
+.creation-menu-options small{font-size:.3492rem;line-height:1.5;color:rgba(255,255,255,.8);margin-top:.127rem;white-space:nowrap}
+.creation-menu-close{width:1.5238rem;height:1.5238rem;flex-shrink:0;border-radius:50%;border:0;background:#fff;color:#111827;display:grid;place-items:center;padding:0}
+.creation-menu-close svg{width:.6984rem;height:.6984rem;stroke-width:2.5}
 .creation-menu button:focus-visible{outline:3px solid #8fc9ff;outline-offset:5px}
 .creation-menu button:active{transform:scale(.96)}
 @media(max-height:450px){.creation-menu{gap:.381rem;padding-top:.381rem;padding-bottom:calc(.381rem + env(safe-area-inset-bottom))}.creation-menu-circle{width:2.2857rem;height:2.2857rem}.creation-menu-close{width:1.5873rem;height:1.5873rem}}
+
+/* Initial focus belongs to the dialog, not to a preselected creation choice. */
+.creation-menu:focus{outline:none}
