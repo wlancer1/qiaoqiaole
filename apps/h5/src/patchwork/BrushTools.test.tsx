@@ -87,6 +87,31 @@ describe('compact brush workflow',()=>{
   listeners.keydown({key:'Tab',shiftKey:true,preventDefault});
   expect(preventDefault).toHaveBeenCalledOnce();expect(last.focus).toHaveBeenCalledOnce();
  });
+
+ it.each([0,1])('allows clearing the project size without replacing it with 2 cm (field %s)',async index=>{
+  await mount();act(()=>button('作品尺寸').props.onClick());
+  const field=()=>renderer.root.findByProps({role:'dialog','aria-label':'底布与项目设置'}).findAll(n=>n.type==='input'&&n.props.type==='number')[index];
+  act(()=>field().props.onFocus?.({}));
+  act(()=>field().props.onChange({target:{value:''}}));
+  expect(field().props.value).toBe('');
+  expect(state.project!.widthMm).toBe(400);expect(state.project!.heightMm).toBe(400);
+  act(()=>field().props.onChange({target:{value:'35'}}));
+  act(()=>field().props.onBlur?.({}));
+  expect(Number(field().props.value)).toBe(35);
+ });
+ it.each(['X (mm)','Y (mm)','宽 (mm)','高 (mm)','再旋转 (°)','缝份 (mm)'])('lets %s be empty without moving or deforming the piece',async label=>{
+  await mount();act(()=>button('画笔').props.onClick());act(()=>button('形状').props.onClick());act(()=>button('画笔矩形').props.onClick());draw();
+  act(()=>button('选择').props.onClick());act(()=>button('属性').props.onClick());
+  const original=JSON.stringify(state.project!.pieces);
+  const field=()=>renderer.root.findAllByType('label').find(l=>l.findAllByType('span').some(n=>n.children.join('')===label))!.findByType('input');
+  act(()=>field().props.onFocus?.({}));
+  act(()=>field().props.onChange({target:{value:''}}));
+  expect(field().props.value).toBe('');
+  expect(JSON.stringify(state.project!.pieces)).toBe(original);
+  act(()=>field().props.onBlur({}));
+  expect(field().props.value).not.toBe('');
+  expect(JSON.stringify(state.project!.pieces)).toBe(original);
+ });
  it('uses durable overlay, isolates backdrop events and keeps settings draft until completed',async()=>{
   const done=vi.fn(),close=vi.fn();
   await act(async()=>{renderer=create(<Provider store={createH5Store()}><MemoryRouter><AppOverlayProvider><AppOverlayHost/><BrushSettingsDialog kind="stitch" initial={{shape:null,paint:{...defaultShapePaint},stitch:{...defaultStitch},outline:null}} onClose={close} onDone={done} onFabric={vi.fn()}/></AppOverlayProvider></MemoryRouter></Provider>);});

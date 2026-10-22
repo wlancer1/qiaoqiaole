@@ -1,3 +1,4 @@
+import { DraftNumberInput } from '../../shared/DraftNumberInput';
 import { CompositionSafeInput } from '../../shared/CompositionSafeInput';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, History, Pencil, Plus, Search, Trash2, Upload } from 'lucide-react';
@@ -366,8 +367,8 @@ export function FabricWarehousePage({ token, onBack, request, withLogin }: {
 
           {form.stockMode === 'size' ? (
             <div className="fabric-form-row">
-              <label>宽 (cm)<input type="number" min={0} step="0.1" value={form.widthMm === '' ? '' : String(Number(form.widthMm) / 10)} onChange={(e) => setForm((current) => ({ ...current, widthMm: e.target.value === '' ? '' : String(Math.round(Number(e.target.value) * 10)) }))} placeholder="50" /></label>
-              <label>高 (cm)<input type="number" min={0} step="0.1" value={form.heightMm === '' ? '' : String(Number(form.heightMm) / 10)} onChange={(e) => setForm((current) => ({ ...current, heightMm: e.target.value === '' ? '' : String(Math.round(Number(e.target.value) * 10)) }))} placeholder="35" /></label>
+              <label>宽 (cm)<DraftNumberInput min={0} step="0.1" value={form.widthMm === '' ? undefined : Number(form.widthMm) / 10} onValueChange={value => setForm(current => ({ ...current, widthMm: String(Math.round(value * 10)) }))} onClear={() => setForm(current => ({ ...current, widthMm: '' }))} placeholder="50" /></label>
+              <label>高 (cm)<DraftNumberInput min={0} step="0.1" value={form.heightMm === '' ? undefined : Number(form.heightMm) / 10} onValueChange={value => setForm(current => ({ ...current, heightMm: String(Math.round(value * 10)) }))} onClear={() => setForm(current => ({ ...current, heightMm: '' }))} placeholder="35" /></label>
               <label>数量<input type="number" min={0} step="0.5" value={form.quantity} onChange={(e) => setForm((current) => ({ ...current, quantity: e.target.value }))} /></label>
             </div>
           ) : form.stockMode === 'area' ? (

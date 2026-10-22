@@ -1,3 +1,4 @@
+import { DraftNumberInput } from '../shared/DraftNumberInput';
 import { BrushQuickBar, BrushSettingsDialog, brushShapeName, type BrushMode, type BrushSettingsValue } from './BrushTools';
 import { defaultShapePaint, defaultStitch, outlinePoints, pathLength, stitchNames } from './stitches';
 import { CompositionSafeInput } from '../shared/CompositionSafeInput';
@@ -2327,11 +2328,11 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
                   </label>
                   <label>
                     <span>底布宽度 (cm)</span>
-                    <input type="number" min={2} max={300} step={1} value={baseForm.w / 10} onChange={(e) => setBaseForm((cur) => (cur ? { ...cur, w: Math.round((Number(e.target.value) || 2) * 10) } : cur))} />
+                    <DraftNumberInput min={2} max={300} step={0.1} value={baseForm.w / 10} onValueChange={value => setBaseForm(cur => cur ? { ...cur, w: Math.round(value * 10) } : cur)} />
                   </label>
                   <label>
                     <span>底布高度 (cm)</span>
-                    <input type="number" min={2} max={300} step={1} value={baseForm.h / 10} onChange={(e) => setBaseForm((cur) => (cur ? { ...cur, h: Math.round((Number(e.target.value) || 2) * 10) } : cur))} />
+                    <DraftNumberInput min={2} max={300} step={0.1} value={baseForm.h / 10} onValueChange={value => setBaseForm(cur => cur ? { ...cur, h: Math.round(value * 10) } : cur)} />
                   </label>
                   <label className="pw-span2">
                     <span>创作工艺</span>
@@ -2404,7 +2405,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
                     </div>
                   </div>
                   <div className="pw-fab-bar">
-                    <label>实际宽<input type="number" min={5} max={5000} value={Math.round(fabW) || ''} disabled={savingFabric} onChange={(e) => setFabW(Math.max(0, Number(e.target.value) || 0))} /><span>mm · 高约 {Math.round(fabW / fabAspect)} mm</span></label>
+                    <label>实际宽<DraftNumberInput min={5} max={5000} value={fabW} disabled={savingFabric} onValueChange={setFabW} /><span>mm · 高约 {Math.round(fabW / fabAspect)} mm</span></label>
                     <button className="pw-fab-full" disabled={savingFabric} onClick={() => setFabRect({ x: 0, y: 0, w: 1, h: 1 })}>全图</button>
                   </div>
                   {!fabTarget && <div className="pw-fab-upload-stock">
@@ -2697,7 +2698,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
                     </>
                   )}
                   {matDraft.kind === 'image' && (
-                    <label className="pw-fab-field">图案实际宽度 (mm，校准纹理比例)<input type="number" min={0} value={matDraft.sampleWidthMm ?? ''} onChange={(e) => setMatDraft({ ...matDraft, sampleWidthMm: Number(e.target.value) || undefined })} placeholder="如 150" /></label>
+                    <label className="pw-fab-field">图案实际宽度 (mm，校准纹理比例)<DraftNumberInput min={0} value={matDraft.sampleWidthMm} onValueChange={value => setMatDraft({ ...matDraft, sampleWidthMm: value })} onClear={() => setMatDraft({ ...matDraft, sampleWidthMm: undefined })} placeholder="如 150" /></label>
                   )}
                   {!project.materials.some((m) => m.id === matDetailId) && (
                     <>
@@ -3062,27 +3063,27 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
                   <div className="pw-span2"><button className="pw-brush-fabric" aria-label="设置布片周边缝线" onClick={()=>{flushPropsEdits();setPanel(null);setEditStitchId(null);setBrushSettings('outline');}}><Pencil/><strong>周边缝线 · {single.outlineStitch?stitchNames[single.outlineStitch.kind]:'未设置'}</strong><ChevronRight/></button></div>
                   <label>
                     <span>X (mm)</span>
-                    <input type="number" step="0.5" value={geo.x} onChange={(e) => geoChange({ x: Number(e.target.value) || 0 })} onBlur={geoCommit} />
+                    <DraftNumberInput step="0.5" value={geo.x} onValueChange={value => geoChange({ x: value })} onBlur={geoCommit} />
                   </label>
                   <label>
                     <span>Y (mm)</span>
-                    <input type="number" step="0.5" value={geo.y} onChange={(e) => geoChange({ y: Number(e.target.value) || 0 })} onBlur={geoCommit} />
+                    <DraftNumberInput step="0.5" value={geo.y} onValueChange={value => geoChange({ y: value })} onBlur={geoCommit} />
                   </label>
                   <label>
                     <span>宽 (mm)</span>
-                    <input type="number" step="0.5" min={1} value={geo.w} onChange={(e) => geoChange({ w: Number(e.target.value) || 0 })} onBlur={geoCommit} />
+                    <DraftNumberInput step="0.5" min={1} value={geo.w} onValueChange={value => geoChange({ w: value })} onBlur={geoCommit} />
                   </label>
                   <label>
                     <span>高 (mm)</span>
-                    <input type="number" step="0.5" min={1} value={geo.h} onChange={(e) => geoChange({ h: Number(e.target.value) || 0 })} onBlur={geoCommit} />
+                    <DraftNumberInput step="0.5" min={1} value={geo.h} onValueChange={value => geoChange({ h: value })} onBlur={geoCommit} />
                   </label>
                   <label>
                     <span>再旋转 (°)</span>
-                    <input type="number" step="1" value={geo.angle} onChange={(e) => geoChange({ angle: Number(e.target.value) || 0 })} onBlur={geoCommit} />
+                    <DraftNumberInput step="1" value={geo.angle} onValueChange={value => geoChange({ angle: value })} onBlur={geoCommit} />
                   </label>
                   <label>
                     <span>缝份 (mm)</span>
-                    <input type="number" step="0.5" min={0} value={geo.seam} onChange={(e) => geoChange({ seam: Number(e.target.value) || 0 })} onBlur={geoCommit} />
+                    <DraftNumberInput step="0.5" min={0} value={geo.seam} onValueChange={value => geoChange({ seam: value })} onBlur={geoCommit} />
                   </label>
                 </div>
                 <p className="patchwork-hint pw-props-hint">改完即生效，数字以毫米为准、就是实际裁布尺寸；每个字段记一条撤销。</p>
