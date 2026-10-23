@@ -28,6 +28,23 @@ async function mount(props: Parameters<typeof PatchworkPage>[0] = {}, fresh = fa
 function draw(){act(()=>canvas().props.onPointerDown(event(100,150)));act(()=>canvas().props.onPointerMove(event(220,270)));act(()=>canvas().props.onPointerUp(event(220,270)));}
 describe('compact brush workflow',()=>{
 
+ it('fills selected shapes with color, removes fill, restores on undo and cancels color drafts',async()=>{
+  await mount();act(()=>button('画笔').props.onClick());act(()=>button('形状').props.onClick());act(()=>button('画笔矩形').props.onClick());draw();
+  act(()=>button('填充').props.onClick());act(()=>button('填色').props.onClick());
+  act(()=>button('填色 #8fb8db').props.onClick());
+  expect(state.project!.pieces[0].paint).toMatchObject({fill:'solid',color:'#8fb8db'});
+  act(()=>button('无填充').props.onClick());expect(state.project!.pieces[0].paint?.fill).toBe('none');
+  act(()=>button('撤销').props.onClick());expect(state.project!.pieces[0].paint).toMatchObject({fill:'solid',color:'#8fb8db'});
+  act(()=>button('填色 #8fb8db').props.onClick());act(()=>canvas().props.onPointerDown(event(150,200)));act(()=>canvas().props.onPointerUp(event(150,200)));
+  act(()=>button('打开颜色列表').props.onClick());
+  const dialog=renderer.root.findByProps({role:'dialog','aria-label':'选择填充颜色'});
+  const stop=vi.fn();dialog.props.onClick({stopPropagation:stop});expect(stop).toHaveBeenCalledOnce();
+  act(()=>button('颜色 #343b45').props.onClick());act(()=>button('关闭颜色选择').props.onClick());
+  expect(state.project!.pieces[0].paint?.color).toBe('#8fb8db');
+  act(()=>button('打开颜色列表').props.onClick());act(()=>button('颜色 #343b45').props.onClick());act(()=>button('完成').props.onClick());
+  expect(state.project!.pieces[0].paint?.color).toBe('#343b45');
+ });
+
  it('keeps no-base selection explicit in settings and removes the fake base layer',async()=>{
   await mount();act(()=>button('作品尺寸').props.onClick());act(()=>button('选择底布布料').props.onClick());
   act(()=>renderer.root.findByType(FabricPicker).props.onSelect(''));
@@ -41,7 +58,7 @@ describe('compact brush workflow',()=>{
   expect(button('选择底布布料').findAllByType('small').map(n=>n.children.join(''))).toContain('无底布');
  });
  it('shows no fill swatches on a blank canvas without a base fabric',async()=>{
-  await mount({},true);act(()=>button('填布').props.onClick());
+  await mount({},true);act(()=>button('填充').props.onClick());
   expect(renderer.root.findAllByType('button').filter(b=>String(b.props['aria-label']||'').startsWith('布料 '))).toHaveLength(0);
   expect(button('打开布料列表')).toBeDefined();
  });
@@ -50,7 +67,7 @@ describe('compact brush workflow',()=>{
   act(()=>button('更多形状设置').props.onClick());
   const settings=renderer.root.findByType(BrushSettingsDialog);
   act(()=>settings.props.onDone({...settings.props.initial,paint:{...defaultShapePaint,fill:'none'}}));
-  draw();act(()=>button('填布').props.onClick());
+  draw();act(()=>button('填充').props.onClick());
   const swatches=()=>renderer.root.findAllByType('button').filter(b=>String(b.props['aria-label']||'').startsWith('布料 '));
   expect(swatches()).toHaveLength(0);
   act(()=>button('打开布料列表').props.onClick());
@@ -77,7 +94,7 @@ describe('compact brush workflow',()=>{
  it('reapplies the same fabric to a solid shape from the quick swatch and properties picker',async()=>{
   await mount();act(()=>button('画笔').props.onClick());act(()=>button('形状').props.onClick());act(()=>button('画笔矩形').props.onClick());draw();
   const id=state.project!.pieces[0].materialId;
-  act(()=>button('填布').props.onClick());
+  act(()=>button('填充').props.onClick());
   const swatch=renderer.root.findAllByType('button').find(b=>String(b.props['aria-label']).startsWith('布料 '+id+' '))!;
   act(()=>swatch.props.onClick());
   expect(state.project!.pieces[0].paint?.fill).toBe('fabric');
@@ -91,7 +108,7 @@ describe('compact brush workflow',()=>{
   const api=vi.fn(async (_url:string,init?:RequestInit)=>init?.method==='POST'?{fabric:{id:'created-inventory',name:'新布料',color:'#123456'}}:{fabrics:[]});
   await mount({token:'token',requestApi:api as any});
   act(()=>button('画笔').props.onClick());act(()=>button(mode==='shape'?'形状':'缝纫线').props.onClick());if(mode==='shape')act(()=>button('画笔矩形').props.onClick());draw();
-  act(()=>button('填布').props.onClick());act(()=>button('打开布料列表').props.onClick());act(()=>button('新增布料').props.onClick());
+  act(()=>button('填充').props.onClick());act(()=>button('打开布料列表').props.onClick());act(()=>button('新增布料').props.onClick());
   await act(async()=>renderer.root.findByType(FabricCreateDialog).props.onSave({projectOnly:false,payload:{name:'新布料',color:'#123456',category:'',image:null,sampleWidthMm:null,stockMode:'own',widthMm:null,heightMm:null,quantity:1,availableAreaMm2:null,note:null}}));
   const p=state.project!.pieces[0];
   if(mode==='shape'){expect(state.project!.materials.find(m=>m.id===p.materialId)?.inventoryFabricId).toBe('created-inventory');expect(p.paint?.fill).toBe('fabric');}

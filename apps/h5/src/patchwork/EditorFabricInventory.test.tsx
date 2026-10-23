@@ -19,7 +19,7 @@ afterEach(() => { if (renderer) act(() => renderer.unmount()); vi.unstubAllGloba
 const button = (label: string, root = renderer.root) => root.findAllByType('button').find(n => n.props['aria-label'] === label || n.children.filter(c => typeof c === 'string').join('') === label)!;
 async function mount(requestApi: ReturnType<typeof vi.fn>) {
  await act(async () => { renderer = create(<Provider store={createH5Store()}><MemoryRouter><AppOverlayProvider><AppOverlayHost /><PatchworkPage token="token" requestApi={requestApi as any} /></AppOverlayProvider></MemoryRouter></Provider>, { createNodeMock: e => e.type === 'canvas' ? { getContext: () => null, getBoundingClientRect: () => ({ left: 0, top: 0, width: 360, height: 480 }) } : null }); });
- await act(async () => button('填布').props.onClick());
+ await act(async () => button('填充').props.onClick());
  await act(async () => button('打开布料列表').props.onClick());
  act(() => button('新增布料').props.onClick());
  act(() => dialog().find(node => node.type === 'input' && node.props.placeholder === '如：复古红碎花棉布').props.onChange({target:{value:'新布料'}}));

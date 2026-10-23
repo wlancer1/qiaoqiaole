@@ -1,3 +1,5 @@
+import { FillColorDialog } from './FillColorDialog';
+import { applyColor, sameFill, fillColors } from './fill';
 import { DraftNumberInput } from '../shared/DraftNumberInput';
 import { BrushQuickBar, BrushSettingsDialog, brushShapeName, type BrushMode, type BrushSettingsValue } from './BrushTools';
 import { defaultShapePaint, defaultStitch, outlinePoints, pathLength, stitchNames } from './stitches';
@@ -215,14 +217,18 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
   const [tool, setTool] = useState<Tool>('select');
   const [brushMode, setBrushMode] = useState<BrushMode>('shape');
   const [brushPopover, setBrushPopover] = useState(false);
+  const [fillPopover,setFillPopover]=useState(false);
+  const [fillMode,setFillMode]=useState<'fabric'|'color'>('fabric');
+  const [fillColor,setFillColor]=useState<string|null>(fillColors[0]);
+  const [colorDialog,setColorDialog]=useState(false);
   const [brushSettings, setBrushSettings] = useState<'shape'|'stitch'|'outline'|null>(null);
   const [brushValue, setBrushValue] = useState<BrushSettingsValue>({shape:null,paint:{...defaultShapePaint},stitch:{...defaultStitch},outline:null});
   const [editStitchId, setEditStitchId] = useState<string|null>(null);
   useEffect(()=>{
-    if(!brushPopover)return;
-    const key=(e:KeyboardEvent)=>{if(e.key==='Escape'&&!isImeComposing(e)){setBrushPopover(false);e.stopImmediatePropagation();}};
+    if(!brushPopover&&!fillPopover)return;
+    const key=(e:KeyboardEvent)=>{if(e.key==='Escape'&&!isImeComposing(e)){setBrushPopover(false);setFillPopover(false);e.stopImmediatePropagation();}};
     window.addEventListener('keydown',key,true);return()=>window.removeEventListener('keydown',key,true);
-  },[brushPopover]);
+  },[brushPopover,fillPopover]);
   const [panel, setPanel] = useState<Panel>(null);
   const shapeDialogVersion = useRef(0);
   useEffect(() => () => { shapeDialogVersion.current += 1; }, [panel]);
@@ -659,7 +665,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
   };
 
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if(brushPopover){setBrushPopover(false);return;}
+    if(brushPopover||fillPopover){setBrushPopover(false);setFillPopover(false);return;}
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     const rect = canvasRef.current!.getBoundingClientRect();
     pointers.current.set(e.pointerId, { x: e.clientX - rect.left, y: e.clientY - rect.top });
@@ -694,15 +700,17 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
       const id = hitTest(w, project.pieces.filter(p=>!p.stitch));
       if (!id) return;
       const target = project.pieces.find((p) => p.id === id)!;
-      if (fillPick) { setActiveMaterialId(target.materialId); setFillPick(false); toast(`已吸取 ${target.name} 的布料`); return; }
-      commit((doc) => {
-        doc.pieces.forEach((p) => {
-          if (p.locked || p.stitch) return;
-          if (fillScope === 'single' && p.id === id) { p.materialId = activeMaterialId; if(p.paint)p.paint.fill='fabric'; }
-          if (fillScope === 'same' && p.materialId === target.materialId) { p.materialId = activeMaterialId; if(p.paint)p.paint.fill='fabric'; }
-          if (fillScope === 'all') { p.materialId = activeMaterialId; if(p.paint)p.paint.fill='fabric'; }
-        });
-      });
+      if(fillPick){
+        if(fillMode==='fabric')setActiveMaterialId(target.materialId);
+        else setFillColor(target.paint?.fill==='none'?null:target.paint?.fill==='solid'?target.paint.color:project.materials.find(m=>m.id===target.materialId)?.color||fillColors[0]);
+        setFillPick(false);return;
+      }
+      const ids=new Set(project.pieces.filter(p=>!p.locked&&!p.stitch&&(fillScope==='all'||(fillScope==='single'?p.id===id:fillMode==='color'?sameFill(p,target):p.materialId===target.materialId))).map(p=>p.id));
+      commit(doc=>{doc.pieces.forEach(p=>{
+        if(!ids.has(p.id))return;
+        if(fillMode==='color')applyColor(p,fillColor);
+        else {p.materialId=activeMaterialId;if(p.paint)p.paint.fill='fabric';}
+      });});
       setSelectedIds([id]);
       return;
     }
@@ -915,6 +923,11 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
     commit((doc) => {
       doc.pieces.forEach((p) => { if (ids.has(p.id)) {p.materialId = materialId;if(p.paint)p.paint.fill='fabric';} });
     });
+  };
+  const selectFillColor=(color:string|null)=>{
+    setFillColor(color);
+    const ids=new Set(selectedPieces.filter(p=>!p.locked&&!p.stitch&&(p.paint?.fill!==(color===null?'none':'solid')||(color!==null&&p.paint?.color!==color))).map(p=>p.id));
+    if(ids.size)commit(doc=>{doc.pieces.forEach(p=>{if(ids.has(p.id))applyColor(p,color);});});
   };
   const rotateSelected = (deg: number) => transformSelected((p) => ({ ...p, points: transformPoints(p.points, 'rotate', deg) }));
   const mirrorSelected = (axis: 'mirrorX' | 'mirrorY') => transformSelected((p) => ({ ...p, points: transformPoints(p.points, axis) }));
@@ -2147,16 +2160,18 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
             { name: 'select', label: '选择', Icon: MousePointer2 },
             { name: 'brush', label: '画笔', Icon: Pencil },
             { name: 'add', label: '添加', Icon: Shapes },
-            { name: 'fill', label: '填布', Icon: PaintBucket },
+            { name: 'fill', label: '填充', Icon: PaintBucket },
             { name: 'layers', label: '图层', Icon: Layers },
           ] as const).map((t) => (
             <button key={t.name} aria-label={t.label} className={tool === t.name ? 'active' : ''} onClick={() => {
               if (panel === 'import') cancelAnalysis();
+              if(t.name==='fill'){setFillPopover(v=>!v);setBrushPopover(false);setTool('fill');setPanel(null);setNodeMode(false);return;}
+              setFillPopover(false);
               if(t.name==='brush'){setBrushPopover(v=>!v);setTool('brush');setPanel(null);setNodeMode(false);return;}
               setBrushPopover(false);setTool(t.name);
               if (t.name === 'add') setPanel('add');
               else if (t.name === 'layers') setPanel('layers');
-              else if (t.name === 'fill') setPanel(null);
+
             }}><t.Icon /><span>{t.label}</span></button>
           ))}
           <button className="patchwork-clear-btn" aria-label="清空画布" title="清空画布（可撤销）"
@@ -2164,6 +2179,10 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
             onClick={confirmClearCanvas}><Trash2 /><span>清空</span></button>
         </aside>
 
+        {fillPopover&&<div className="pw-brush-popover pw-fill-popover" role="group" aria-label="选择填充方式">
+          <button className={fillMode==='fabric'?'active':''} onClick={()=>{setFillMode('fabric');setFillPopover(false);setFillPick(false);}}><PaintBucket/>填布</button>
+          <button className={fillMode==='color'?'active':''} onClick={()=>{setFillMode('color');setFillPopover(false);setFillPick(false);}}><Palette/>填色</button>
+        </div>}
         {brushPopover&&<div className="pw-brush-popover" role="group" aria-label="选择画笔类型">
           <button className={brushMode==='shape'?'active':''} onClick={()=>{setBrushMode('shape');setBrushPopover(false);setSelectedIds([]);}}><Shapes/>形状</button>
           <button className={brushMode==='stitch'?'active':''} onClick={()=>{setBrushMode('stitch');setBrushPopover(false);setSelectedIds([]);}}><Pencil/>缝纫线</button>
@@ -2191,7 +2210,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
           )}
           {tool === 'fill' && (
             <div className="patchwork-fillbar">
-              <span>选布片后点底部布料，或点画布直接填充</span>
+              <span>{fillMode==='fabric'?'填布 · 选择布料后点击布片':'填色 · 选择颜色后点击布片'}</span>
               <button onClick={() => setPanel('fill')}>高级设置</button>
             </div>
           )}
@@ -2247,7 +2266,7 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
           else setBrushValue(v);
           if(brushSettings==='outline')setPanel('props');setBrushSettings(null);setEditStitchId(null);
         }}/>}
-      {tool === 'fill' && (<footer className="patchwork-materials">
+      {tool === 'fill' && fillMode==='fabric' && (<footer className="patchwork-materials">
         <button className="pw-fab-open" aria-label="打开布料列表" onClick={() => openFabricPicker('editor')}>
           <span className="pw-fab-open-thumb"><Palette /></span>
           <span className="pw-label">布料</span>
@@ -2263,6 +2282,18 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
         ))}
         </div>
       </footer>)}
+
+      {tool==='fill'&&fillMode==='color'&&<footer className="patchwork-materials">
+        <button className="pw-fab-open" aria-label="打开颜色列表" onClick={()=>{setFillPopover(false);setColorDialog(true);}}>
+          <span className="pw-fab-open-thumb"><Palette/></span><span className="pw-label">颜色</span>
+        </button>
+        <div className="pw-material-scroll" role="group" aria-label="填充颜色">
+          {[null,...new Set([...fillColors,...(fillColor?[fillColor]:[])])].map(c=><button key={c||'none'} className={'pw-material-item'+(fillColor===c?' selected':'')} aria-label={c?'填色 '+c:'无填充'} aria-pressed={fillColor===c} onClick={()=>selectFillColor(c)}>
+            <span className={'pw-swatch pw-fill-swatch'+(c===null?' pw-fill-none':'')} style={{backgroundColor:c||'#fff'}}>{c===null&&<Ban/>}</span>
+          </button>)}
+        </div>
+      </footer>}
+      {colorDialog&&<FillColorDialog color={fillColor} onClose={()=>setColorDialog(false)} onDone={c=>{selectFillColor(c);setColorDialog(false);}}/>}
 
       {stockFabric && <FabricStockDialog key={stockFabric.id} fabric={stockFabric} onClose={() => setStockFabric(null)} onSave={async stock => {
         const t = tokenRef.current;
@@ -2310,14 +2341,14 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
           <section
             role="dialog"
             aria-modal={panel !== 'fill'}
-            aria-label={{ base: '底布与项目设置', add: '添加形状', fill: '填布', layers: '图层', fabrics: '选择布料', export: '图纸导出', import: '导入图片', save: '保存拼布', open: '我的拼布作品', props: '布片属性', leave: '离开编辑器', fabriccrop: '布料上传' }[panel]}
+            aria-label={{ base: '底布与项目设置', add: '添加形状', fill: '填充设置', layers: '图层', fabrics: '选择布料', export: '图纸导出', import: '导入图片', save: '保存拼布', open: '我的拼布作品', props: '布片属性', leave: '离开编辑器', fabriccrop: '布料上传' }[panel]}
             className={`patchwork-panel${(panel === 'import' && (importSource || candidates)) || (panel === 'fabriccrop' && fabSource) ? ' importfull' : ''}${panel === 'fabrics' ? ' fabricsheet' : ''}${panel === 'add' ? ' addsheet' : ''}${panel === 'base' ? ' basesheet' : ''}${panel === 'props' ? ' propssheet' : ''}${panel === 'export' ? ' exportsheet' : ''}`}
             onClick={(e) => e.stopPropagation()}
             onTouchStart={(e) => e.stopPropagation()}
           >
             {panel !== 'fabrics' && (
               <header>
-                <strong>{{ base: '底布与项目设置', add: '添加形状', fill: '填布', layers: '图层', fabrics: '选择布料', export: '图纸导出', import: '导入图片', save: '保存拼布', open: '我的拼布作品', props: '布片属性', leave: '离开编辑器', fabriccrop: '布料上传' }[panel]}</strong>
+                <strong>{{ base: '底布与项目设置', add: '添加形状', fill: '填充设置', layers: '图层', fabrics: '选择布料', export: '图纸导出', import: '导入图片', save: '保存拼布', open: '我的拼布作品', props: '布片属性', leave: '离开编辑器', fabriccrop: '布料上传' }[panel]}</strong>
                 <button type="button" aria-label="关闭面板" onClick={() => panel === 'import' ? cancelAnalysis() : panel === 'fabriccrop' ? cancelFabCrop() : panel === 'props' ? closeProps() : setPanel(null)}><X /></button>
               </header>
             )}
@@ -2542,12 +2573,12 @@ export function PatchworkPage({ requireLogin, requestApi, token }: { requireLogi
               <div className="patchwork-form">
                 <div className="patchwork-seg">
                   <button className={fillScope === 'single' ? 'on' : ''} onClick={() => setFillScope('single')}>选中布片</button>
-                  <button className={fillScope === 'same' ? 'on' : ''} onClick={() => setFillScope('same')}>同布料全部</button>
+                  <button className={fillScope === 'same' ? 'on' : ''} onClick={() => setFillScope('same')}>{fillMode==='fabric'?'同布料全部':'同填色全部'}</button>
                   <button className={fillScope === 'all' ? 'on' : ''} onClick={() => setFillScope('all')}>全部布片</button>
                 </div>
-                <button className={`patchwork-chip ${fillPick ? 'on' : ''}`} onClick={() => setFillPick((v) => !v)}>吸取：点画布上的布片取它的布料</button>
-                <p className="patchwork-hint">当前布料：{activeMaterialId}。点底部已用布料直接切换并替换选中布片，更多布料点「布料」按钮打开选择器；这里的范围设置仅作用于填布工具点击画布时。</p>
-                {single && !single.locked && (
+                <button className={`patchwork-chip ${fillPick ? 'on' : ''}`} onClick={() => setFillPick((v) => !v)}>吸取：点击布片获取当前填充</button>
+                <p className="patchwork-hint">{fillMode==='fabric'?'选择底部布料或打开布料列表。':'选择底部颜色或打开完整色板。'}范围设置仅作用于点击画布时。</p>
+                {fillMode==='fabric' && single && !single.locked && (
                   <>
                     <h4>纹理变换 · {single.name}（只改布纹，不改轮廓）</h4>
                     <div className="pw-chiprow"><span>布纹旋转</span>{[0, 90, 180, 270].map((d) => (
