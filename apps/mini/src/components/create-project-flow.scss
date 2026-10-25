@@ -1,0 +1,56 @@
+/* 小程序创建流程复用 H5 .home-create-panel / .upload-source-option 视觉比例。
+ * Taro 750rpx 设计宽度；禁止改动全局根字号。 */
+.mini-create-sheet { width:calc(100% - 44rpx); max-width:692rpx;
+  border-radius:40rpx 40rpx 0 0; padding:16rpx 27rpx calc(35rpx + env(safe-area-inset-bottom)); }
+.mini-create-sheet .ui-sheet-handle { margin-bottom:15rpx; }
+.mini-create-sheet .ui-sheet-head { justify-content:center; position:relative; min-height:65rpx;
+  padding:0 45rpx 13rpx; text-align:center; color:#101828; font-size:31rpx; font-weight:780; }
+.mini-create-sheet .ui-close { position:absolute; top:0; right:0; width:51rpx; height:51rpx;
+  background:transparent; color:#8b9aaf; }
+.mini-create-sheet .ui-sheet-body { max-height:70vh; }
+
+.mini-create-content { display:flex; flex-direction:column; gap:22rpx; padding:7rpx 8rpx 10rpx; }
+.mini-create-presets { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:22rpx; }
+.mini-create-preset { min-width:0; min-height:76rpx; border:2rpx solid #e5e7eb; border-radius:22rpx;
+  display:flex; align-items:center; justify-content:center; color:#101828; font-size:28rpx; font-weight:700; background:#fff; }
+.mini-create-preset.on { background:#146cff; color:#fff; border-color:#146cff; box-shadow:0 8rpx 20rpx #146cff2b; }
+.mini-create-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20rpx; }
+.mini-create-field { display:flex; min-width:0; flex-direction:column; gap:12rpx; color:#667085; font-size:25rpx; font-weight:650; }
+.mini-create-field .mini-input { height:79rpx; border:2rpx solid #e5e7eb; border-radius:14rpx; background:#f7f7f3;
+  font-size:27rpx; font-weight:700; text-align:center; color:#101828; }
+.mini-create-base-label { font-size:25rpx; color:#667085; font-weight:650; margin-top:2rpx; }
+.mini-create-base-trigger { min-height:78rpx; display:flex; align-items:center; gap:17rpx; border:2rpx solid #e5e7eb;
+  border-radius:16rpx; padding:10rpx 18rpx; font-size:26rpx; color:#101828; background:#fff; text-align:left; }
+.mini-create-base-swatch { display:flex; align-items:center; justify-content:center; width:50rpx; height:50rpx; border-radius:9rpx;
+  border:2rpx solid #e6ebf2; flex-shrink:0; overflow:hidden; }
+.mini-create-base-trigger .ui-glyph { transform:scale(.6); color:#8797a8; }
+.mini-create-fabric-texture { width:100%; height:100%; display:block; border-radius:6rpx; }
+.mini-create-chevron { font-size:40rpx; color:#146cff; margin-left:auto; font-weight:400; }
+.mini-create-submit { width:100%; min-height:94rpx; border-radius:25rpx; background:#146cff; color:#fff;
+  display:flex; align-items:center; justify-content:center; font-size:28rpx; font-weight:750; margin-top:8rpx;
+  box-shadow:0 10rpx 22rpx #146cff2b; }
+.mini-create-source-list { gap:15rpx; }
+.mini-create-option { min-height:116rpx; display:flex; gap:19rpx; align-items:center; padding:17rpx 18rpx;
+  border:2rpx solid #dce8fa; border-radius:21rpx; background:#fbfdff; text-align:left; }
+.mini-create-source-icon { width:65rpx; height:65rpx; flex-shrink:0; display:flex; align-items:center; justify-content:center;
+  border-radius:17rpx; background:#edf4ff; color:#146cff; }
+.mini-create-source-icon .ui-glyph { width:40rpx; height:40rpx; }
+.mini-create-source-copy { min-width:0; flex:1; display:flex; flex-direction:column; gap:9rpx; }
+.mini-create-option-name { font-size:27rpx; font-weight:750; line-height:1.15; color:#101828; }
+.mini-create-option-desc { font-size:21rpx; color:#667085; line-height:1.35; }
+.mini-create-import-precision { display:flex; align-items:center; justify-content:space-between; gap:20rpx;
+  padding:8rpx 1rpx; font-size:23rpx; font-weight:650; color:#667085; }
+.mini-create-precision-input { display:flex; align-items:center; gap:12rpx; height:61rpx; padding:0 17rpx;
+  border:2rpx solid #e5e7eb; border-radius:14rpx; background:#f7f7f3; }
+.mini-create-precision-input .mini-input { width:73rpx; text-align:center; font-size:27rpx; color:#101828; }
+.mini-create-precision-input>text { font-size:22rpx; color:#667085; }
+.mini-create-base-list { display:flex; flex-direction:column; gap:10rpx; max-height:65vh; padding:0 8rpx 16rpx; }
+.mini-create-base-choice { display:flex; width:100%; align-items:center; gap:18rpx; min-height:77rpx;
+  padding:11rpx 16rpx; border:2rpx solid #e7eaf0; border-radius:16rpx; text-align:left; color:#101828; font-size:26rpx; background:#fff; }
+.mini-create-base-choice.on { border-color:#146cff; background:#f7fbff; }
+.mini-create-base-choice>text:nth-of-type(1) { flex:1; }
+.mini-create-base-choice .mini-create-tick { margin-left:auto; color:#146cff; font-weight:750; }
+.mini-create-none { width:50rpx; height:50rpx; display:flex; justify-content:center; align-items:center; border:2rpx solid #e6ebf2;
+  border-radius:9rpx; color:#7e8b99; }
+.mini-create-none .ui-glyph { transform:scale(.6); }
+.mini-create-note { font-size:20rpx; line-height:1.5; color:#8b9aab; margin-top:6rpx; }

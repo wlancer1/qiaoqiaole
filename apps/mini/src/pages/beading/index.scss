@@ -1,0 +1,125 @@
+.bead-page {
+  min-height: 100vh;
+  background: #f4f7fc;
+  padding: 48rpx 40rpx 64rpx;
+  box-sizing: border-box;
+}
+.bead-title { font-size: 44rpx; font-weight: 600; color: #101828; }
+.bead-sub { display: block; margin: 44rpx 0 16rpx; font-size: 28rpx; color: #667085; }
+.bead-empty { font-size: 28rpx; color: #98a2b3; }
+.bead-actions { display: flex; gap: 20rpx; margin-top: 28rpx; }
+.bead-btn {
+  flex: 1; font-size: 30rpx; border-radius: 20rpx; background: #fff;
+  border: 2rpx solid #e3e8f0; color: #101828; line-height: 2.6;
+}
+.bead-btn.primary { background: #146cff; border-color: #146cff; color: #fff; }
+.bead-row {
+  display: flex; align-items: center; background: #fff; border: 2rpx solid #e3e8f0;
+  border-radius: 20rpx; padding: 24rpx 28rpx; margin-bottom: 20rpx;
+}
+.bead-row-main { flex: 1; }
+.bead-row-title { display: block; font-size: 30rpx; color: #101828; }
+.bead-row-meta { display: block; font-size: 24rpx; color: #98a2b3; margin-top: 4rpx; }
+.bead-row-del { font-size: 26rpx; color: #c0392b; padding: 12rpx 4rpx; }
+.bead-topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20rpx; }
+.bead-back, .bead-save { font-size: 30rpx; color: #146cff; padding: 8rpx 4rpx; }
+.bead-size { font-size: 26rpx; color: #667085; }
+.bead-canvas {
+  width: 100%; height: 62vh; background: #f2f4f6; border-radius: 16rpx; display: block;
+}
+.bead-toolbar {
+  display: flex; align-items: center; gap: 16rpx; margin-top: 24rpx;
+}
+.bead-tool {
+  font-size: 28rpx; padding: 16rpx 24rpx; border-radius: 16rpx; background: #fff;
+  border: 2rpx solid #e3e8f0; color: #101828;
+}
+.bead-tool.on { background: #146cff; border-color: #146cff; color: #fff; }
+.bead-current {
+  width: 88rpx; height: 76rpx; border-radius: 16rpx; border: 2rpx solid rgba(0,0,0,0.18);
+  display: flex; align-items: center; justify-content: center; margin-left: auto;
+}
+.bead-current-code { font-size: 22rpx; color: #fff; text-shadow: 0 0 6rpx rgba(0,0,0,0.55); }
+.bead-palette {
+  position: fixed; left: 0; right: 0; bottom: 0; background: #fff; z-index: 50;
+  border-top: 2rpx solid #e3e8f0; padding: 28rpx 32rpx 40rpx; max-height: 62vh;
+  display: flex; flex-direction: column;
+}
+.bead-palette-head { display: flex; justify-content: space-between; align-items: center; font-size: 30rpx; color: #101828; }
+.bead-palette-close { color: #146cff; font-size: 28rpx; }
+.bead-palette-sub { font-size: 24rpx; color: #98a2b3; margin: 24rpx 0 12rpx; }
+.bead-palette-scroll { max-height: 34vh; }
+.bead-chips { display: flex; flex-wrap: wrap; gap: 12rpx; }
+.bead-chip { width: 52rpx; height: 52rpx; border-radius: 12rpx; border: 2rpx solid rgba(0,0,0,0.14); }
+.bead-chip.big { width: 80rpx; height: 68rpx; display: flex; align-items: center; justify-content: center; }
+.bead-chip-code { font-size: 20rpx; }
+
+/* Same hierarchy as H5: full available canvas, floating tools, fixed compact footer. */
+.bead-page{padding:32rpx 29rpx calc(32rpx + env(safe-area-inset-bottom))}
+.bead-editor{height:100vh;min-height:0;overflow:hidden;padding:0;display:flex;flex-direction:column;background:#f2f4f6}
+.bead-topbar{flex-shrink:0;height:87rpx;margin:0;padding:0 25rpx;background:#fff;border-bottom:2rpx solid #e3e8f0;gap:14rpx}
+.bead-back,.bead-save{font-size:25rpx;white-space:nowrap;padding:14rpx 0;color:#208edc}.bead-size{font-size:22rpx;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bead-stage{position:relative;flex:1;min-height:0;overflow:hidden}
+.bead-canvas{position:absolute;inset:0;width:100%;height:100%;border-radius:0;background:#f2f4f6}
+.bead-toolbar{position:absolute;z-index:5;left:14rpx;top:22rpx;display:flex;flex-direction:column;align-items:center;gap:4rpx;margin:0;padding:7rpx;border:2rpx solid #e1e7ed;border-radius:25rpx;background:#ffffffed;box-shadow:0 9rpx 25rpx #1b3d6514;max-height:calc(100% - 44rpx);overflow-y:auto;flex-wrap:nowrap}
+.bead-tool{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5rpx;width:73rpx;min-height:76rpx;padding:9rpx 4rpx;border:0;border-radius:18rpx;color:#617286;background:transparent;font-size:20rpx;flex-shrink:0}
+.bead-tool.on{background:#eaf3ff;color:#208edc;border:0}.bead-tool .ui-glyph{width:36rpx;height:36rpx}
+.bead-title{font-size:36rpx}.bead-btn{font-size:25rpx;min-height:80rpx;border-radius:25rpx;display:flex;align-items:center;justify-content:center;line-height:1.4;padding:18rpx}.bead-actions{gap:18rpx}.bead-sub{font-size:25rpx;margin:33rpx 0 18rpx}
+.bead-row{border-radius:25rpx;padding:22rpx 25rpx}.bead-row-title{font-size:27rpx}.bead-row-meta{font-size:22rpx}
+
+.bead-current{width:68rpx;height:62rpx;margin:7rpx 0;border-radius:14rpx;flex-shrink:0}.bead-current-code{font-size:20rpx}
+
+/* 拼豆 H5 编辑器：顶部紧凑操作栏与底部颜色栏。默认 Taro 按钮重置由 app.scss 负责。 */
+.bead-editor .editor-header {
+  width:100%;height:90rpx;min-height:90rpx;flex-shrink:0;box-sizing:border-box;
+  display:flex;align-items:center;justify-content:space-between;gap:9rpx;
+  background:#fff;border-bottom:2rpx solid #e4ebf5;padding:0 14rpx;
+}
+.bead-editor .editor-icon {
+  width:62rpx;height:65rpx;min-width:55rpx;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;color:#42566b;
+  border-radius:14rpx;
+}
+.bead-editor .editor-icon .ui-glyph {width:37rpx;height:37rpx;}
+.bead-editor .editor-icon[disabled] {opacity:.32;}
+.bead-editor .editor-size {
+  display:flex;align-items:center;justify-content:center;min-width:104rpx;
+  height:65rpx;box-sizing:border-box;border:2rpx solid #dbe5ef;border-radius:99rpx;
+  background:#f4f8fc;color:#42566b;font-size:24rpx;font-weight:700;white-space:nowrap;
+  padding:0 12rpx;
+}
+.bead-editor .editor-history {display:flex;align-items:center;justify-content:center;gap:3rpx;min-width:118rpx;}
+.bead-editor .icon-flip {transform:scaleX(-1);display:flex;align-items:center;justify-content:center;}
+.bead-editor .editor-save {
+  flex-shrink:0;min-width:92rpx;height:66rpx;display:flex;align-items:center;justify-content:center;
+  padding:0 16rpx;background:#208edc;color:#fff;border-radius:99rpx;
+  box-shadow:0 5rpx 15rpx rgba(32,142,220,.2);font-size:23rpx;font-weight:700;
+}
+.bead-editor .bead-stage {background:#f2f5fd;min-height:0;flex:1;position:relative;overflow:hidden}
+.bead-editor .bead-footer {
+  flex-shrink:0;width:100%;display:flex;align-items:center;gap:14rpx;
+  min-height:113rpx;padding:11rpx 17rpx calc(13rpx + env(safe-area-inset-bottom));
+  border-top:2rpx solid #e5ecf4;background:#fff;box-sizing:border-box;
+  box-shadow:0 -7rpx 18rpx rgba(37,54,84,.08);
+}
+.bead-editor .palette-trigger {
+  flex:0 0 83rpx;min-height:88rpx;display:flex;flex-direction:column;
+  justify-content:center;align-items:center;gap:7rpx;
+  border-radius:15rpx;color:#56718a;font-size:19rpx;font-weight:650;
+}
+.bead-editor .palette-color {
+  width:51rpx;height:51rpx;border:3rpx solid #fff;
+  border-radius:13rpx;box-shadow:0 0 0 2rpx #dae6f1;
+}
+.bead-editor .bead-quick-scroll {flex:1;min-width:0;height:94rpx;}
+.bead-editor .bead-quick-row {display:flex;align-items:center;gap:15rpx;padding:9rpx 5rpx;white-space:nowrap;}
+.bead-editor .bead-quick-color {
+  width:74rpx;height:74rpx;min-width:74rpx;box-sizing:border-box;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-size:18rpx;font-weight:650;
+  border:2rpx solid rgba(0,0,0,.1);border-radius:14rpx;
+}
+.bead-editor .bead-quick-color.on {
+  border:4rpx solid #208edc;box-shadow:0 0 0 4rpx #e8f5fd;
+}
+
+.bead-palette-sub{display:block;font-size:22rpx;margin:18rpx 0}.bead-palette-scroll{max-height:48vh}.bead-chips{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:11rpx}.bead-chip,.bead-chip.big{width:100%;height:68rpx;border-radius:14rpx}.bead-chip-code{font-size:20rpx}

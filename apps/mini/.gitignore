@@ -1,0 +1,14 @@
+# Local WeChat developer settings and machine-specific credentials
+project.private.config.json
+.env
+.env.*
+!.env.example
+
+# Generated outputs and developer caches
+dist/
+node_modules/
+.swc/
+.taro/
+*.log
+.DS_Store
+coverage/

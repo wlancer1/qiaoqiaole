@@ -1,0 +1,24 @@
+/* 小程序 Canvas2D 原生覆盖工具栏，避免 Canvas 遮住普通 View。 */
+.bead-cover-toolbar {
+  position:absolute;z-index:20;top:17rpx;left:14rpx;width:96rpx;
+  box-sizing:border-box;background-color:#fff;padding:9rpx 6rpx;
+  border-radius:28rpx;box-shadow:0 10rpx 25rpx rgba(28,55,77,.15);
+}
+.bead-cover-tool {
+  width:84rpx;height:87rpx;box-sizing:border-box;border-radius:20rpx;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  color:#42566b;background-color:transparent;
+}
+.bead-cover-tool.on {background-color:#208edc;color:#fff;}
+.bead-cover-tool-icon {width:38rpx;height:38rpx;}
+.bead-cover-tool-name {margin-top:4rpx;font-size:19rpx;line-height:27rpx;font-weight:600;}
+.bead-cover-zoom {
+  position:absolute;z-index:21;right:15rpx;bottom:24rpx;min-height:65rpx;
+  padding:4rpx 10rpx;box-sizing:border-box;display:flex;flex-direction:row;
+  align-items:center;justify-content:center;border-radius:999rpx;
+  background-color:#fff;box-shadow:0 9rpx 25rpx rgba(31,58,84,.17);
+  font-size:22rpx;color:#42566b;
+}
+.bead-cover-zoom-button {min-width:44rpx;line-height:52rpx;text-align:center;font-size:29rpx;font-weight:600;}
+.bead-cover-zoom-percent {min-width:67rpx;text-align:center;font-size:23rpx;}
+.bead-cover-zoom-fit {padding:0 12rpx;line-height:52rpx;font-size:21rpx;color:#208edc;}
