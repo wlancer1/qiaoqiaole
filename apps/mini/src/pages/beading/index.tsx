@@ -1,3 +1,4 @@
+import { returnFromEditor } from '../../platform/editorNavigation'
 import { Button } from '../../components/Controls'
 import { useEffect, useRef, useState } from 'react'
 import { View, Text, Canvas, ScrollView } from '@tarojs/components'
@@ -376,7 +377,7 @@ export default function BeadingPage() {
     }
   }
 
-  const backToList = () => {if(dirty)saveNow();Taro.redirectTo({url:'/pages/works/index'})}
+  const closeCanvas = () => {if(dirty)saveNow();returnFromEditor()}
 
   // 「我的作品」可带 id 直达；首页弹窗确认后带 create 参数直接进入画布。
   useEffect(() => {
@@ -393,7 +394,7 @@ export default function BeadingPage() {
   // 直接打开编辑页时也呈现与首页一致的创建弹窗，不再显示占满屏的旧空白列表。
   if (!project) return <View className='canvas-entry'>
     <CreateProjectFlow kind='beading' importing={importing}
-      onClose={() => { void Taro.redirectTo({ url: '/pages/works/index' }) }}
+      onClose={() => { returnFromEditor() }}
       onBeadingBlank={createBlank} onBeadingImport={cols => importImage(undefined, cols)} />
   </View>
 
@@ -402,7 +403,7 @@ export default function BeadingPage() {
   return (
     <View className='bead-page bead-editor'>
       <View className='editor-header'>
-        <Button className='editor-icon' ariaLabel='返回作品列表' onClick={backToList}><Glyph name='close'/></Button>
+        <Button className='editor-icon' ariaLabel='关闭画布，返回上一页' onClick={closeCanvas}><Glyph name='close'/></Button>
         <Text className='editor-size'>{project.cols}×{project.rows}</Text>
         <View className='editor-history'><Button className='editor-icon' ariaLabel='撤销' disabled={!historyRef.current.length} onClick={()=>restoreHistory()}><Glyph name='undo'/></Button><Button className='editor-icon' ariaLabel='重做' disabled={!futureRef.current.length} onClick={()=>restoreHistory(true)}><View className='icon-flip'><Glyph name='undo'/></View></Button></View>
         <Button className='editor-icon' ariaLabel='导出图纸' onClick={exportImage}><Glyph name='export'/></Button>

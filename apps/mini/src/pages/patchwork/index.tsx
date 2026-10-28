@@ -1,3 +1,4 @@
+import { returnFromEditor } from '../../platform/editorNavigation'
 import { Button,Input } from '../../components/Controls'
 import { useEffect, useRef, useState } from 'react'
 import { View, Text, Canvas, ScrollView, Image} from '@tarojs/components'
@@ -541,9 +542,9 @@ export default function PatchworkPage() {
     }
   }
 
-  const backToWorks = () => {
+  const closeCanvas = () => {
     if (dirty) saveNow()
-    void Taro.redirectTo({ url: '/pages/works/index' })
+    returnFromEditor()
   }
 
   const openProject = (id: string) => {
@@ -581,7 +582,7 @@ export default function PatchworkPage() {
 
   // 无参数进入时也先显示创建设置。旧本地工程从「最近项目 / 我的作品」管理。
   if (!project) return <View className='pw-create-entry'>
-    <CreateProjectFlow kind='patchwork' onClose={backToWorks} onPatchworkCreate={createProject} />
+    <CreateProjectFlow kind='patchwork' onClose={closeCanvas} onPatchworkCreate={createProject} />
   </View>
 
   // ---------- 编辑态 ----------
@@ -601,7 +602,7 @@ export default function PatchworkPage() {
     <View className={'pw-page pw-editor'+(selectedPiece?' has-selection':'')}>
       <View className='pw-topbar'>
         <View className='pw-top-left'>
-          <Button className='pw-icon-button pw-back' ariaLabel='返回作品列表' onClick={backToWorks}><Glyph name='back'/></Button>
+          <Button className='pw-icon-button pw-back' ariaLabel='关闭画布，返回上一页' onClick={closeCanvas}><Glyph name='back'/></Button>
           <Button className='pw-size-button' ariaLabel='作品尺寸' onClick={openBaseSettings}>
             <Text>{project.widthMm / 10} × {project.heightMm / 10} cm</Text>
             <Text className='pw-size-chevron'>⌄</Text>
